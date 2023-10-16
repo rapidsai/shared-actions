@@ -1,0 +1,40 @@
+name: Run DockerHub Script
+
+description: |
+  This composite action generates a DockerHub token and runs a script with it.
+
+inputs:
+  GPUCIBOT_DOCKERHUB_USER:
+    description: 'DockerHub username'
+    required: true
+  GPUCIBOT_DOCKERHUB_TOKEN:
+    description: 'DockerHub password'
+    required: true
+  script:
+    description: 'Script to run'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Generate DockerHub Token
+      shell: bash
+      id: generate_token
+      run: |
+        logout() {
+          curl -X POST \
+            -H "Authorization: JWT $HUB_TOKEN" \
+            "https://hub.docker.com/v2/logout/"
+        }
+
+        trap logout EXIT
+
+        HUB_TOKEN=$(
+          curl -s -H "Content-Type: application/json" \
+            -X POST \
+            -d "{\"username\": \"${GPUCIBOT_DOCKERHUB_USER}\", \"password\": \"${GPUCIBOT_DOCKERHUB_TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token \
+        )
+        echo "::add-mask::${HUB_TOKEN}"
+
+        . ${{ inputs.script }}

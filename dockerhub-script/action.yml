@@ -38,3 +38,6 @@ runs:
         echo "::add-mask::${HUB_TOKEN}"
 
         . ${{ inputs.script }}
+      env:
+        DOCKERHUB_USER: ${{ inputs.DOCKERHUB_USER }}
+        DOCKERHUB_TOKEN: ${{ inputs.DOCKERHUB_TOKEN }}

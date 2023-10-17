@@ -4,10 +4,10 @@ description: |
   This composite action generates a DockerHub token and runs a script with it.
 
 inputs:
-  GPUCIBOT_DOCKERHUB_USER:
+  DOCKERHUB_USER:
     description: 'DockerHub username'
     required: true
-  GPUCIBOT_DOCKERHUB_TOKEN:
+  DOCKERHUB_TOKEN:
     description: 'DockerHub password'
     required: true
   script:
@@ -32,7 +32,7 @@ runs:
         HUB_TOKEN=$(
           curl -s -H "Content-Type: application/json" \
             -X POST \
-            -d "{\"username\": \"${GPUCIBOT_DOCKERHUB_USER}\", \"password\": \"${GPUCIBOT_DOCKERHUB_TOKEN}\"}" \
+            -d "{\"username\": \"${DOCKERHUB_USER}\", \"password\": \"${DOCKERHUB_TOKEN}\"}" \
             https://hub.docker.com/v2/users/login/ | jq -r .token \
         )
         echo "::add-mask::${HUB_TOKEN}"

@@ -1,0 +1,42 @@
+name: Run DockerHub Script
+
+description: |
+  This composite action generates a DockerHub token and runs a script with it. The token is revoked when the composite action exits.
+
+inputs:
+  DOCKERHUB_USER:
+    description: DockerHub username
+    required: true
+  DOCKERHUB_TOKEN:
+    description: DockerHub password
+    required: true
+  script:
+    description: Script to run
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Generate DockerHub Token
+      shell: bash
+      run: |
+        logout() {
+          curl -X POST \
+            -H "Authorization: JWT $HUB_TOKEN" \
+            "https://hub.docker.com/v2/logout/"
+        }
+
+        trap logout EXIT
+
+        HUB_TOKEN=$(
+          curl -s -H "Content-Type: application/json" \
+            -X POST \
+            -d "{\"username\": \"${DOCKERHUB_USER}\", \"password\": \"${DOCKERHUB_TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token \
+        )
+        echo "::add-mask::${HUB_TOKEN}"
+
+        . ${{ inputs.script }}
+      env:
+        DOCKERHUB_USER: ${{ inputs.DOCKERHUB_USER }}
+        DOCKERHUB_TOKEN: ${{ inputs.DOCKERHUB_TOKEN }}

@@ -14,9 +14,9 @@ This composite action generates a DockerHub token and runs a script with it.
 jobs:
   example:
     steps:
-      - name: Get DockerHub Token
-        id: dockerhub_token
-        uses: rapidsai/shared-actions/dockerhub-script@branch-23.12
+      - name: Run With DockerHub Token
+        id: use_dockerhub_token
+        uses: rapidsai/shared-actions/dockerhub-script@main
         with:
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_PASSWORD }}

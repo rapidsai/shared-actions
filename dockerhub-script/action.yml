@@ -1,25 +1,24 @@
 name: Run DockerHub Script
 
 description: |
-  This composite action generates a DockerHub token and runs a script with it.
+  This composite action generates a DockerHub token and runs a script with it. The token is revoked when the composite action exits.
 
 inputs:
   DOCKERHUB_USER:
-    description: 'DockerHub username'
+    description: DockerHub username
     required: true
   DOCKERHUB_TOKEN:
-    description: 'DockerHub password'
+    description: DockerHub password
     required: true
   script:
-    description: 'Script to run'
+    description: Script to run
     required: true
 
 runs:
-  using: "composite"
+  using: composite
   steps:
     - name: Generate DockerHub Token
       shell: bash
-      id: generate_token
       run: |
         logout() {
           curl -X POST \

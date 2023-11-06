@@ -8,6 +8,10 @@ This composite action generates a DockerHub token and runs a script with it. The
 - `DOCKERHUB_TOKEN` (required): DockerHub password
 - `script` (required): Script to run
 
+## Inner variables
+These are variables pre-computed by this action which become usable by the scripts that you pass to be run in this action. 
+- `HUB_TOKEN`: The generated DockerHub token required for authorization against the DockerHub API.
+
 ## Usage
 
 ```yaml

@@ -1,4 +1,4 @@
-# Get DockerHub Token
+# dockerhub-script
 
 This composite action generates a DockerHub token and runs a script with it. The token is revoked when the composite action exits.
 

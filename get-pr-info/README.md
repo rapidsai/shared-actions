@@ -1,4 +1,4 @@
-# shared-actions# get-pr-info
+# get-pr-info
 
 This composite action is intended to be used in workflows that run on `pull-request/<PR_NUMBER>` branches.
 

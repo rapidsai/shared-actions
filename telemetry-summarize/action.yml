@@ -1,7 +1,7 @@
 name: 'Telemetry summarize'
 description: 'Consumes job info, parses into spans, and pushes spans'
 inputs:
-  host:  # id of input
+  endpoint:
     description: 'Server to send span data to'
   exporters:
     description: 'Methods to export data (console, OTLP, prometheus, etc.)'
@@ -19,7 +19,7 @@ runs:
       id: get-job-info
       env:
         EXPORTERS: ${{ inputs.exporters}}
-        HOST: ${{ inputs.host}}
+        ENDPOINT: ${{ inputs.endpoint}}
       with:
         retries: 3
         script: |
@@ -86,10 +86,11 @@ runs:
               }),
           });
 
+
+          var trace_exporter = null;
           if (exporters.includes("otlp")) {
-              // Configure span processor to send spans to the exporter
-              const trace_exporter = new OTLPTraceExporter({
-                  endpoint: HOST,
+              trace_exporter = new OTLPTraceExporter({
+                  endpoint: ENDPOINT,
               });
               tp.addSpanProcessor(new SimpleSpanProcessor(trace_exporter));
           }
@@ -116,6 +117,6 @@ runs:
           parentSpan.end(job_info["completed_at"]);
 
           // flush and close the connection.
-          if (exporters.includes("otlp")) {
+          if (trace_exporter) {
               trace_exporter.shutdown();
           }

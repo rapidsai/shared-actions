@@ -67,7 +67,7 @@ runs:
               }
           };
           const values = await get_info({github, context, process});
-          const { HOST, EXPORTERS } = process.env
+          const { ENDPOINT, EXPORTERS } = process.env
 
           const opentelemetry = require('@opentelemetry/api');
 

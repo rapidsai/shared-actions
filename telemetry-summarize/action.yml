@@ -1,0 +1,30 @@
+name: 'Telemetry summarize'
+description: 'Consumes job info, parses into spans, and pushes spans'
+inputs:
+  host:  # id of input
+    description: 'Server to send span data to'
+  exporters:
+    description: 'Methods to export data (console, OTLP, prometheus, etc.)'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+    - run: npm install @opentelemetry/api @opentelemetry/resources @opentelemetry/semantic-conventions @opentelemetry/sdk-node
+      shell: bash
+    - uses: actions/github-script@v7
+      id: get-job-info
+      env:
+        EXPORTERS: ${{ inputs.exporters}}
+        HOST: ${{ inputs.host}}
+      with:
+        retries: 3
+        script: |
+          const script = require('./common-js/github-info.js');
+          const values = await script({github, context, process});
+          const otel_script = require('./telemetry-summarize/report.js')
+          const { HOST, EXPORTERS } = process.env
+          await otel_script({github, context, values, HOST, EXPORTERS})

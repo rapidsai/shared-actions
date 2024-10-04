@@ -22,3 +22,7 @@ jobs:
           [[ "${{ steps.telemetry-setup.outputs.job_name }}" != "${{ matrix.os}}-${{ matrix.version }}" ]] && { echo "job_name is not expected value ("${{ matrix.os}}-${{ matrix.version }}"); erroring out" ; exit 1; }  || echo "job_name is ok"
           [[ "${{ steps.telemetry-setup.outputs.span_id }}" = "" ]] && { echo "span_id is empty; erroring out" ; exit 1; } || echo "span_id is ok"
           echo "All expected outputs are in order! Hooray!"
+      - name: Test OTel export of job JSON
+        uses: ./telemetry-summarize
+        with:
+            exporters: "console"

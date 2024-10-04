@@ -22,8 +22,8 @@ runs:
       with:
         retries: 3
         script: |
-          const script = require('${{ github.action_path }}/common-js/github-info.js');
+          const script = require('${{ env.GITHUB_ACTION_PATH }}/common-js/github-info.js');
           const values = await script({github, context, process});
-          const otel_script = require('${{ github.action_path }}/telemetry-summarize/report.js')
+          const otel_script = require('${{ env.GITHUB_ACTION_PATH }}/telemetry-summarize/report.js')
           const { HOST, EXPORTERS } = process.env
           await otel_script({github, context, values, HOST, EXPORTERS})

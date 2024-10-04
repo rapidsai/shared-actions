@@ -14,8 +14,6 @@ jobs:
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
-      - name: ls
-        run: ls -lr .
       - uses: "./telemetry-setup"
         id: telemetry-setup
       - name: Verify that telemetry setup has some data

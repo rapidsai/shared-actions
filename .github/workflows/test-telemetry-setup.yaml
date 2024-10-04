@@ -14,11 +14,7 @@ jobs:
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
-        with:
-          path: ./local_clone
-      - name: Show env vars
-        run: set
-      - uses: ./local_clone/telemetry-setup
+      - uses: ./telemetry-setup
         id: telemetry-setup
       - name: Verify that telemetry setup has some data
         run: |

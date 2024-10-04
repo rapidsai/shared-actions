@@ -19,13 +19,12 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
     - uses: actions/github-script@v7
       id: get-job-info
       with:
         retries: 3
         script: |
-          const script = require('./common-js/github-info.js');
+          const script = require('${{ github.action_path }}/common-js/github-info.js');
           const values = await script({github, context, process});
           core.setOutput("trace_id", values["trace_id"]);
           core.setOutput("job_info_json", values["job_info_json"]);

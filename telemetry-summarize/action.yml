@@ -1,122 +1,110 @@
 name: 'Telemetry summarize'
-description: 'Consumes job info, parses into spans, and pushes spans'
+description: 'Consumes job info, parses into spans, and pushes spans. Requires otel-cli and jq on PATH.'
 inputs:
   endpoint:
     description: 'Server to send span data to'
-  exporters:
-    description: 'Methods to export data (console, OTLP, prometheus, etc.)'
+  traceparent:
+    description: 'The OpenTelemetry span id of the span that new spans should be created under'
 
 runs:
   using: 'composite'
   steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-    - run: npm install @opentelemetry/api @opentelemetry/resources @opentelemetry/semantic-conventions @opentelemetry/sdk-node
-      shell: bash
     - uses: actions/github-script@v7
       id: get-job-info
-      env:
-        EXPORTERS: ${{ inputs.exporters}}
-        ENDPOINT: ${{ inputs.endpoint}}
       with:
         retries: 3
         script: |
-          const { createHash } = require("crypto");
-
-          // This function is inlined here because sharing files between actions sucks. It is duplicated in telemetry-setup.
           get_info = async ({github, context, process}) => {
-              const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
+            const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
 
-              const trace_id = createHash("sha256")
-                  .update(context.repo.owner)
-                  .update(context.repo.repo)
-                  .update(String(context.runId))
-                  .update(String(runAttempt))
-                  .digest("hex");
+            const job_info = await github.rest.actions.listJobsForWorkflowRunAttempt({
+              attempt_number: runAttempt,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
 
-              const job_info = await github.rest.actions.listJobsForWorkflowRunAttempt({
-                  attempt_number: runAttempt,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  run_id: context.runId
-              });
+            // We know what the run ID is, but we don't know which specific job we're being run from.
+            // https://github.com/orgs/community/discussions/8945
+            var this_job = job_info.data.jobs.find((job) => {
+              return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
+            });
 
-              // We know what the run ID is, but we don't know which specific job we're being run from.
-              // https://github.com/orgs/community/discussions/8945
-              const this_job = job_info.data.jobs.find((job) => {
-                  return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
-              });
-
-              console.log(this_job)
-
-              const span_id = createHash("sha256")
-                  .update(context.repo.owner)
-                  .update(context.repo.repo)
-                  .update(String(context.runId))
-                  .update(String(runAttempt))
-                  .update(this_job.name)
-                  .digest("hex");
-
-              return {
-                  "job_name": this_job.name,
-                  "trace_id": trace_id,
-                  "span_id": span_id,
-                  "job_info_json": this_job,
-              }
+            return this_job;
           };
-          const values = await get_info({github, context, process});
-          const { ENDPOINT, EXPORTERS } = process.env
 
-          const opentelemetry = require('@opentelemetry/api');
-
-          const { Resource } = require('@opentelemetry/resources');
-          const { SEMRESATTRS_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
-          const { BasicTracerProvider, ConsoleSpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base');
-          const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
-
-          console.log(github)
-          console.log(context)
-          const exporters = EXPORTERS.split(",")
-
-          const tp = new BasicTracerProvider({
-              resource: new Resource({
-                  [SEMRESATTRS_SERVICE_NAME]: 'basic-service',
-              }),
-          });
-
-
-          var trace_exporter = null;
-          if (exporters.includes("otlp")) {
-              trace_exporter = new OTLPTraceExporter({
-                  endpoint: ENDPOINT,
-              });
-              tp.addSpanProcessor(new SimpleSpanProcessor(trace_exporter));
-          }
-          if (exporters.includes("console")) {
-              tp.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
+          var this_job = undefined;
+          var retryCount = 0;
+          maxRetries = 5;
+          initialDelay = 2000;
+          while (this_job === undefined) {
+            this_job = await get_info({github, context, process});
+            if (this_job === undefined && retryCount < maxRetries) {
+              retryCount++;
+              const delay = initialDelay * Math.pow(2, retryCount - 1);
+            } else {
+              break;
+            }
           }
 
-          tp.register();
-
-          const tracer = opentelemetry.trace.getTracer(values["job_name"]);
-          const job_info = values["job_info_json"]
-
-          // Outer span for the whole job
-          // Create a span. A span must be closed.
-          const parentSpan = tracer.startSpan(values["span_id"], {startTime: job_info["started_at"]});
-          parentSpan.setAttribute("startDelay", job_info["started_at"]-job_info["created_at"])
-          //v For each step, create a span with create/start/stop times
-          for (const step in job_info.steps) {
-              const step_span = tracer.startSpan(step.name, {startTime: step.start_time})
-              step_span.setAttribute("startDelay", step["started_at"]-step["created_at"])
-              step_span.end(step["completed_at"])
+          if (this_job === undefined){
+            throw "Telemetry values were not available. Please see debug logs for more info."
           }
-          // Close outer span
-          parentSpan.end(job_info["completed_at"]);
+          core.setOutput("job_info_json", this_job);
 
-          // flush and close the connection.
-          if (trace_exporter) {
-              trace_exporter.shutdown();
-          }
+    - shell: bash
+      run: |
+        echo ${{toJSON(steps.get-job-info.outputs.job_info_json)}} > job_info.json
+
+        # This traceparent is the one that comes from outside; from any external job above this
+        # Our job span should be a child of that trace. It is valid for this to be empty.
+        export TRACEPARENT="${{inputs.traceparent}}"
+
+        export job_traceparent="$(rapids-get-telemetry-traceparent $job_name)"
+        # TODO: Pass through attrs and friends. Maybe this is easier to do by just
+        # setting the env var, though.
+        job_name="$(cat job_info.json | jq '.name')"
+
+        status_description=$(cat job_info.json | jq '.conclusion')
+        if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then
+          status_description="--status-description ${status_description}"
+        fi
+
+        # TODO: compute wait time as started_at - created_at. It is only available for the
+        # top-level job, not the steps.
+        created="$(cat job_info.json | jq -r '.created_at')"
+
+        otel-cli span create \
+                    --name "$job_name" \
+                    --service "${GITHUB_REPOSITORY}:$(cat job_info.json | jq -r '.workflow_name')" \
+                    --endpoint ${{ inputs.endpoint }} \
+                    --protocol http/protobuf \
+                    --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                    --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                    --start $(cat job_info.json | jq -r '.started_at') \
+                    --end $(cat job_info.json  | jq -r '.completed_at') \
+                    $status_description
+
+        # Nest the steps under the job we just made a span for
+        export TRACEPARENT=${job_traceparent}
+
+        # Each line is a step
+        cat job_info.json | jq -c '.steps[]' | while read f; do
+            if [[ "$(echo -n "$f" | jq -r .status)" =~ "completed" ]]; then
+                name="$(echo "$f" | jq .name)";
+                started=$(echo "$f" | jq -r .started_at);
+                completed="$(echo "$f" | jq -r .completed_at)";
+                conclusion="$(echo "$f" | jq .conclusion)";
+
+                step_traceparent="$(rapids-get-telemetry-traceparent "$job_name" "$name")"
+
+                otel-cli span create \
+                    --name="$name" \
+                    --endpoint ${{ inputs.endpoint }} \
+                    --protocol http/protobuf \
+                    --force-trace-id="$(cut -d'-' -f2 <<<"$step_traceparent")" \
+                    --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
+                    --start="$started" \
+                    --end="$completed"
+            fi
+        done

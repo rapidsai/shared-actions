@@ -4,25 +4,52 @@ on:
   workflow_dispatch:
 
 jobs:
+  trace_id_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout actions
+        uses: actions/checkout@v4
+      - name: Download gha-tools with git clone
+        run: |
+            git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools
+            echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
+      - name: test trace id script
+        run: |
+            echo $(rapids-get-telemetry-traceparent trace_id_test)
+      - name: Get job traceparent
+        uses: ./telemetry-traceparent
+        id: job-traceparent
+      - name: Echo value from job
+        run: echo "${{steps.job-traceparent.outputs.traceparent}}"
   example_matrix:
     name: ${{ matrix.os}}-${{ matrix.version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        version: [10, 12, 14]
-        os: [ubuntu-latest, windows-latest]
+        version: [1, 2]
+        os: [ubuntu-latest] # , windows-latest
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
-      - uses: "./telemetry-setup"
-        id: telemetry-setup
-      - name: Verify that telemetry setup has some data
+      - name: Download gha-tools with git clone
         run: |
-          [[ "${{ steps.telemetry-setup.outputs.trace_id }}" = "" ]] && { echo "trace_id is empty; erroring out" ; exit 1; } || echo "trace_id is ok"
-          [[ "${{ steps.telemetry-setup.outputs.job_name }}" != "${{ matrix.os}}-${{ matrix.version }}" ]] && { echo "job_name is not expected value ("${{ matrix.os}}-${{ matrix.version }}"); erroring out" ; exit 1; }  || echo "job_name is ok"
-          [[ "${{ steps.telemetry-setup.outputs.span_id }}" = "" ]] && { echo "span_id is empty; erroring out" ; exit 1; } || echo "span_id is ok"
-          echo "All expected outputs are in order! Hooray!"
-      - name: Test OTel export of job JSON
-        uses: "./telemetry-summarize"
+            git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools
+            echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
+      # Run job with traceparent. We'll validate that this matches in the summary data.
+      - name: Get job traceparent
+        uses: ./telemetry-traceparent
+        id: job-traceparent
+      - name: Generate traceparent for a step
+        uses: ./telemetry-traceparent
+        id: step-traceparent
         with:
-            exporters: "console"
+            # Have to set this manually, seemingly. No way to introspect the step name or id from here.
+            step_name: "Download gha-tools with git clone"
+      - name: Echo computed step traceparent
+        run: |
+            echo "GHA tools clone job traceparent: ${{ steps.step-traceparent.outputs.traceparent }}"
+      - name: Test OTel export of job JSON
+        uses: ./telemetry-summarize
+        with:
+            endpoint: "https://localhost:4318"
+            traceparent: ${{ steps.job-traceparent.outputs.traceparent}}

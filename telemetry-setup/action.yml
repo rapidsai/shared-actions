@@ -15,6 +15,9 @@ outputs:
   job_name:
     description: Human-readable identifier for this job (often a description of a matrix step)
     value: ${{ steps.get-job-info.outputs.job_name }}
+  traceparent:
+    description: Combination of the trace id and span id in a particular format
+    value: ${{ steps.get-job-info.outputs.traceparent }}
 
 runs:
   using: composite

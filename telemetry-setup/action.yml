@@ -65,6 +65,7 @@ runs:
                   "trace_id": trace_id,
                   "span_id": span_id,
                   "job_info_json": this_job,
+                  "traceparent": `00-${trace_id}-${span_id.substring(0,16)}-01`
               }
           };
 
@@ -73,3 +74,4 @@ runs:
           core.setOutput("job_info_json", values["job_info_json"]);
           core.setOutput("job_name", values["job_name"]);
           core.setOutput("span_id", values["span_id"]);
+          core.setOutput("traceparent", values["traceparent"]);

@@ -11,52 +11,45 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/github-script@v7
-      id: get-job-info
-      with:
-        retries: 3
-        script: |
-          get_info = async ({github, context, process}) => {
-            const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
+    # TODO: This should be removed once otel-cli or its replacement is available in our ci images
+    - shell: bash
+      id: install-otel-cli
+      run:
+        if ! otel-cli --help  2>&1 >/dev/null; then
+          ARCH=$(uname -m);
+          if [ "$(uname -m)" = "x86_64" ]; then
+            ARCH="amd64";
+          else
+            ARCH="arm64";
+          fi;
+          curl -L -o otel-cli-${ARCH}.tar.gz https://github.com/equinix-labs/otel-cli/releases/download/v0.4.5/otel-cli_0.4.5_linux_${ARCH}.tar.gz;
+          tar -zxf  otel-cli-${ARCH}.tar.gz;
+          mv otel-cli /usr/local/bin/;
+        fi
 
-            const job_info = await github.rest.actions.listJobsForWorkflowRunAttempt({
-              attempt_number: runAttempt,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.runId
-            });
+    - shell: bash
+      id: output-inputs
+      run: |
+        if [ "${OTEL_SERVICE_NAME}" = "" ]; then
+          echo "OTEL_SERVICE_NAME is empty. Erroring out"
+          exit 1
+        fi
+        echo "trace ID input: '${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}'"
+        echo "$GITHUB_REPOSITORY="${GITHUB_REPOSITORY}""
+        echo "$GITHUB_RUN_ID="${GITHUB_RUN_ID}""
+        echo "$GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}""
+        echo "Evaluated trace ID input (pre-hash): "${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}""
+        TRACE_ID="$(rapids-get-telemetry-trace-id)"
+        echo "Computed trace ID: ${TRACE_ID}"
 
-            // We know what the run ID is, but we don't know which specific job we're being run from.
-            // https://github.com/orgs/community/discussions/8945
-            var this_job = job_info.data.jobs.find((job) => {
-              return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
-            });
+        echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{OTEL_SERVICE_NAME\})-01'"
+        echo "evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}\)-01""
 
-            return this_job;
-          };
-
-          var this_job = undefined;
-          var retryCount = 0;
-          maxRetries = 5;
-          initialDelay = 2000;
-          while (this_job === undefined) {
-            this_job = await get_info({github, context, process});
-            if (this_job === undefined && retryCount < maxRetries) {
-              retryCount++;
-              const delay = initialDelay * Math.pow(2, retryCount - 1);
-            } else {
-              break;
-            }
-          }
-
-          if (this_job === undefined){
-            throw "Telemetry values were not available. Please see debug logs for more info."
-          }
-
-          core.setOutput("job_info_json", this_job);
+        echo "STEP TRACEPARENT input: '\${JOB_SPAN_ID}-\${STEP_NAME}'"
+        echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{OTEL_SERVICE_NAME\}'"
+        echo "evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}-${{inputs.step_name}}\)-01""
 
     - shell: bash
       id: shell
       run: |
-        job_name=$(echo ${{steps.get_job_info.outputs.job_info_json}} | jq -r '.name' )
-        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent \"$job_name\" \"${{inputs.step_name}}\")" >> ${GITHUB_OUTPUT}
+        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "${{inputs.step_name}}")" >> ${GITHUB_OUTPUT}

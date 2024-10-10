@@ -6,13 +6,20 @@ on:
 jobs:
   trace_id_test:
     runs-on: ubuntu-latest
+    env:
+        OTEL_SERVICE_NAME: trace_id_test
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
+
+      # Temporary until ci-imgs build with
+      # https://github.com/rapidsai/gha-tools/commit/8bd8fca71b5fae38b1493c547d15e73da40b32e1#diff-f1f054b2906bfd36ad706ed2fa6aa028fa529e65b25167e4ca7ca45546d59ed8R14
+      # is available. The PR is merged, but at time of writing, no ci-imgs builds have been released to pick it up.
       - name: Download gha-tools with git clone
         run: |
-            git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools
+            git clone https://github.com/rapidsai/gha-tools.git -b main /tmp/gha-tools
             echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
+
       - name: test trace id script
         run: |
             echo $(rapids-get-telemetry-traceparent trace_id_test)
@@ -22,8 +29,10 @@ jobs:
       - name: Echo value from job
         run: echo "${{steps.job-traceparent.outputs.traceparent}}"
   example_matrix:
-    name: ${{ matrix.os}}-${{ matrix.version }}
+    name: Test ${{ matrix.os}}-${{ matrix.version }}
     runs-on: ubuntu-latest
+    env:
+        OTEL_SERVICE_NAME: Test ${{ matrix.os}}-${{ matrix.version }}
     strategy:
       matrix:
         version: [1, 2]
@@ -31,10 +40,15 @@ jobs:
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
+
+      # Temporary until ci-imgs build with
+      # https://github.com/rapidsai/gha-tools/commit/8bd8fca71b5fae38b1493c547d15e73da40b32e1#diff-f1f054b2906bfd36ad706ed2fa6aa028fa529e65b25167e4ca7ca45546d59ed8R14
+      # is available. The PR is merged, but at time of writing, no ci-imgs builds have been released to pick it up.
       - name: Download gha-tools with git clone
         run: |
-            git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools
+            git clone https://github.com/rapidsai/gha-tools.git -b main /tmp/gha-tools
             echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
+
       # Run job with traceparent. We'll validate that this matches in the summary data.
       - name: Get job traceparent
         uses: ./telemetry-traceparent
@@ -43,7 +57,6 @@ jobs:
         uses: ./telemetry-traceparent
         id: step-traceparent
         with:
-            # Have to set this manually, seemingly. No way to introspect the step name or id from here.
             step_name: "Download gha-tools with git clone"
       - name: Echo computed step traceparent
         run: |
@@ -51,5 +64,4 @@ jobs:
       - name: Test OTel export of job JSON
         uses: ./telemetry-summarize
         with:
-            endpoint: "https://localhost:4318"
             traceparent: ${{ steps.job-traceparent.outputs.traceparent}}

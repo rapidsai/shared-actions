@@ -1,8 +1,6 @@
 name: 'Telemetry summarize'
 description: 'Consumes job info, parses into spans, and pushes spans. Requires otel-cli and jq on PATH.'
 inputs:
-  endpoint:
-    description: 'Server to send span data to'
   traceparent:
     description: 'The OpenTelemetry span id of the span that new spans should be created under'
 
@@ -14,20 +12,27 @@ runs:
       with:
         retries: 3
         script: |
-          get_info = async ({github, context, process}) => {
-            const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
+          const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
 
-            const job_info = await github.rest.actions.listJobsForWorkflowRunAttempt({
-              attempt_number: runAttempt,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.runId
-            });
+          get_jobs = async ({github, context}) => {
+            const opts = github.rest.actions.listJobsForWorkflowRunAttempt.endpoint.merge(
+                {
+                    attempt_number: runAttempt,
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: context.runId,
+                    per_page: 100
+                });
+            return await github.paginate(opts);
+          };
+
+          get_info = async ({github, context, process}) => {
+            const jobs = await get_jobs({github, context});
 
             // We know what the run ID is, but we don't know which specific job we're being run from.
             // https://github.com/orgs/community/discussions/8945
-            var this_job = job_info.data.jobs.find((job) => {
-              return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
+            var this_job = jobs.find((job) => {
+              return job.name === process.env.OTEL_SERVICE_NAME;
             });
 
             return this_job;
@@ -48,6 +53,13 @@ runs:
           }
 
           if (this_job === undefined){
+            github.log.error("Telemetry values were not available. Please see debug logs for more info.")
+            github.log.error("All jobs:")
+            const jobs = await get_jobs({github, context})
+            github.log.error(JSON.stringify(jobs))
+            github.log.error("Job name (including matrix parts): ")
+            github.log.error(process.env.OTEL_SERVICE_NAME)
+
             throw "Telemetry values were not available. Please see debug logs for more info."
           }
           core.setOutput("job_info_json", this_job);
@@ -60,51 +72,54 @@ runs:
         # Our job span should be a child of that trace. It is valid for this to be empty.
         export TRACEPARENT="${{inputs.traceparent}}"
 
-        export job_traceparent="$(rapids-get-telemetry-traceparent $job_name)"
+        if [ "$OTEL_SERVICE_NAME" = "" ]; then
+          echo "Error: OTEL_SERVICE_NAME is empty. This script assumes that it is set to minimize parameter passing."
+        fi
+
+        if [ "$OTEL_EXPORTER_OTLP_ENDPOINT" = "" ]; then
+          echo "Error: OTEL_EXPORTER_OTLP_ENDPOINT is empty. This script assumes that it is set to minimize parameter passing."
+        fi
+
+        export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
         # TODO: Pass through attrs and friends. Maybe this is easier to do by just
         # setting the env var, though.
-        job_name="$(cat job_info.json | jq '.name')"
 
         status_description=$(cat job_info.json | jq '.conclusion')
         if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then
           status_description="--status-description ${status_description}"
         fi
 
-        # TODO: compute wait time as started_at - created_at. It is only available for the
-        # top-level job, not the steps.
-        created="$(cat job_info.json | jq -r '.created_at')"
-
         otel-cli span create \
-                    --name "$job_name" \
-                    --service "${GITHUB_REPOSITORY}:$(cat job_info.json | jq -r '.workflow_name')" \
-                    --endpoint ${{ inputs.endpoint }} \
-                    --protocol http/protobuf \
+                    --name "workflow root" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                     --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                    --start $(cat job_info.json | jq -r '.started_at') \
-                    --end $(cat job_info.json  | jq -r '.completed_at') \
+                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
+                    --end "$(cat job_info.json | jq -r '.completed_at // "now"')" \
+                    --verbose \
                     $status_description
 
-        # Nest the steps under the job we just made a span for
+        # Nest the steps under the job we just made a span for. This sets the parent span ID for us.
         export TRACEPARENT=${job_traceparent}
+
+        otel-cli span create \
+                    --name "Start delay time" \
+                    --start "$(cat job_info.json | jq -r '.created_at')" \
+                    --end "$(cat job_info.json  | jq -r '.started_at')" \
+                    --verbose
 
         # Each line is a step
         cat job_info.json | jq -c '.steps[]' | while read f; do
-            if [[ "$(echo -n "$f" | jq -r .status)" =~ "completed" ]]; then
-                name="$(echo "$f" | jq .name)";
-                started=$(echo "$f" | jq -r .started_at);
-                completed="$(echo "$f" | jq -r .completed_at)";
-                conclusion="$(echo "$f" | jq .conclusion)";
+            name="$(echo "$f" | jq -r .name)";
+            conclusion="$(echo "$f" | jq .conclusion)";
 
-                step_traceparent="$(rapids-get-telemetry-traceparent "$job_name" "$name")"
+            step_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "$name")"
+            echo ": "${OTEL_SERVICE_NAME}", step_name: "$name"";
+            echo "$step_traceparent";
 
-                otel-cli span create \
-                    --name="$name" \
-                    --endpoint ${{ inputs.endpoint }} \
-                    --protocol http/protobuf \
-                    --force-trace-id="$(cut -d'-' -f2 <<<"$step_traceparent")" \
-                    --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
-                    --start="$started" \
-                    --end="$completed"
-            fi
+            otel-cli span create \
+                --name="$name" \
+                --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
+                --start="$(echo "$f" | jq -r '.started_at // "now"')" \
+                --end="$(echo "$f" | jq -r '.completed_at // "now"')" \
+                --verbose
         done

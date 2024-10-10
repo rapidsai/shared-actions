@@ -75,8 +75,8 @@ runs:
         created="$(cat job_info.json | jq -r '.created_at')"
 
         otel-cli span create \
-                    --name "$job_name" \
-                    --service "${GITHUB_REPOSITORY}:$(cat job_info.json | jq -r '.workflow_name')" \
+                    --name "pipeline" \
+                    --service "$job_name" \
                     --endpoint ${{ inputs.endpoint }} \
                     --protocol http/protobuf \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
@@ -100,6 +100,7 @@ runs:
 
                 otel-cli span create \
                     --name="$name" \
+                    --service "$job_name" \
                     --endpoint ${{ inputs.endpoint }} \
                     --protocol http/protobuf \
                     --force-trace-id="$(cut -d'-' -f2 <<<"$step_traceparent")" \

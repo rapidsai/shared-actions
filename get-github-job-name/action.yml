@@ -55,5 +55,4 @@ runs:
     - shell: bash
       id: shell
       run: |
-        job_name=
-        echo "NAME=$(echo ${{steps.get_job_info.outputs.job_info_json}} | jq -r '.name' )" >> ${GITHUB_OUTPUT}
+        echo "NAME=$(echo "${{steps.get_job_info.outputs.job_info_json}}" | jq -r '.name' )" >> ${GITHUB_OUTPUT}

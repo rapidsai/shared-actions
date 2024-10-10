@@ -1,0 +1,62 @@
+name: 'Telemetry traceparent'
+description: 'Outputs a trace identifier computed from the GitHub runtime environment. Requires the gha-tools repo to be on PATH.'
+inputs:
+  step_name:
+    description: 'If this trace is for a step, provide the step name in addition to the job name'
+outputs:
+  traceparent:
+    description: 'The OpenTelemetry span id of the span that should be used for the root span created here'
+    value: ${{ steps.shell.outputs.TRACEPARENT }}
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/github-script@v7
+      id: get-job-info
+      with:
+        retries: 3
+        script: |
+          get_info = async ({github, context, process}) => {
+            const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
+
+            const job_info = await github.rest.actions.listJobsForWorkflowRunAttempt({
+              attempt_number: runAttempt,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+
+            // We know what the run ID is, but we don't know which specific job we're being run from.
+            // https://github.com/orgs/community/discussions/8945
+            var this_job = job_info.data.jobs.find((job) => {
+              return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
+            });
+
+            return this_job;
+          };
+
+          var this_job = undefined;
+          var retryCount = 0;
+          maxRetries = 5;
+          initialDelay = 2000;
+          while (this_job === undefined) {
+            this_job = await get_info({github, context, process});
+            if (this_job === undefined && retryCount < maxRetries) {
+              retryCount++;
+              const delay = initialDelay * Math.pow(2, retryCount - 1);
+            } else {
+              break;
+            }
+          }
+
+          if (this_job === undefined){
+            throw "Telemetry values were not available. Please see debug logs for more info."
+          }
+
+          core.setOutput("job_info_json", this_job);
+
+    - shell: bash
+      id: shell
+      run: |
+        job_name=$(echo ${{steps.get_job_info.outputs.job_info_json}} | jq -r '.name' )
+        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent \"$job_name\" \"${{inputs.step_name}}\")" >> ${GITHUB_OUTPUT}

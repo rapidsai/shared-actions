@@ -3,7 +3,7 @@ description: 'Outputs a trace identifier computed from the GitHub runtime enviro
 outputs:
   job-info:
     description: 'A JSON blob that contains job metadata, including name, start/stop time, and steps info. This is seemingly the only programmatic access to the job name.'
-    value: ${{ steps.get-job-info.outputs.job_info_json }}
+    value: ${{ toJSON(steps.get-job-info.outputs.job_info_json) }}
 
 runs:
   using: 'composite'

@@ -7,80 +7,21 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/github-script@v7
-      id: get-job-info
-      with:
-        retries: 3
-        script: |
-          const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
-
-          get_jobs = async ({github, context}) => {
-            const opts = github.rest.actions.listJobsForWorkflowRunAttempt.endpoint.merge(
-                {
-                    attempt_number: runAttempt,
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    run_id: context.runId,
-                    per_page: 100
-                });
-            return await github.paginate(opts);
-          };
-
-          get_info = async ({github, context, process}) => {
-            const jobs = await get_jobs({github, context});
-
-            // We know what the run ID is, but we don't know which specific job we're being run from.
-            // https://github.com/orgs/community/discussions/8945
-            var this_job = jobs.find((job) => {
-              return job.name === process.env.OTEL_SERVICE_NAME;
-            });
-
-            return this_job;
-          };
-
-          var this_job = undefined;
-          var retryCount = 0;
-          maxRetries = 5;
-          initialDelay = 2000;
-          while (this_job === undefined) {
-            this_job = await get_info({github, context, process});
-            if (this_job === undefined && retryCount < maxRetries) {
-              retryCount++;
-              const delay = initialDelay * Math.pow(2, retryCount - 1);
-            } else {
-              break;
-            }
-          }
-
-          if (this_job === undefined){
-            github.log.error("Telemetry values were not available. Please see debug logs for more info.")
-            github.log.error("All jobs:")
-            const jobs = await get_jobs({github, context})
-            github.log.error(JSON.stringify(jobs))
-            github.log.error("Job name (including matrix parts): ")
-            github.log.error(process.env.OTEL_SERVICE_NAME)
-
-            throw "Telemetry values were not available. Please see debug logs for more info."
-          }
-          core.setOutput("job_info_json", this_job);
+    - uses: actions/checkout@v4
+    - uses: ./github-actions-job-info
+      id: github-job-info
 
     - shell: bash
       run: |
-        echo ${{toJSON(steps.get-job-info.outputs.job_info_json)}} > job_info.json
+        echo ${{steps.github-job-info.outputs.job_info}} > job_info.json
 
         # This traceparent is the one that comes from outside; from any external job above this
         # Our job span should be a child of that trace. It is valid for this to be empty.
         export TRACEPARENT="${{inputs.traceparent}}"
 
-        if [ "$OTEL_SERVICE_NAME" = "" ]; then
-          echo "Error: OTEL_SERVICE_NAME is empty. This script assumes that it is set to minimize parameter passing."
-        fi
+        export OTEL_SERVICE_NAME="$(cat job_info.json | jq -r '.name' )"
 
-        if [ "$OTEL_EXPORTER_OTLP_ENDPOINT" = "" ]; then
-          echo "Error: OTEL_EXPORTER_OTLP_ENDPOINT is empty. This script assumes that it is set to minimize parameter passing."
-        fi
-
-        export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
+        export job_traceparent="$(rapids-get-telemetry-traceparent)"
         # TODO: Pass through attrs and friends. Maybe this is easier to do by just
         # setting the env var, though.
 
@@ -103,8 +44,8 @@ runs:
 
         otel-cli span create \
                     --name "Start delay time" \
-                    --start "$(cat job_info.json | jq -r '.created_at')" \
-                    --end "$(cat job_info.json  | jq -r '.started_at')" \
+                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
+                    --end "$(cat job_info.json  | jq -r '.started_at // "now"')" \
                     --verbose
 
         # Each line is a step
@@ -112,9 +53,9 @@ runs:
             name="$(echo "$f" | jq -r .name)";
             conclusion="$(echo "$f" | jq .conclusion)";
 
-            step_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "$name")"
-            echo ": "${OTEL_SERVICE_NAME}", step_name: "$name"";
-            echo "$step_traceparent";
+            step_traceparent="$(rapids-get-telemetry-traceparent "$name")"
+            echo "OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME}", step_name: "$name"" >&2;
+            echo "$step_traceparent" >&2;
 
             otel-cli span create \
                 --name="$name" \

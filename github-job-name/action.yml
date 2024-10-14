@@ -1,0 +1,21 @@
+
+name: 'Job Name'
+description: |
+    Obtains GitHub Actions job list and matches current job using runner name and attempt number.
+    Returns name of current workflow, which will include any matrix components
+outputs:
+  name:
+    description: 'The name of the job matching the current runner name and attempt number'
+    value: ${{ steps.get-job-name.outputs.JOB_NAME }}
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/checkout@v4
+    - uses: ./github-actions-job-info
+      id: github-job-info
+    - shell: bash
+      id: get-job-name
+      run:
+        echo ${{steps.github-job-info.outputs.job_info}} > job_info.json
+        echo "JOB_NAME="$(cat job_info.json | jq -r '.name')"" >> ${GITHUB_OUTPUT}

@@ -26,14 +26,16 @@ runs:
           tar -zxf  otel-cli-${ARCH}.tar.gz;
           mv otel-cli /usr/local/bin/;
         fi
+    - uses: actions/checkout@v4
+    - uses: ./github-actions-job-info
+      id: github-job-info
+
+    - uses: ./github-job-name
+      id: get-job-name
 
     - shell: bash
       id: output-inputs
       run: |
-        if [ "${OTEL_SERVICE_NAME}" = "" ]; then
-          echo "OTEL_SERVICE_NAME is empty. Erroring out"
-          exit 1
-        fi
         echo "trace ID input: '${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}'"
         echo "$GITHUB_REPOSITORY="${GITHUB_REPOSITORY}""
         echo "$GITHUB_RUN_ID="${GITHUB_RUN_ID}""
@@ -42,14 +44,14 @@ runs:
         TRACE_ID="$(rapids-get-telemetry-trace-id)"
         echo "Computed trace ID: ${TRACE_ID}"
 
-        echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{OTEL_SERVICE_NAME\})-01'"
-        echo "evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}\)-01""
+        echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{JOB_NAME\})-01'"
+        echo "evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${{steps.get-job-name.outputs.name}}\)-01""
 
+        echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{JOB_NAME\}'"
         echo "STEP TRACEPARENT input: '\${JOB_SPAN_ID}-\${STEP_NAME}'"
-        echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{OTEL_SERVICE_NAME\}'"
-        echo "evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}-${{inputs.step_name}}\)-01""
+        echo "evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${{steps.get-job-name.outputs.name}}-${{inputs.step_name}}\)-01""
 
     - shell: bash
       id: shell
       run: |
-        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "${{inputs.step_name}}")" >> ${GITHUB_OUTPUT}
+        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${{steps.get-job-name.outputs.name}}" "${{inputs.step_name}}")" >> ${GITHUB_OUTPUT}

@@ -15,7 +15,7 @@ runs:
         script: |
           const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
 
-          get_jobs = async ({github, context}) => {
+          get_job = async ({github, context, process}) => {
             const opts = github.rest.actions.listJobsForWorkflowRunAttempt.endpoint.merge(
                 {
                     attempt_number: runAttempt,
@@ -24,19 +24,12 @@ runs:
                     run_id: context.runId,
                     per_page: 100
                 });
-            return await github.paginate(opts);
-          };
-
-          get_info = async ({github, context, process}) => {
-            const jobs = await get_jobs({github, context});
-
+            const jobs = await github.paginate(opts);
             // We know what the run ID is, but we don't know which specific job we're being run from.
             // https://github.com/orgs/community/discussions/8945
-            var this_job = jobs.find((job) => {
-              return job.name === process.env.OTEL_SERVICE_NAME;
+            return jobs.find((job) => {
+                return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
             });
-
-            return this_job;
           };
 
           var this_job = undefined;
@@ -44,7 +37,7 @@ runs:
           maxRetries = 5;
           initialDelay = 2000;
           while (this_job === undefined) {
-            this_job = await get_info({github, context, process});
+            this_job = await get_job({github, context, process});
             if (this_job === undefined && retryCount < maxRetries) {
               retryCount++;
               const delay = initialDelay * Math.pow(2, retryCount - 1);
@@ -54,12 +47,10 @@ runs:
           }
 
           if (this_job === undefined){
-            github.log.error("Telemetry values were not available. Please see debug logs for more info.")
-            github.log.error("All jobs:")
-            const jobs = await get_jobs({github, context})
-            github.log.error(JSON.stringify(jobs))
-            github.log.error("Job name (including matrix parts): ")
-            github.log.error(process.env.OTEL_SERVICE_NAME)
+            github.log.error("Telemetry values were not available. Please see debug logs for more info.");
+            github.log.error("All jobs:");
+            const jobs = await get_job({github, context, process});
+            github.log.error(JSON.stringify(jobs));
 
             throw "Telemetry values were not available. Please see debug logs for more info."
           }

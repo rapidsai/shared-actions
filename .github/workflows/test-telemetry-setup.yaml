@@ -20,9 +20,9 @@ jobs:
             git clone https://github.com/rapidsai/gha-tools.git -b main /tmp/gha-tools
             echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
 
-      - name: test trace id script
+      - name: test traceparent script at top level
         run: |
-            echo $(rapids-get-telemetry-traceparent trace_id_test)
+            echo $(rapids-get-telemetry-traceparent)
       - name: Get job traceparent
         uses: ./telemetry-traceparent
         id: job-traceparent
@@ -31,8 +31,6 @@ jobs:
   example_matrix:
     name: Test ${{ matrix.os}}-${{ matrix.version }}
     runs-on: ubuntu-latest
-    env:
-        OTEL_SERVICE_NAME: Test ${{ matrix.os}}-${{ matrix.version }}
     strategy:
       matrix:
         version: [1, 2]
@@ -50,7 +48,7 @@ jobs:
             echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
 
       # Run job with traceparent. We'll validate that this matches in the summary data.
-      - name: Get job traceparent
+      - name: Get job traceparent in matrix job
         uses: ./telemetry-traceparent
         id: job-traceparent
       - name: Generate traceparent for a step

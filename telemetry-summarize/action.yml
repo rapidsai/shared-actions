@@ -8,9 +8,12 @@ runs:
   using: 'composite'
   steps:
     - uses: actions/checkout@v4
-    - uses: ./github-actions-job-info
+      with:
+        repository: rapidsai/shared-actions
+        ref: add-telemetry
+        path: ./shared-actions
+    - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
-
     - shell: bash
       run: |
         echo ${{steps.github-job-info.outputs.job_info}} > job_info.json

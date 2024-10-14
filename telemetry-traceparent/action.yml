@@ -27,7 +27,11 @@ runs:
           mv otel-cli /usr/local/bin/;
         fi
     - uses: actions/checkout@v4
-    - uses: ./github-actions-job-info
+      with:
+        repository: rapidsai/shared-actions
+        ref: add-telemetry
+        path: ./shared-actions
+    - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
 
     - uses: ./github-job-name

@@ -1,8 +1,9 @@
 
-name: 'Job Name'
+name: 'Set OTEL_SERVICE_NAME from github job info'
 description: |
     Obtains GitHub Actions job list and matches current job using runner name and attempt number.
     Returns name of current workflow, which will include any matrix components
+    Sets the OTEL_SERVICE_NAME environment variable. Output is also here if you prefer.
 outputs:
   name:
     description: 'The name of the job matching the current runner name and attempt number'
@@ -24,3 +25,4 @@ runs:
         ls job_info*;
         cat job_info.json;
         echo JOB_NAME="$(cat job_info.json | jq -r '.name')" >> ${GITHUB_OUTPUT}
+        echo OTEL_SERVICE_NAME="$(cat job_info.json | jq -r '.name')" >> ${GITHUB_ENV}

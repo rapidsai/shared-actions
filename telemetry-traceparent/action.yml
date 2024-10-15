@@ -31,7 +31,7 @@ runs:
         repository: rapidsai/shared-actions
         ref: add-telemetry
         path: ./shared-actions
-    - uses: ./shared-actions/github-job-name
+    - uses: ./shared-actions/set-otel-service-name-from-github
       id: get-job-name
     - shell: bash
       id: output-inputs
@@ -44,14 +44,14 @@ runs:
         export TRACE_ID="$(rapids-get-telemetry-trace-id)"
         echo "Computed trace ID: ${TRACE_ID}"
 
-        echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{\{steps.get-job-name.outputs.name\}\})-01'"
-        echo "evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${{steps.get-job-name.outputs.name}}\)-01""
+        echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{\OTEL_SERVICE_NAME}\})-01'"
+        echo "evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}\)-01""
 
         echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{\{steps.get-job-name.outputs.name\}\}'"
         echo "STEP TRACEPARENT input: '\${JOB_SPAN_ID}-\${STEP_NAME}'"
-        echo "evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${{steps.get-job-name.outputs.name}}-${{inputs.step_name}}\)-01""
+        echo "evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}-${{inputs.step_name}}\)-01""
 
     - shell: bash
       id: shell
       run: |
-        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${{steps.get-job-name.outputs.name}}" "${{inputs.step_name}}")" >> ${GITHUB_OUTPUT}
+        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "${{inputs.step_name}}")" >> ${GITHUB_OUTPUT}

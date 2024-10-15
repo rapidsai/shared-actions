@@ -56,7 +56,7 @@ runs:
             set +x
 
             # Compare timestamps; keep the latest one
-            step_end_timestamp="$(echo ${row} | base64 --decode | jq -r ".completed_at // "${last_timestamp}"")";
+            step_end_timestamp="$(echo ${row} | base64 --decode | jq -r ".completed_at")";
             if [ "$step_end_timestamp" != "null" ]; then
               step_end_timestamp=$(date -d "$step_end_timestamp" +'%s');
               if [ ${step_end_timestamp} -ge ${last_timestamp} ]; then

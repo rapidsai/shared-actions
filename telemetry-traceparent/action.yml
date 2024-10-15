@@ -34,7 +34,7 @@ runs:
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
 
-    - uses: ./github-job-name
+    - uses: ./shared-actions/github-job-name
       id: get-job-name
 
     - shell: bash

@@ -33,8 +33,8 @@ runs:
         export TRACEPARENT=${job_traceparent}
 
         # The reporting of the completion time is earlier than the actual last step's completion.
-        # We compensate for that by picking up the last knwon completion time of any step.
-        last_timestamp=$(date -d "$(cat job_info.json  | jq -r '.completed_at // "now"')" +'%s')
+        # We compensate for that by picking up the last known completion time of any step.
+        now=$(date +'%s.%N')
 
         for f in "$(cat job_info.json | jq -c '.steps[]')"; do
             name="$(echo "$f" | jq -r .name)";
@@ -48,15 +48,18 @@ runs:
                 --name="$name" \
                 --force-trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
                 --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
-                --start="$(echo "$f" | jq -r '.started_at // "now"')" \
-                --end="$(echo "$f" | jq -r '.completed_at // "now"')" \
+                --start="$(echo "$f" | jq -r ".started_at // ${now}")" \
+                --end="$(echo "$f" | jq -r ".completed_at // ${now}")" \
                 --verbose
 
             # Compare timestamps; keep the latest one
-            step_end_timestamp=$(date -d "$(echo "$f" | jq -r '.completed_at // "now"')" +'%s')
-            if [ "${step_end_timestamp}" -ge "${last_timestamp}" ]; then
-              last_timestamp=${step_end_timestamp}
-              echo "Set timestamp to ${last_timestamp}"
+            step_end_timestamp="$(echo "$f" | jq -r '.completed_at')";
+            if [ "$step_end_timestamp" != "null" ]; then
+              step_end_timestamp=$(date -d "$step_end_timestamp" +'%s.%N');
+              if  && [ ${step_end_timestamp} -ge ${last_timestamp} ]; then
+                last_timestamp=${step_end_timestamp};
+                echo "Set timestamp to ${last_timestamp}";
+              fi
             fi
         done
 

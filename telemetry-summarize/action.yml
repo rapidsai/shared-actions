@@ -36,6 +36,7 @@ runs:
         # We compensate for that by picking up the last known completion time of any step.
         now=$(date +'%s.%N')
 
+        IFS=$'\n'
         for f in "$(cat job_info.json | jq -c '.steps[]')"; do
             name="$(echo "$f" | jq -r .name)";
             conclusion="$(echo "$f" | jq .conclusion)";

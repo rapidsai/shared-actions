@@ -41,13 +41,13 @@ runs:
         echo "$GITHUB_RUN_ID="${GITHUB_RUN_ID}""
         echo "$GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}""
         echo "Evaluated trace ID input (pre-hash): "${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}""
-        TRACE_ID="$(rapids-get-telemetry-trace-id)"
+        export TRACE_ID="$(rapids-get-telemetry-trace-id)"
         echo "Computed trace ID: ${TRACE_ID}"
 
-        echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{JOB_NAME\})-01'"
+        echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{\{steps.get-job-name.outputs.name\}\})-01'"
         echo "evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${{steps.get-job-name.outputs.name}}\)-01""
 
-        echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{JOB_NAME\}'"
+        echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{\{steps.get-job-name.outputs.name\}\}'"
         echo "STEP TRACEPARENT input: '\${JOB_SPAN_ID}-\${STEP_NAME}'"
         echo "evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${{steps.get-job-name.outputs.name}}-${{inputs.step_name}}\)-01""
 

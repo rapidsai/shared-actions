@@ -56,5 +56,4 @@ runs:
           }
           core.setOutput("job_info_json", this_job);
     - shell: bash
-      run:
-        echo "${{toJSON(steps.get-job-info.outputs.job_info_json)}}" > job_info.json
+      run: echo "${{toJSON(steps.get-job-info.outputs.job_info_json)}}" > job_info.json

@@ -21,5 +21,4 @@ runs:
     - shell: bash
       id: get-job-name
       run:
-        echo ${{steps.github-job-info.outputs.job_info}} > job_info.json
         echo "JOB_NAME="$(cat job_info.json | jq -r '.name')"" >> ${GITHUB_OUTPUT}

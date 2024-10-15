@@ -16,8 +16,6 @@ runs:
       id: github-job-info
     - shell: bash
       run: |
-        echo ${{steps.github-job-info.outputs.job_info}} > job_info.json
-
         # This traceparent is the one that comes from outside; from any external job above this
         # Our job span should be a child of that trace. It is valid for this to be empty.
         export TRACEPARENT="${{inputs.traceparent}}"

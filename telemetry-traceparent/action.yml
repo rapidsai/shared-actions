@@ -31,12 +31,8 @@ runs:
         repository: rapidsai/shared-actions
         ref: add-telemetry
         path: ./shared-actions
-    - uses: ./shared-actions/github-actions-job-info
-      id: github-job-info
-
     - uses: ./shared-actions/github-job-name
       id: get-job-name
-
     - shell: bash
       id: output-inputs
       run: |

@@ -39,7 +39,7 @@ runs:
         # Base64 encoding is to avoid issues with spaces/newlines/whatever funny business
         for row in $(cat job_info.json | jq -r '.steps[] | @base64'); do
             _jq() {
-              echo ${row} | base64 --decode | jq -r ${1}
+              echo ${row} | base64 --decode | jq -r "${1}"
             }
 
             name="$(_jq .name)";

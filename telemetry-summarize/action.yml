@@ -31,13 +31,6 @@ runs:
         # Nest the steps under the job we just made a span for. This sets the parent span ID for us.
         export TRACEPARENT=${job_traceparent}
 
-        otel-cli span create \
-                    --name "Start delay time" \
-                    --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
-                    --end "$(cat job_info.json  | jq -r '.started_at // "now"')" \
-                    --verbose
-
         # The reporting of the completion time is earlier than the actual last step's completion.
         # We compensate for that by picking up the last knwon completion time of any step.
         last_timestamp=$(date -d "$(cat job_info.json  | jq -r '.completed_at // "now"')" +'%s')
@@ -75,3 +68,10 @@ runs:
                     --end "${last_timestamp}" \
                     --verbose \
                     $status_description
+
+        otel-cli span create \
+                    --name "Start delay time" \
+                    --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
+                    --end "$(cat job_info.json  | jq -r '.started_at // "now"')" \
+                    --verbose

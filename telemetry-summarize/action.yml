@@ -78,7 +78,8 @@ runs:
           status_description=
         fi
 
-        set -x
+        export TRACEPARENT="${{inputs.traceparent}}"
+
         # This is (unintuitively) set here because we don't know the true end time until we
         # go though the steps.
         otel-cli span create \
@@ -93,7 +94,7 @@ runs:
         otel-cli span create \
                     --name "Start delay time" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                    --force-parent-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
                     --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
                     --end "$(cat job_info.json  | jq -r '.started_at // "now"')" \
                     --verbose
-        set +x

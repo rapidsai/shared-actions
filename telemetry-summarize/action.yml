@@ -45,6 +45,7 @@ runs:
 
         otel-cli span create \
                     --name "Start delay time" \
+                    --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                     --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
                     --end "$(cat job_info.json  | jq -r '.started_at // "now"')" \
                     --verbose
@@ -54,12 +55,13 @@ runs:
             name="$(echo "$f" | jq -r .name)";
             conclusion="$(echo "$f" | jq .conclusion)";
 
-            step_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "$name")"
+            step_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "$name")";
             echo "OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME}", step_name: "$name"" >&2;
             echo "$step_traceparent" >&2;
 
             otel-cli span create \
                 --name="$name" \
+                --force-trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
                 --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
                 --start="$(echo "$f" | jq -r '.started_at // "now"')" \
                 --end="$(echo "$f" | jq -r '.completed_at // "now"')" \

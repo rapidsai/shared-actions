@@ -22,7 +22,7 @@ runs:
 
         export OTEL_SERVICE_NAME="$(cat job_info.json | jq -r '.name' )"
 
-        export job_traceparent="$(rapids-get-telemetry-traceparent)"
+        export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
         # TODO: Pass through attrs and friends. Maybe this is easier to do by just
         # setting the env var, though.
 
@@ -54,7 +54,7 @@ runs:
             name="$(echo "$f" | jq -r .name)";
             conclusion="$(echo "$f" | jq .conclusion)";
 
-            step_traceparent="$(rapids-get-telemetry-traceparent "$name")"
+            step_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "$name")"
             echo "OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME}", step_name: "$name"" >&2;
             echo "$step_traceparent" >&2;
 

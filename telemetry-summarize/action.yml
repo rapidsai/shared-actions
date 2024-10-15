@@ -50,13 +50,13 @@ runs:
                 --name="$name" \
                 --force-trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
                 --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
-                --start="$(echo ${row} | base64 --decode | jq -r ".started_at // ${timestamp_as_date}")" \
-                --end="$(echo ${row} | base64 --decode | jq -r ".completed_at // ${timestamp_as_date}")" \
+                --start="$(echo ${row} | base64 --decode | jq -r ".started_at // "${timestamp_as_date}"")" \
+                --end="$(echo ${row} | base64 --decode | jq -r ".completed_at // "${timestamp_as_date}"")" \
                 --verbose
             set +x
 
             # Compare timestamps; keep the latest one
-            step_end_timestamp="$(echo ${row} | base64 --decode | jq -r ".completed_at // ${last_timestamp}")";
+            step_end_timestamp="$(echo ${row} | base64 --decode | jq -r ".completed_at // "${last_timestamp}"")";
             if [ "$step_end_timestamp" != "null" ]; then
               step_end_timestamp=$(date -d "$step_end_timestamp" +'%s');
               if [ ${step_end_timestamp} -ge ${last_timestamp} ]; then

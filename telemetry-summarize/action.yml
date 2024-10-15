@@ -21,24 +21,12 @@ runs:
         export TRACEPARENT="${{inputs.traceparent}}"
 
         export OTEL_SERVICE_NAME="$(cat job_info.json | jq -r '.name' )"
-
         export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
-        # TODO: Pass through attrs and friends. Maybe this is easier to do by just
-        # setting the env var, though.
 
         status_description=$(cat job_info.json | jq '.conclusion')
         if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then
           status_description="--status-description ${status_description}"
         fi
-
-        otel-cli span create \
-                    --name "workflow root" \
-                    --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                    --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
-                    --end "$(cat job_info.json | jq -r '.completed_at // "now"')" \
-                    --verbose \
-                    $status_description
 
         # Nest the steps under the job we just made a span for. This sets the parent span ID for us.
         export TRACEPARENT=${job_traceparent}
@@ -77,6 +65,8 @@ runs:
             fi
         done
 
+        # This is (unintuitively) set here because we don't know the true end time until we
+        # go though the steps.
         otel-cli span create \
                     --name "workflow root" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \

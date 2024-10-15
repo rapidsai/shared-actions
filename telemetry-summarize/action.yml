@@ -36,7 +36,7 @@ runs:
         # We compensate for that by picking up the last knwon completion time of any step.
         last_timestamp=$(date -d "$(cat job_info.json  | jq -r '.completed_at // "now"')" +'%s')
 
-        for f in $(cat job_info.json | jq -c '.steps[]'); do
+        for f in "$(cat job_info.json | jq -c '.steps[]')"; do
             name="$(echo "$f" | jq -r .name)";
             conclusion="$(echo "$f" | jq .conclusion)";
 

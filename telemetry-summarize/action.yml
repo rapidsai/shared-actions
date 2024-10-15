@@ -56,7 +56,7 @@ runs:
             step_end_timestamp="$(echo "$f" | jq -r '.completed_at')";
             if [ "$step_end_timestamp" != "null" ]; then
               step_end_timestamp=$(date -d "$step_end_timestamp" +'%s.%N');
-              if  && [ ${step_end_timestamp} -ge ${last_timestamp} ]; then
+              if [ ${step_end_timestamp} -ge ${last_timestamp} ]; then
                 last_timestamp=${step_end_timestamp};
                 echo "Set timestamp to ${last_timestamp}";
               fi

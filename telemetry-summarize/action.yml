@@ -61,6 +61,10 @@ runs:
         done
 
         echo "Final timestamp is ${last_timestamp}"
+        case $last_timestamp in
+            ''|*[!0-9]*) echo "Date is not an integer" ;;
+            *) last_timestamp="$(date -d @${last_timestamp} --rfc-3339=seconds)" ;;
+        esac
 
         if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then
           status_description="--status-description ${status_description}"
@@ -76,7 +80,7 @@ runs:
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                     --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
                     --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
-                    --end ${last_timestamp} \
+                    --end "${last_timestamp}" \
                     --verbose \
                     $status_description
 

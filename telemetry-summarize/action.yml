@@ -16,6 +16,7 @@ runs:
       id: github-job-info
     - shell: bash
       run: |
+        set -x
         # This traceparent is the one that comes from outside; from any external job above this
         # Our job span should be a child of that trace. It is valid for this to be empty.
         export TRACEPARENT="${{inputs.traceparent}}"
@@ -35,7 +36,7 @@ runs:
         # We compensate for that by picking up the last knwon completion time of any step.
         last_timestamp=$(date -d "$(cat job_info.json  | jq -r '.completed_at // "now"')" +'%s')
 
-        cat job_info.json | jq -c '.steps[]' | while read f; do
+        for f in $(cat job_info.json | jq -c '.steps[]'); do
             name="$(echo "$f" | jq -r .name)";
             conclusion="$(echo "$f" | jq .conclusion)";
 

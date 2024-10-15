@@ -28,7 +28,7 @@ runs:
 
         # The reporting of the completion time is earlier than the actual last step's completion.
         # We compensate for that by picking up the last known completion time of any step.
-        last_timestamp=$(date +'%s.%N')
+        last_timestamp=$(date +'%s')
 
         # Base64 encoding is to avoid issues with spaces/newlines/whatever funny business
         for row in $(cat job_info.json | jq -r '.steps[] | @base64'); do
@@ -56,7 +56,7 @@ runs:
             # Compare timestamps; keep the latest one
             step_end_timestamp="$(_jq '.completed_at')";
             if [ "$step_end_timestamp" != "null" ]; then
-              step_end_timestamp=$(date -d "$step_end_timestamp" +'%s.%N');
+              step_end_timestamp=$(date -d "$step_end_timestamp" +'%s');
               if [ ${step_end_timestamp} -ge ${last_timestamp} ]; then
                 last_timestamp=${step_end_timestamp};
                 # echo "Set timestamp to ${last_timestamp}";

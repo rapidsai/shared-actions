@@ -32,12 +32,8 @@ runs:
 
         # Base64 encoding is to avoid issues with spaces/newlines/whatever funny business
         for row in $(cat job_info.json | jq -r '.steps[] | @base64'); do
-            _jq() {
-              echo ${row} | base64 --decode | jq -r "${1}"
-            }
-
-            name="$(_jq .name)";
-            conclusion="$(_jq .conclusion)";
+            name="$(echo ${row} | base64 --decode | jq -r ".name")"
+            conclusion="$(echo ${row} | base64 --decode | jq -r ".conclusion")"
 
             step_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "$name")";
             echo "OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME}", step_name: "$name"" >&2;
@@ -48,13 +44,13 @@ runs:
                 --name="$name" \
                 --force-trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
                 --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
-                --start="$(_jq ".started_at // ${last_timestamp}")" \
-                --end="$(_jq ".completed_at // ${last_timestamp}")" \
+                --start="$(echo ${row} | base64 --decode | jq -r ".started_at // ${last_timestamp}")" \
+                --end="$(echo ${row} | base64 --decode | jq -r ".completed_at // ${last_timestamp}")" \
                 --verbose
             set +x
 
             # Compare timestamps; keep the latest one
-            step_end_timestamp="$(_jq '.completed_at')";
+            step_end_timestamp="$(echo ${row} | base64 --decode | jq -r ".completed_at // ${last_timestamp}")";
             if [ "$step_end_timestamp" != "null" ]; then
               step_end_timestamp=$(date -d "$step_end_timestamp" +'%s');
               if [ ${step_end_timestamp} -ge ${last_timestamp} ]; then
@@ -79,7 +75,7 @@ runs:
                     --name "workflow root" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                     --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                    --start "$(_jq ".created_at // ${last_timestamp}")" \
+                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
                     --end ${last_timestamp} \
                     --verbose \
                     $status_description

@@ -24,11 +24,6 @@ runs:
         export OTEL_SERVICE_NAME="$(cat job_info.json | jq -r '.name' )"
         export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
 
-        status_description=$(cat job_info.json | jq '.conclusion')
-        if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then
-          status_description="--status-description ${status_description}"
-        fi
-
         # Nest the steps under the job we just made a span for. This sets the parent span ID for us.
         export TRACEPARENT=${job_traceparent}
 
@@ -69,6 +64,12 @@ runs:
         done
 
         echo "Final timestamp is ${last_timestamp}"
+
+        if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then
+          status_description="--status-description ${status_description}"
+        else
+          status_description=
+        fi
 
         # This is (unintuitively) set here because we don't know the true end time until we
         # go though the steps.

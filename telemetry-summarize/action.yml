@@ -34,7 +34,7 @@ runs:
 
         # The reporting of the completion time is earlier than the actual last step's completion.
         # We compensate for that by picking up the last known completion time of any step.
-        now=$(date +'%s.%N')
+        last_timestamp=$(date +'%s.%N')
 
         # Base64 encoding is to avoid issues with spaces/newlines/whatever funny business
         for row in $(cat job_info.json | jq -r '.steps[] | @base64'); do
@@ -53,8 +53,8 @@ runs:
                 --name="$name" \
                 --force-trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
                 --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
-                --start="$(_jq ".started_at // ${now}")" \
-                --end="$(_jq ".completed_at // ${now}")" \
+                --start="$(_jq ".started_at // ${last_timestamp}")" \
+                --end="$(_jq ".completed_at // ${last_timestamp}")" \
                 --verbose
 
             # Compare timestamps; keep the latest one
@@ -76,7 +76,7 @@ runs:
                     --name "workflow root" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                     --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
+                    --start "$(_jq ".created_at // ${last_timestamp}")" \
                     --end ${last_timestamp} \
                     --verbose \
                     $status_description

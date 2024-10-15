@@ -42,7 +42,7 @@ runs:
             timestamp_as_date=$last_timestamp
             case $timestamp_as_date in
                 ''|*[!0-9]*) echo "Date is not an integer" ;;
-                *) timestamp_as_date="$(date -d @${last_timestamp} --rfc-3339=seconds)" ;;
+                *) timestamp_as_date="$(date -d @${last_timestamp} --rfc-3339=ns)" ;;
             esac
 
             set -x
@@ -69,7 +69,7 @@ runs:
         echo "Final timestamp is ${last_timestamp}"
         case $last_timestamp in
             ''|*[!0-9]*) echo "Date is not an integer" ;;
-            *) last_timestamp="$(date -d @${last_timestamp} --rfc-3339=seconds)" ;;
+            *) last_timestamp="$(date -d @${last_timestamp} --rfc-3339=ns)" ;;
         esac
 
         if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then

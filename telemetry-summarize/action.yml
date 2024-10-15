@@ -50,7 +50,10 @@ runs:
                     --end "$(cat job_info.json  | jq -r '.started_at // "now"')" \
                     --verbose
 
-        # Each line is a step
+        # The reporting of the completion time is earlier than the actual last step's completion.
+        # We compensate for that by picking up the last knwon completion time of any step.
+        last_timestamp=$(date -d "$(cat job_info.json  | jq -r '.completed_at // "now"')" +'%s')
+
         cat job_info.json | jq -c '.steps[]' | while read f; do
             name="$(echo "$f" | jq -r .name)";
             conclusion="$(echo "$f" | jq .conclusion)";
@@ -66,4 +69,19 @@ runs:
                 --start="$(echo "$f" | jq -r '.started_at // "now"')" \
                 --end="$(echo "$f" | jq -r '.completed_at // "now"')" \
                 --verbose
+
+            # Compare timestamps; keep the latest one
+            step_end_timestamp=$(date -d "$(echo "$f" | jq -r '.completed_at // "now"')" +'%s')
+            if [ "${step_end_timestamp}" -ge "${last_timestamp}" ]; then
+              last_timestamp=${step_end_timestamp}
+            fi
         done
+
+        otel-cli span create \
+                    --name "workflow root" \
+                    --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                    --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
+                    --end "${last_timestamp}" \
+                    --verbose \
+                    $status_description

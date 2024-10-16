@@ -9,7 +9,7 @@ inputs:
     description: 'The OpenTelemetry trace and span id of the span that will be created'
     required: true
   start_time:
-    description: 'start time of the span. Formatted as epoch: $(date +"%s.%N")'
+    description: 'start time of the span. Formatted as epoch: $(date +%s.%N)'
     required: true
   end_time:
     description: 'end time of the span. Optional. If not provided, defaults to "now".'
@@ -29,7 +29,7 @@ runs:
       run: |
         end_time="${{inputs.end_time}}"
         if [ "${end_time}" = "now" ]; then
-          end_time=$(date +"%s.%n")
+          end_time=$(date +%s.%N)
         fi
         trace_id="$(cut -d'-' -f2 <<<"${{inputs.traceparent}}")"
         span_id="$(cut -d'-' -f3 <<<"${{inputs.traceparent}}")"

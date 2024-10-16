@@ -37,19 +37,6 @@ runs:
             echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}";
           fi
 
-    - name: Write certificate files for mTLS
-      shell: bash
-      run: |
-        mkdir -p /tmp/certs
-        cat << EOF > ${{env.OTEL_EXPORTER_OTLP_CERTIFICATE}}
-        ${{ env.SECRET_CA_CERTIFICATE }}
-        EOF
-        cat << EOF > ${{env.OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}}
-        ${{ env.SECRET_CLIENT_CERTIFICATE }}
-        EOF
-        cat << EOF > ${{env.OTEL_EXPORTER_OTLP_CLIENT_KEY}}
-        ${{ env.SECRET_CLIENT_KEY }}
-        EOF
     - uses: actions/checkout@v4
       with:
         repository: rapidsai/shared-actions

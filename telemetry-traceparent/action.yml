@@ -32,9 +32,9 @@ runs:
     - name: Download gha-tools with git clone
       shell: bash
       run: |
-          if [[ $(type rapids-get-telemetry-traceparent >/dev/null 2>&1) -eq 0 ]]
-            git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools
-            echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
+          if [[ $(type rapids-get-telemetry-traceparent >/dev/null 2>&1) -eq 0 ]]; then
+            git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools;
+            echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}";
           fi
 
     - name: Write certificate files for mTLS

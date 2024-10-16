@@ -45,7 +45,6 @@ runs:
                 *) timestamp_as_date="$(date -d @${last_timestamp} --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")" ;;
             esac
 
-            set -x
             otel-cli span create \
                 --name="$name" \
                 --force-trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
@@ -53,7 +52,6 @@ runs:
                 --start="$(echo ${row} | base64 --decode | jq -r ".started_at // \"${timestamp_as_date}\"")" \
                 --end="$(echo ${row} | base64 --decode | jq -r ".completed_at // \"${timestamp_as_date}\"")" \
                 --verbose
-            set +x
 
             # Compare timestamps; keep the latest one
             step_end_timestamp="$(echo ${row} | base64 --decode | jq -r ".completed_at")";

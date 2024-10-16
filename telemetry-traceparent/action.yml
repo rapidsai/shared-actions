@@ -42,13 +42,13 @@ runs:
       run: |
         mkdir -p /tmp/certs
         cat << EOF > ${{env.OTEL_EXPORTER_OTLP_CERTIFICATE}}
-        ${{ secrets.OTEL_EXPORTER_OTLP_CA_CERTIFICATE }}
+        ${{ env.SECRET_CA_CERTIFICATE }}
         EOF
         cat << EOF > ${{env.OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}}
-        ${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE }}
+        ${{ env.SECRET_CLIENT_CERTIFICATE }}
         EOF
         cat << EOF > ${{env.OTEL_EXPORTER_OTLP_CLIENT_KEY}}
-        ${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_KEY }}
+        ${{ env.SECRET_CLIENT_KEY }}
         EOF
     - uses: actions/checkout@v4
       with:

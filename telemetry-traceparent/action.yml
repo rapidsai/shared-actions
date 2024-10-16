@@ -30,6 +30,7 @@ runs:
     # https://github.com/rapidsai/gha-tools/commit/8bd8fca71b5fae38b1493c547d15e73da40b32e1#diff-f1f054b2906bfd36ad706ed2fa6aa028fa529e65b25167e4ca7ca45546d59ed8R14
     # is available. The PR is merged, but at time of writing, no ci-imgs builds have been released to pick it up.
     - name: Download gha-tools with git clone
+      shell: bash
       run: |
           if [[ $(type rapids-get-telemetry-traceparent >/dev/null 2>&1) -eq 0 ]]
             git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools
@@ -37,6 +38,7 @@ runs:
           fi
 
     - name: Write certificate files for mTLS
+      shell: bash
       run: |
         mkdir -p /tmp/certs
         cat << EOF > ${{env.OTEL_EXPORTER_OTLP_CERTIFICATE}}

@@ -24,5 +24,8 @@ runs:
       run:
         ls job_info*;
         cat job_info.json;
-        echo JOB_NAME="$(cat job_info.json | jq -r '.name')" >> ${GITHUB_OUTPUT};
-        echo OTEL_SERVICE_NAME="$(cat job_info.json | jq -r '.name')" >> ${GITHUB_ENV};
+        JOB_NAME="$(cat job_info.json | jq -r '.name')"
+        echo JOB_NAME="${JOB_NAME}" >> ${GITHUB_OUTPUT};
+        if [ "$GITHUB_SERVICE_NAME" = "" ]; then
+          echo OTEL_SERVICE_NAME="${JOB_NAME}" >> ${GITHUB_ENV};
+        fi

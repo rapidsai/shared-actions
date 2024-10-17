@@ -26,6 +26,6 @@ runs:
         cat job_info.json;
         JOB_NAME="$(cat job_info.json | jq -r '.name')"
         echo JOB_NAME="${JOB_NAME}" >> ${GITHUB_OUTPUT};
-        if [ "$GITHUB_SERVICE_NAME" = "" ]; then
+        if [ "$OTEL_SERVICE_NAME" = "" ]; then
           echo OTEL_SERVICE_NAME="${JOB_NAME}" >> ${GITHUB_ENV};
         fi

@@ -9,6 +9,16 @@ jobs:
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
+      # Temporary until ci-imgs build with
+      # https://github.com/rapidsai/gha-tools/commit/8bd8fca71b5fae38b1493c547d15e73da40b32e1#diff-f1f054b2906bfd36ad706ed2fa6aa028fa529e65b25167e4ca7ca45546d59ed8R14
+      # is available. The PR is merged, but at time of writing, no ci-imgs builds have been released to pick it up.
+      - name: Download gha-tools with git clone
+        shell: bash
+        run: |
+            if [[ ! -d /tmp/gha-tools ]]; then
+                git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools;
+                echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}";
+            fi
       - name: test traceparent script at top level
         run: |
             echo $(rapids-get-telemetry-traceparent)
@@ -27,6 +37,16 @@ jobs:
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
+      # Temporary until ci-imgs build with
+      # https://github.com/rapidsai/gha-tools/commit/8bd8fca71b5fae38b1493c547d15e73da40b32e1#diff-f1f054b2906bfd36ad706ed2fa6aa028fa529e65b25167e4ca7ca45546d59ed8R14
+      # is available. The PR is merged, but at time of writing, no ci-imgs builds have been released to pick it up.
+      - name: Download gha-tools with git clone
+        shell: bash
+        run: |
+            if [[ ! -d /tmp/gha-tools ]]; then
+                git clone https://github.com/msarahan/gha-tools.git -b add-telemetry-traceparent-scripts /tmp/gha-tools;
+                echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}";
+            fi
 
       # Run job with traceparent. We'll validate that this matches in the summary data.
       - name: Get job traceparent in matrix job

@@ -22,8 +22,7 @@ runs:
     - shell: bash
       id: get-job-name
       run:
-        ls job_info*;
-        cat job_info.json;
+        set -x
         JOB_NAME="$(cat job_info.json | jq -r '.name')"
         echo JOB_NAME="${JOB_NAME}" >> ${GITHUB_OUTPUT};
         if [ "$OTEL_SERVICE_NAME" = "" ]; then

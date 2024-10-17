@@ -14,13 +14,16 @@ runs:
         path: ./shared-actions
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
+    - uses: ./shared-actions/set-otel-service-name-from-github
     - shell: bash
       run: |
         # This traceparent is the one that comes from outside; from any external job above this
         # Our job span should be a child of that trace. It is valid for this to be empty.
         export TRACEPARENT="${{inputs.traceparent}}"
 
-        export OTEL_SERVICE_NAME="$(cat job_info.json | jq -r '.name' )"
+        # NOTE: OTEL_SERVICE_NAME is set at this point. It either comes in as an env var set outside
+        #    of this action, or it is set in the `set-otel-service-name-from-github` action above this.
+
         export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
 
         # Nest the steps under the job we just made a span for. This sets the parent span ID for us.

@@ -42,8 +42,8 @@ runs:
         repository: rapidsai/shared-actions
         ref: add-telemetry
         path: ./shared-actions
+    # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
     - uses: ./shared-actions/set-otel-service-name-from-github
-      id: get-job-name
     - shell: bash
       id: output-inputs
       run: |
@@ -58,7 +58,7 @@ runs:
         echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{\OTEL_SERVICE_NAME}\})-01'"
         echo "evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}\)-01""
 
-        echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{\{steps.get-job-name.outputs.name\}\}'"
+        echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{OTEL_SERVICE_NAME\}'"
         echo "STEP TRACEPARENT input: '\${JOB_SPAN_ID}-\${STEP_NAME}'"
         echo "evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}-${{inputs.step_name}}\)-01""
 

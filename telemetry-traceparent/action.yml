@@ -45,6 +45,13 @@ runs:
     # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
     - uses: ./shared-actions/set-otel-service-name-from-github
     - shell: bash
+      run: |
+        echo "OTEL_SERVICE_NAME is ${OTEL_SERVICE_NAME}"
+        if [ "${OTEL_SERVICE_NAME}" = "" ]; then
+          echo "OTEL_SERVICE_NAME is empty. Erroring out.";
+          exit 1;
+        fi
+    - shell: bash
       id: output-inputs
       run: |
         echo "trace ID input: '${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}'"

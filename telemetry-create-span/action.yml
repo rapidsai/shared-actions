@@ -1,12 +1,14 @@
 name: 'Telemetry span creator'
 description: 'Creates a span with the given traceparent and timestamp info'
 inputs:
+  default_endpoint:
+    description: The server to send the span to
   service:
     description: The name of the service. This might be something like the root workflow file, or the repo, or PR number.
   name:
     description: The name of the span
   traceparent:
-    description: 'The OpenTelemetry trace and span id of the span that will be created'
+    description: 'The OpenTelemetry trace and span id of the span that will be created/updated'
     required: true
   start_time:
     description: 'start time of the span. Formatted as epoch: $(date +%s.%N)'
@@ -27,6 +29,7 @@ runs:
       id: github-job-info
     - shell: bash
       run: |
+        export OTEL_EXPORTER_OTLP_ENDPOINT="${{inputs.default_endpoint}}"
         end_time="${{inputs.end_time}}"
         if [ "${end_time}" = "now" ]; then
           end_time=$(date +%s.%N)

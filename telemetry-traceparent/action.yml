@@ -15,6 +15,9 @@ runs:
     - shell: bash
       id: install-otel-cli
       run:
+
+        mkdir -p bin;
+        echo $(pwd)/bin >> $GITHUB_PATH;
         if ! otel-cli --help  2>&1 >/dev/null; then
           ARCH=$(uname -m);
           if [ "$(uname -m)" = "x86_64" ]; then
@@ -24,13 +27,11 @@ runs:
           fi;
           curl -L -o otel-cli-${ARCH}.tar.gz https://github.com/equinix-labs/otel-cli/releases/download/v0.4.5/otel-cli_0.4.5_linux_${ARCH}.tar.gz;
           tar -zxf  otel-cli-${ARCH}.tar.gz;
-          mkdir -p bin;
-          echo $(pwd)/bin >> $GITHUB_PATH;
           mv otel-cli ./bin/;
           rm -rf otel-cli-${ARCH}.tar.gz;
         fi;
         wget https://github.com/rapidsai/gha-tools/releases/latest/download/tools.tar.gz -O - \
-            | tar -xz -C /usr/local/bin
+            | tar -xz -C ./bin
 
     - uses: actions/checkout@v4
       with:

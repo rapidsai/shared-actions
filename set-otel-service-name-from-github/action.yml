@@ -19,7 +19,6 @@ runs:
     - uses: actions/checkout@v4
       with:
         repository: rapidsai/shared-actions
-        ref: add-telemetry
         path: ./shared-actions
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info

@@ -35,10 +35,20 @@ runs:
     # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
     - uses: ./shared-actions/set-otel-service-name-from-github
     - shell: bash
+      id: checks
       run: |
         echo "OTEL_SERVICE_NAME is ${OTEL_SERVICE_NAME}"
         if [ "${OTEL_SERVICE_NAME}" = "" ]; then
           echo "OTEL_SERVICE_NAME is empty. Erroring out.";
+          exit 1;
+        fi
+
+        if [[ $(type otel-cli >/dev/null 2>&1) -eq 0 ]]; then
+          echo "otel-cli is missing";
+          exit 1;
+        fi
+        if [[ $(type rapids-get-telemetry-trace-id >/dev/null 2>&1) -eq 0 ]]; then
+          echo "rapidsai/gha-tools is missing or lacks telemetry scripts";
           exit 1;
         fi
     - shell: bash

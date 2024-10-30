@@ -44,7 +44,8 @@ runs:
           exit 1;
         fi
 
-        if [[ $(type otel-cli >/dev/null 2>&1) -eq 0 ]]; then
+
+        if ! otel-cli --help  2>&1 >/dev/null; then
           echo "otel-cli is missing";
           exit 1;
         fi

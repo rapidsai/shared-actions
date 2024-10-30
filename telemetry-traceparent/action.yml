@@ -30,7 +30,6 @@ runs:
 
     - uses: actions/checkout@v4
       with:
-        repository: rapidsai/shared-actions
         path: ./shared-actions
     # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
     - uses: ./shared-actions/set-otel-service-name-from-github

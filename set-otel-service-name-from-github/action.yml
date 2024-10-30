@@ -18,7 +18,6 @@ runs:
     # It is likely that you are not pushing to the repo that is being cloned here.
     - uses: actions/checkout@v4
       with:
-        repository: rapidsai/shared-actions
         path: ./shared-actions
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info

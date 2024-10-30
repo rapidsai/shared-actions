@@ -40,7 +40,7 @@ runs:
             this_job = await get_job({github, context, process});
             if (this_job === undefined && retryCount < maxRetries) {
               retryCount++;
-              const delay = initialDelay * Math.pow(2, retryCount - 1);
+              sleep(initialDelay * Math.pow(2, retryCount - 1));
             } else {
               break;
             }

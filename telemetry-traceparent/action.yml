@@ -30,8 +30,8 @@ runs:
           mv otel-cli ./bin/;
           rm -rf otel-cli-${ARCH}.tar.gz;
         fi;
-        wget https://github.com/rapidsai/gha-tools/releases/latest/download/tools.tar.gz -O - \
-            | tar -xz -C ./bin
+        curl -LO https://github.com/rapidsai/gha-tools/releases/latest/download/tools.tar.gz;
+        tar -xzf tools.tar.gz -C ./bin
 
     - uses: actions/checkout@v4
       with:

@@ -9,9 +9,8 @@ jobs:
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
-      - name: test traceparent script at top level
-        run: |
-            echo $(rapids-get-telemetry-traceparent)
+        with:
+            ref: ${{github.ref}}
       - name: Get job traceparent
         uses: ./telemetry-traceparent
         id: job-traceparent
@@ -27,7 +26,8 @@ jobs:
     steps:
       - name: Checkout actions
         uses: actions/checkout@v4
-
+        with:
+            ref: ${{github.ref}}
       # Run job with traceparent. We'll validate that this matches in the summary data.
       - name: Get job traceparent in matrix job
         uses: ./telemetry-traceparent

@@ -16,6 +16,10 @@ inputs:
   end_time:
     description: 'end time of the span. Optional. If not provided, defaults to "now".'
     default: "now"
+  otel_resource_attributes:
+    description: |
+      Comma-separated key=value pairs used for storing additional "tags" to better identify data
+
 
 runs:
   using: 'composite'
@@ -30,6 +34,7 @@ runs:
     - shell: bash
       run: |
         export OTEL_EXPORTER_OTLP_ENDPOINT="${{inputs.default_endpoint}}"
+        export OTEL_RESOURCE_ATTRIBUTES="${{inputs.otel_resource_attributes}}"
         end_time="${{inputs.end_time}}"
         if [ "${end_time}" = "now" ]; then
           end_time=$(date +%s.%N)

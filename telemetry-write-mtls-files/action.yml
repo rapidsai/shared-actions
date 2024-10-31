@@ -17,18 +17,18 @@ runs:
         mkdir -p /tmp/certs
         OTEL_EXPORTER_OTLP_CERTIFICATE=/tmp/certs/ca.crt.pem
         cat << EOF > "${OTEL_EXPORTER_OTLP_CERTIFICATE}"
-        ${{ secrets.OTEL_EXPORTER_OTLP_CA_CERTIFICATE }}
+        ${{ inputs.ca_cert }}
         EOF
         echo OTEL_EXPORTER_OTLP_CERTIFICATE >> ${GITHUB_ENV}
 
         OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/tmp/certs/client.crt.pem
         cat << EOF > "${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}"
-        ${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE }}
+        ${{ inputs.client_cert }}
         EOF
         echo OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE >> ${GITHUB_ENV}
 
         OTEL_EXPORTER_OTLP_CLIENT_KEY=/tmp/certs/client.key.pem
         cat << EOF > "${OTEL_EXPORTER_OTLP_CLIENT_KEY}"
-        ${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_KEY }}
+        ${{ inputs.client_key }}
         EOF
         echo OTEL_EXPORTER_OTLP_CLIENT_KEY >> ${GITHUB_ENV}

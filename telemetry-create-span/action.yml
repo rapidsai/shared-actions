@@ -31,7 +31,7 @@ runs:
   steps:
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
-    - uses: ./shared-actions/write-mtls-files
+    - uses: ./shared-actions/telemetry-write-mtls-files
       with:
         ca_cert: "${{inputs.ca_cert}}"
         client_cert: "${{inputs.client_cert}}"

@@ -7,9 +7,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/checkout@v4
-      with:
-        path: ./shared-actions
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
     - uses: ./shared-actions/set-otel-service-name-from-github

@@ -11,68 +11,29 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    # TODO: This should be removed once otel-cli or its replacement is available in our ci images
-    - shell: bash
-      id: install-otel-cli
-      run:
-
-        mkdir -p bin;
-        echo $(pwd)/bin >> $GITHUB_PATH;
-        if ! otel-cli --help  2>&1 >/dev/null; then
-          ARCH=$(uname -m);
-          if [ "$(uname -m)" = "x86_64" ]; then
-            ARCH="amd64";
-          else
-            ARCH="arm64";
-          fi;
-          curl -L -o otel-cli-${ARCH}.tar.gz https://github.com/equinix-labs/otel-cli/releases/download/v0.4.5/otel-cli_0.4.5_linux_${ARCH}.tar.gz;
-          tar -zxf  otel-cli-${ARCH}.tar.gz;
-          mv otel-cli ./bin/;
-          rm -rf otel-cli-${ARCH}.tar.gz;
-        fi;
-        curl -LO https://github.com/rapidsai/gha-tools/releases/latest/download/tools.tar.gz;
-        tar -xzf tools.tar.gz -C ./bin
-
-    - uses: actions/checkout@v4
-      with:
-        path: ./shared-actions
+    - uses: ./shared-actions/telemetry-ensure-otel-cli-available
     # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
     - uses: ./shared-actions/set-otel-service-name-from-github
-    - shell: bash
-      id: checks
-      run: |
-        echo "OTEL_SERVICE_NAME is ${OTEL_SERVICE_NAME}"
-        if [ "${OTEL_SERVICE_NAME}" = "" ]; then
-          echo "OTEL_SERVICE_NAME is empty. Erroring out.";
-          exit 1;
-        fi
+    - uses: ./shared-actions/telemetry-sanity-checks
 
-
-        if ! otel-cli --help  2>&1 >/dev/null; then
-          echo "otel-cli is missing";
-          exit 1;
-        fi
-        if ! type -P rapids-get-telemetry-trace-id 2>&1 >/dev/null; then
-          echo "rapidsai/gha-tools is missing or lacks telemetry scripts";
-          exit 1;
-        fi
     - shell: bash
       id: output-inputs
+      if:  runner.debug == '1'
       run: |
-        echo "trace ID input: '${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}'"
-        echo "$GITHUB_REPOSITORY="${GITHUB_REPOSITORY}""
-        echo "$GITHUB_RUN_ID="${GITHUB_RUN_ID}""
-        echo "$GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}""
-        echo "Evaluated trace ID input (pre-hash): "${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}""
+        echo "::debug::trace ID input: '${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}'"
+        echo "::debug::$GITHUB_REPOSITORY="${GITHUB_REPOSITORY}""
+        echo "::debug::$GITHUB_RUN_ID="${GITHUB_RUN_ID}""
+        echo "::debug::$GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}""
+        echo "::debug::Evaluated trace ID input (pre-hash): "${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}""
         export TRACE_ID="$(rapids-get-telemetry-trace-id)"
-        echo "Computed trace ID: ${TRACE_ID}"
+        echo "::debug::Computed trace ID: ${TRACE_ID}"
 
-        echo "JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{\OTEL_SERVICE_NAME}\})-01'"
-        echo "evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}\)-01""
+        echo "::debug::JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{\OTEL_SERVICE_NAME}\})-01'"
+        echo "::debug::evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}\)-01""
 
-        echo "JOB_SPAN_ID: '\${TRACE_ID}-\$\{OTEL_SERVICE_NAME\}'"
-        echo "STEP TRACEPARENT input: '\${JOB_SPAN_ID}-\${STEP_NAME}'"
-        echo "evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}-${{inputs.step_name}}\)-01""
+        echo "::debug::JOB_SPAN_ID: '\${TRACE_ID}-\$\{OTEL_SERVICE_NAME\}'"
+        echo "::debug::STEP TRACEPARENT input: '\${JOB_SPAN_ID}-\${STEP_NAME}'"
+        echo "::debug::evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}-${{inputs.step_name}}\)-01""
 
     - shell: bash
       id: shell

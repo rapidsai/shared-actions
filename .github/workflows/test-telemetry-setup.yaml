@@ -3,6 +3,9 @@ on:
   push:
   workflow_dispatch:
 
+env:
+  SHARED_ACTIONS_REF: ${{github.ref}}
+
 jobs:
   compute_traceparent:
     runs-on: ubuntu-latest
@@ -10,9 +13,10 @@ jobs:
       - name: Checkout actions
         uses: actions/checkout@v4
         with:
-            ref: ${{github.ref}}
+            ref: ${{env.SHARED_ACTIONS_REF}}
+            path: ./shared-actions
       - name: Get job traceparent
-        uses: ./telemetry-traceparent
+        uses: ./shared-actions/telemetry-traceparent
         id: job-traceparent
       - name: Echo value from job
         run: echo "${{steps.job-traceparent.outputs.traceparent}}"
@@ -27,13 +31,14 @@ jobs:
       - name: Checkout actions
         uses: actions/checkout@v4
         with:
-            ref: ${{github.ref}}
+            ref: ${{env.SHARED_ACTIONS_REF}}
+            path: ./shared-actions
       # Run job with traceparent. We'll validate that this matches in the summary data.
       - name: Get job traceparent in matrix job
-        uses: ./telemetry-traceparent
+        uses: ./shared-actions/telemetry-traceparent
         id: job-traceparent
       - name: Generate traceparent for a step
-        uses: ./telemetry-traceparent
+        uses: ./shared-actions/telemetry-traceparent
         id: step-traceparent
         with:
             step_name: "Download gha-tools with git clone"
@@ -41,6 +46,6 @@ jobs:
         run: |
             echo "GHA tools clone job traceparent: ${{ steps.step-traceparent.outputs.traceparent }}"
       - name: Test OTel export of job JSON
-        uses: ./telemetry-summarize
+        uses: ./shared-actions/telemetry-summarize
         with:
             traceparent: ${{ steps.job-traceparent.outputs.traceparent}}

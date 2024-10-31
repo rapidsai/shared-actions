@@ -16,11 +16,11 @@ runs:
       run: |
         mkdir -p /tmp/certs
         OTEL_EXPORTER_OTLP_CERTIFICATE=/tmp/certs/ca.crt.pem
-        echo "${{inputs.ca_crt}}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CERTIFICATE}
+        echo "${{inputs.ca_cert}}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CERTIFICATE}
         echo OTEL_EXPORTER_OTLP_CERTIFICATE=${OTEL_EXPORTER_OTLP_CERTIFICATE} >> ${GITHUB_ENV}
 
         OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/tmp/certs/client.crt.pem
-        echo "${{inputs.client_crt}}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}
+        echo "${{inputs.client_cert}}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}
         echo OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE} >> ${GITHUB_ENV}
 
         OTEL_EXPORTER_OTLP_CLIENT_KEY=/tmp/certs/client.key.pem

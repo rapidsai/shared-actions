@@ -13,11 +13,11 @@ inputs:
     description: ''
   # mTLS settings
   ca_cert:
-    description: 'value of the secret ca_cert (can't use env var directly, because GHA is weird)'
+    description: "value of the secret ca_cert (can't use env var directly, because GHA is weird)"
   client_cert:
-    description: 'value of the secret client_cert (can't use env var directly, because GHA is weird)'
+    description: "value of the secret client_cert (can't use env var directly, because GHA is weird)"
   client_key:
-    description: 'value of the secret client_key (can't use env var directly, because GHA is weird)'
+    description: "value of the secret client_key (can't use env var directly, because GHA is weird)"
 
 runs:
   using: 'composite'
@@ -26,26 +26,9 @@ runs:
       id: timestamp
       run:
           echo "FINAL_TIME=$(date +%s.%N)" >> ${GITHUB_OUTPUT}
-    # Main purpose of this traceparent line here is to ensure that otel-cli is installed.
-    - name: Write certificate files for mTLS
-      run: |
-        mkdir -p /tmp/certs
-        cat << EOF > /tmp/certs/ca.crt.pem
-        ${{ inputs.ca_cert }}
-        EOF
-        cat << EOF > /tmp/certs/client.crt.pem
-        ${{ inputs.client_cert }}
-        EOF
-        cat << EOF > /tmp/certs/client.key.pem
-        ${{ inputs.client_key }}
-        EOF
     - name: Update root span with final completion time
       if: always()
       uses: rapidsai/shared-actions/telemetry-create-span@add-telemetry
-      env:
-        OTEL_EXPORTER_OTLP_CA_CERTIFICATE: /tmp/certs/ca.crt.pem
-        OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE: /tmp/certs/client.crt.pem
-        OTEL_EXPORTER_OTLP_CLIENT_KEY: /tmp/certs/client.key.pem
       with:
         service: ${{inputs.top_level_service_name}}
         name: "end-of-job update"
@@ -54,3 +37,6 @@ runs:
         start_time: ${{inputs.start_time}}
         end_time: ${{steps.timestamp.outputs.FINAL_TIME}}
         otel_resource_attributes: "${{inputs.otel_resource_attributes}}"
+        ca_cert: ${{inputs.ca_cert}}
+        client_cert: ${{inputs.client_cert}}
+        client_key: ${{inputs.client_key}}

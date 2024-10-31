@@ -1,0 +1,34 @@
+name: 'Telemetry write mTLS files'
+description: 'writes certificates to disk and sets env vars so that OpenTelemetry stuff can find them'
+inputs:
+  ca_cert:
+    description: Text of the ca certificate for mTLS. This is NOT the file path. It is the secret value.
+  client_cert:
+    description: Text of the client certificate for mTLS. This is NOT the file path. It is the secret value.
+  client_key:
+    description: Text of the client key for mTLS. This is NOT the file path. It is the secret value.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Write certificate files for mTLS
+      shell: bash
+      run: |
+        mkdir -p /tmp/certs
+        OTEL_EXPORTER_OTLP_CERTIFICATE=/tmp/certs/ca.crt.pem
+        cat << EOF > "${OTEL_EXPORTER_OTLP_CERTIFICATE}"
+        ${{ secrets.OTEL_EXPORTER_OTLP_CA_CERTIFICATE }}
+        EOF
+        echo OTEL_EXPORTER_OTLP_CERTIFICATE >> ${GITHUB_ENV}
+
+        OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/tmp/certs/client.crt.pem
+        cat << EOF > "${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}"
+        ${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE }}
+        EOF
+        echo OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE >> ${GITHUB_ENV}
+
+        OTEL_EXPORTER_OTLP_CLIENT_KEY=/tmp/certs/client.key.pem
+        cat << EOF > "${OTEL_EXPORTER_OTLP_CLIENT_KEY}"
+        ${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_KEY }}
+        EOF
+        echo OTEL_EXPORTER_OTLP_CLIENT_KEY >> ${GITHUB_ENV}

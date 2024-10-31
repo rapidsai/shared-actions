@@ -19,13 +19,23 @@ inputs:
   otel_resource_attributes:
     description: |
       Comma-separated key=value pairs used for storing additional "tags" to better identify data
-
+  ca_cert:
+    description: "value of the secret ca_cert (can't use env var directly, because GHA is weird)"
+  client_cert:
+    description: "value of the secret client_cert (can't use env var directly, because GHA is weird)"
+  client_key:
+    description: "value of the secret client_key (can't use env var directly, because GHA is weird)"
 
 runs:
   using: 'composite'
   steps:
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
+    - uses: ./shared-actions/write-mtls-files
+      with:
+        ca_cert: "${{inputs.ca_cert}}"
+        client_cert: "${{inputs.client_cert}}"
+        client_key: "${{inputs.client_key}}"
     - shell: bash
       run: |
         export OTEL_EXPORTER_OTLP_ENDPOINT="${{inputs.default_endpoint}}"

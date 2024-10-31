@@ -3,12 +3,23 @@ description: 'Consumes job info, parses into spans, and pushes spans. Requires o
 inputs:
   traceparent:
     description: 'The OpenTelemetry span id of the span that new spans should be created under'
+  ca_cert:
+    description: Text of the ca certificate for mTLS. This is NOT the file path. It is the secret value.
+  client_cert:
+    description: Text of the client certificate for mTLS. This is NOT the file path. It is the secret value.
+  client_key:
+    description: Text of the client key for mTLS. This is NOT the file path. It is the secret value.
 
 runs:
   using: 'composite'
   steps:
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
+    - uses: ./shared-actions/write-mtls-files
+      with:
+        ca_cert: "${{inputs.ca_cert}}"
+        client_cert: "${{inputs.client_cert}}"
+        client_key: "${{inputs.client_key}}"
     - uses: ./shared-actions/set-otel-service-name-from-github
     - shell: bash
       run: |

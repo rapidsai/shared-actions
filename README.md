@@ -24,3 +24,15 @@ jobs:
             ref: ${{env.SHARED_ACTIONS_REF}}
             path: ./shared-actions
 ```
+
+Instead of something like:
+
+```
+      - name: Telemetry setup
+        id: telemetry-setup
+        uses: rapidsai/shared-actions/telemetry-traceparent@add-telemetry
+```
+
+This latter syntax is difficult because the branch info does not cascade
+recursively into any checkouts that might be done in an action, and also because
+this syntax does not support actions calling other actions with relative paths.

@@ -12,13 +12,6 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    # this checkout is goofy, but it's because we want to use the relative path to another reusable action.
-    # From an external repo, that relative path won't be valid unless we do a source checkout of the shared-actions
-    # repo. Pay attention to which repo you're pushing to. It's easy to wonder why you're not picking up changes.
-    # It is likely that you are not pushing to the repo that is being cloned here.
-    - uses: actions/checkout@v4
-      with:
-        path: ./shared-actions
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
     - shell: bash

@@ -20,7 +20,7 @@ runs:
         ca_cert: "${{inputs.ca_cert}}"
         client_cert: "${{inputs.client_cert}}"
         client_key: "${{inputs.client_key}}"
-    - uses: ./shared-actions/set-otel-service-name-from-github
+    - uses: ./shared-actions/telemetry-set-otel-service-name
     - shell: bash
       run: |
         # This traceparent is the one that comes from outside; from any external job above this
@@ -28,7 +28,7 @@ runs:
         export TRACEPARENT="${{inputs.traceparent}}"
 
         # NOTE: OTEL_SERVICE_NAME is set at this point. It either comes in as an env var set outside
-        #    of this action, or it is set in the `set-otel-service-name-from-github` action above this.
+        #    of this action, or it is set in the `telemetry-set-otel-service-name` action above this.
 
         export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
 

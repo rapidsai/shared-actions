@@ -13,7 +13,7 @@ runs:
   steps:
     - uses: ./shared-actions/telemetry-ensure-otel-cli-available
     # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
-    - uses: ./shared-actions/set-otel-service-name-from-github
+    - uses: ./shared-actions/telemetry-set-otel-service-name
     - uses: ./shared-actions/telemetry-sanity-checks
 
     - shell: bash

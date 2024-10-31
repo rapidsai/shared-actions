@@ -29,6 +29,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - uses: ./shared-actions/telemetry-ensure-otel-cli-available
     - uses: ./shared-actions/github-actions-job-info
       id: github-job-info
     - uses: ./shared-actions/telemetry-write-mtls-files

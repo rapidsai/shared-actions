@@ -27,3 +27,4 @@ runs:
         fi;
         curl -LO https://github.com/rapidsai/gha-tools/releases/latest/download/tools.tar.gz;
         tar -xzf tools.tar.gz -C ./bin
+        echo "$(pwd)/bin" >> ${GITHUB_PATH}

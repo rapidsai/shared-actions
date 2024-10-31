@@ -9,8 +9,11 @@ This composite action generates a DockerHub token and runs a script with it. The
 - `script` (required): Script to run
 
 ## Inner variables
-These are variables pre-computed by this action which become usable by the scripts that you pass to be run in this action. 
+These are variables pre-computed by this action which become usable by the scripts that you pass to be run in this action.
 - `HUB_TOKEN`: The generated DockerHub token required for authorization against the DockerHub API.
+
+NOTE: these examples assume that you are first cloning the shared-actions repo,
+and using the script locally. See the root README for more details.
 
 ## Usage
 
@@ -19,7 +22,7 @@ jobs:
   example:
     steps:
       - name: Run With DockerHub Token
-        uses: rapidsai/shared-actions/dockerhub-script@main
+        uses: ./shared-actions/dockerhub-script
         with:
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_PASSWORD }}

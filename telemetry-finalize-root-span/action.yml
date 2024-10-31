@@ -27,8 +27,7 @@ runs:
       run:
           echo "FINAL_TIME=$(date +%s.%N)" >> ${GITHUB_OUTPUT}
     - name: Update root span with final completion time
-      if: always()
-      uses: rapidsai/shared-actions/telemetry-create-span@add-telemetry
+      uses: ./shared-actions/telemetry-create-span
       with:
         service: ${{inputs.top_level_service_name}}
         name: "end-of-job update"

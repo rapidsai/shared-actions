@@ -23,6 +23,10 @@ jobs:
             repository: rapidsai/shared-actions
             ref: ${{env.SHARED_ACTIONS_REF}}
             path: ./shared-actions
+      - name: run script
+        uses: ./shared-actions/some-script-folder-name
+        with:
+          blah: yes
 ```
 
 Instead of something like:

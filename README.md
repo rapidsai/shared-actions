@@ -20,7 +20,7 @@ jobs:
       - name: Checkout actions
         uses: actions/checkout@v4
         with:
-            repo: rapidsai/shared-actions
+            repository: rapidsai/shared-actions
             ref: ${{env.SHARED_ACTIONS_REF}}
             path: ./shared-actions
 ```

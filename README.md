@@ -40,3 +40,8 @@ Instead of something like:
 This latter syntax is difficult because the branch info does not cascade
 recursively into any checkouts that might be done in an action, and also because
 this syntax does not support actions calling other actions with relative paths.
+
+Note that the cloning/checkout order matters! The actions/checkout action wipes 
+the destination before cloning into it. That means that if you clone the shared-
+actions repo in a folder, then clone the main repo without a path, the shared-
+actions folder will be removed when you go looking for it. See https://github.com/actions/checkout/issues/1525#issuecomment-2076363261

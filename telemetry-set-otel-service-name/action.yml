@@ -1,0 +1,26 @@
+
+name: 'Set OTEL_SERVICE_NAME from github job info'
+description: |
+    Obtains GitHub Actions job list and matches current job using runner name and attempt number.
+    Returns name of current workflow, which will include any matrix components
+    Sets the OTEL_SERVICE_NAME environment variable. Output is also here if you prefer.
+outputs:
+  name:
+    description: 'The name of the job matching the current runner name and attempt number'
+    value: ${{ steps.get-job-name.outputs.JOB_NAME }}
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: ./shared-actions/github-actions-job-info
+      id: github-job-info
+    - shell: bash
+      id: get-job-name
+      run:
+        echo JOB_NAME="$(cat job_info.json | jq -r '.name')" >> ${GITHUB_OUTPUT};
+    - shell: bash
+      id: maybe-set-otel-service-name
+      run: |
+        if [ "$OTEL_SERVICE_NAME" = "" ]; then
+          echo OTEL_SERVICE_NAME="${{steps.get-job-name.outputs.JOB_NAME}}" >> ${GITHUB_ENV};
+        fi

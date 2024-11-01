@@ -1,0 +1,42 @@
+name: 'Telemetry finalize root span'
+description: 'Updates root span for a pipeline, which sets the end time of the span accurately'
+inputs:
+  top_level_service_name:
+    description: ''
+  default_endpoint:
+    description: ''
+  traceparent:
+    description: 'The OpenTelemetry span id of the span that new spans should be created under'
+  start_time:
+    description: 'Start time, as Unix timestamp'
+  otel_resource_attributes:
+    description: ''
+  # mTLS settings
+  ca_cert:
+    description: "value of the secret ca_cert (can't use env var directly, because GHA is weird)"
+  client_cert:
+    description: "value of the secret client_cert (can't use env var directly, because GHA is weird)"
+  client_key:
+    description: "value of the secret client_key (can't use env var directly, because GHA is weird)"
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get final timestamp
+      shell: bash
+      id: timestamp
+      run:
+          echo "FINAL_TIME=$(date +%s.%N)" >> ${GITHUB_OUTPUT}
+    - name: Update root span with final completion time
+      uses: ./shared-actions/telemetry-create-span
+      with:
+        service: ${{inputs.top_level_service_name}}
+        name: "end-of-job update"
+        default_endpoint: "${{inputs.endpoint}}"
+        traceparent: ${{inputs.traceparent}}
+        start_time: ${{inputs.start_time}}
+        end_time: ${{steps.timestamp.outputs.FINAL_TIME}}
+        otel_resource_attributes: "${{inputs.otel_resource_attributes}}"
+        ca_cert: ${{inputs.ca_cert}}
+        client_cert: ${{inputs.client_cert}}
+        client_key: ${{inputs.client_key}}

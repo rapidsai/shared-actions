@@ -23,6 +23,7 @@ runs:
   using: 'composite'
   steps:
     - name: Get final timestamp
+      shell: bash
       id: timestamp
       run:
           echo "FINAL_TIME=$(date +%s.%N)" >> ${GITHUB_OUTPUT}

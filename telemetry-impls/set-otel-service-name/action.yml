@@ -12,15 +12,13 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - uses: ./shared-actions/github-actions-job-info
+    - uses: ./shared-actions/telemetry-impls/github-actions-job-info
       id: github-job-info
     - shell: bash
       id: get-job-name
       run:
         echo JOB_NAME="$(cat job_info.json | jq -r '.name')" >> ${GITHUB_OUTPUT};
     - shell: bash
-      id: maybe-set-otel-service-name
+      id: set-otel-service-name-env
       run: |
-        if [ "$OTEL_SERVICE_NAME" = "" ]; then
-          echo OTEL_SERVICE_NAME="${{steps.get-job-name.outputs.JOB_NAME}}" >> ${GITHUB_ENV};
-        fi
+        echo OTEL_SERVICE_NAME="${{ steps.get-job-name.outputs.JOB_NAME}}" >> ${GITHUB_ENV};

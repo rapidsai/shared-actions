@@ -1,0 +1,31 @@
+name: 'Clone/checkout specific fork/ref of shared-actions repo and call its _telemetry-finalize-root-span script'
+description: |
+  The purpose of this wrapper is to keep it easy for external consumers to switch branches of
+  the shared-actions repo when they are changing something about shared-actions and need to test it
+  in their pipelines.
+
+  This script is meant to be standalone in that it should not require external inputs from
+  consumers. Consumers may set SHARED_ACTIONS_REPO and SHARED_ACTIONS_REF to test changes
+  in their customized shared-actions repo, but they should not add inputs to those scripts.
+  Instead, they should add those inputs to the variables that get stashed in _stash-base-env-vars.
+inputs:
+  cert_concat:
+    description: Concatenation of certs (CA;Client;ClientKey)
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Clone shared-actions repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO}}
+        ref: ${{ env.SHARED_ACTIONS_REF}}
+        path: ./shared-actions
+    # This is necessary because this action will generally be run in a job separately from
+    # where the env vars are set
+    - name: Load base environment variables
+      uses: ./shared-actions/telemetry-impls/load-base-env-vars
+    - name: Run summarize action
+      uses: ./shared-actions/telemetry-impls/summarize
+      with:
+        cert_concat: ${{ inputs.cert_concat }}

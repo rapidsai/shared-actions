@@ -1,0 +1,54 @@
+name: imitation
+
+on:
+  workflow_call:
+
+permissions:
+  actions: read
+  checks: none
+  contents: read
+  deployments: none
+  discussions: none
+  id-token: write
+  issues: none
+  packages: read
+  pages: none
+  pull-requests: read
+  repository-projects: none
+  security-events: none
+  statuses: none
+
+jobs:
+  build:
+    name: Jobby McJobface
+    runs-on: ubuntu-latest
+    strategy:
+        matrix:
+            CERTS: ["with","without"]
+    steps:
+      # These would be things like the top-level traceparent, global resource attributes, and any custom
+      # repo/branch for shared-actions. Note that we have a chicken/egg here. This dispatch action can't
+      # utilize the custom shared-actions repo/branch because we don't know it yet. It will take effect
+      # for the tasks below this action.
+      - name: Load base env vars
+        uses: rapidsai/shared-actions/telemetry-dispatch-load-base-env-vars@telemetry-dispatch-actions
+      - name: Dummy work
+        shell: bash
+        run: echo "This is dumm"
+      # if statements are parsed before matrix, so we can't use matrix directly.
+      # https://github.com/actions/runner/issues/1985
+      - name: Get matrix value
+        id: matrix_value
+        run: echo CERTS=${{matrix.CERTS}} >> ${GITHUB_OUTPUT}
+      - name: Send telemetry summary (with certs)
+        uses: rapidsai/shared-actions/telemetry-dispatch-write-summary@telemetry-dispatch-actions
+        id: summary_with_certs
+        if: ${{steps.matrix_value.outputs.CERTS}} == 'with'
+        with:
+          cert_concat: ${{ secrets.OTEL_EXPORTER_OTLP_CA_CERTIFICATE }};${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE }};${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_KEY }}
+      # this one should error internally, but the status in the job view should be green. Ideally, we should see something about
+      - name: Send telemetry summary (without certs)
+        continue-on-error: true
+        uses: rapidsai/shared-actions/telemetry-dispatch-write-summary@telemetry-dispatch-actions
+        id: summary_without_certs
+        if: ${{steps.matrix_value.outputs.CERTS}} == 'without'

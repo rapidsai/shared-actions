@@ -1,0 +1,35 @@
+name: Stash base environment variables
+description: |
+  This is a strategy to pass environment variable values between jobs. Because the top-level env
+  is not passed to child shared-workflow calls, we either have to have lots of inputs, or pass these
+  environment variables another way. The idea here is that the top-level job exports these values,
+  then the child shared-workflow jobs start with loading these values.
+
+  This script should only ever be called by the top-level workflow. The child workflows should
+  load this, then augment the environment in whatever way they need to (e.g. matrix values)
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Compute traceparent
+      # This sets TRACEPARENT env var, which we store below.
+      # TRACEPARENT implicity depends on OTEL_SERVICE_NAME being set. This will have one value
+      # for the top-level build (e.g. pr.yaml), and one value for each of the child workflows
+      uses: ./shared-actions/telemetry-impls/traceparent
+    - name: Write base env vars to a file
+      shell: bash
+      run: |
+        cat <<EOF > base-env-vars
+        OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
+        OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL}
+        OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES}"
+        OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME}"
+        SHARED_ACTIONS_REF=${SHARED_ACTIONS_REF}
+        SHARED_ACTIONS_REPO=${SHARED_ACTIONS_REPO}
+        TRACEPARENT=${TRACEPARENT}
+        EOF
+    - name: Upload env vars file
+      uses: actions/upload-artifact@v4
+      with:
+        name: base-env-vars
+        path: base-env-vars

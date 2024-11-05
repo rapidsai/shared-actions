@@ -20,7 +20,7 @@ runs:
           else
             ARCH="arm64";
           fi;
-          curl -L -o otel-cli-${ARCH}.tar.gz https://github.com/equinix-labs/otel-cli/releases/download/v${{inputs.otel_cli_version}}/otel-cli_${{inputs.otel_cli_version}}_linux_${ARCH}.tar.gz;
+          curl -L -o otel-cli-${ARCH}.tar.gz https://github.com/equinix-labs/otel-cli/releases/download/v${{ inputs.otel_cli_version}}/otel-cli_${{ inputs.otel_cli_version}}_linux_${ARCH}.tar.gz;
           tar -zxf  otel-cli-${ARCH}.tar.gz;
           mv otel-cli ./bin/;
           rm -rf otel-cli-${ARCH}.tar.gz;

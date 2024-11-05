@@ -1,39 +1,58 @@
 name: 'Telemetry summarize'
-description: 'Consumes job info, parses into spans, and pushes spans. Requires otel-cli and jq on PATH.'
+description: |
+  Consumes job info, parses into spans, and pushes spans.
 inputs:
-  traceparent:
-    description: 'The OpenTelemetry span id of the span that new spans should be created under'
-  ca_cert:
-    description: Text of the ca certificate for mTLS. This is NOT the file path. It is the secret value.
-  client_cert:
-    description: Text of the client certificate for mTLS. This is NOT the file path. It is the secret value.
-  client_key:
-    description: Text of the client key for mTLS. This is NOT the file path. It is the secret value.
+  cert_concat:
+    description: Concatenation of certs (CA;Client;ClientKey)
 
 runs:
   using: 'composite'
   steps:
-    - uses: ./shared-actions/telemetry-ensure-otel-cli-available
-    - uses: ./shared-actions/github-actions-job-info
+    - uses: ./shared-actions/telemetry-impls/ensure-otel-cli-available
+    # Writes JSON file that jobs below consume
+    - uses: ./shared-actions/telemetry-impls/github-actions-job-info
       id: github-job-info
-    - uses: ./shared-actions/telemetry-write-mtls-files
-      with:
-        ca_cert: "${{inputs.ca_cert}}"
-        client_cert: "${{inputs.client_cert}}"
-        client_key: "${{inputs.client_key}}"
-    - uses: ./shared-actions/telemetry-set-otel-service-name
+    - name: Add RAPIDS worker labels to metadata
+      shell: bash
+      run:
+          labels=$(echo "${{steps.job-info.outputs.job-info}}" | jq -r '.labels | join(" ")')
+          echo OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},rapids.labels=${labels}" >> ${GITHUB_ENV}
+    - uses: ./shared-actions/telemetry-impls/set-otel-service-name
+      if: env.OTEL_SERVICE_NAME == ''
+
+    # OpenTelemetry implementations look for these variable names to be set to the paths
+    # of the files with the mTLS certs and keys. We base64 encode them when storing them
+    # to avoid issues with quoting and multiline text.
+    - name: Write certificate files for mTLS
+      if: "${{ inputs.cert_concat }} != ''"
+      shell: bash
+      run: |
+        mkdir -p /tmp/certs
+        IFS='; ' read -r -a CERT_PARTS <<< "${{ inputs.cert_concat }}"
+
+        OTEL_EXPORTER_OTLP_CERTIFICATE=/tmp/certs/ca.crt.pem
+        echo "${CERT_PARTS[0]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CERTIFICATE}
+        echo OTEL_EXPORTER_OTLP_CERTIFICATE=${OTEL_EXPORTER_OTLP_CERTIFICATE} >> ${GITHUB_ENV}
+
+        OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/tmp/certs/client.crt.pem
+        echo "${CERT_PARTS[1]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}
+        echo OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE} >> ${GITHUB_ENV}
+
+        OTEL_EXPORTER_OTLP_CLIENT_KEY=/tmp/certs/client.key.pem
+        echo "${CERT_PARTS[2]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CLIENT_KEY}
+        echo OTEL_EXPORTER_OTLP_CLIENT_KEY=${OTEL_EXPORTER_OTLP_CLIENT_KEY} >> ${GITHUB_ENV}
+
+    - uses: ./shared-actions/telemetry-impls/sanity-checks
+
     - shell: bash
       run: |
-        # This traceparent is the one that comes from outside; from any external job above this
-        # Our job span should be a child of that trace. It is valid for this to be empty.
-        export TRACEPARENT="${{inputs.traceparent}}"
-
         # NOTE: OTEL_SERVICE_NAME is set at this point. It either comes in as an env var set outside
         #    of this action, or it is set in the `telemetry-set-otel-service-name` action above this.
 
+        set -e
+
         export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
 
-        # Nest the steps under the job we just made a span for. This sets the parent span ID for us.
         export TRACEPARENT=${job_traceparent}
 
         # The reporting of the completion time is earlier than the actual last step's completion.
@@ -61,7 +80,7 @@ runs:
                 --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
                 --start="$(echo ${row} | base64 --decode | jq -r ".started_at // \"${timestamp_as_date}\"")" \
                 --end="$(echo ${row} | base64 --decode | jq -r ".completed_at // \"${timestamp_as_date}\"")" \
-                --verbose
+                --verbose --fail
 
             # Compare timestamps; keep the latest one
             step_end_timestamp="$(echo ${row} | base64 --decode | jq -r ".completed_at")";
@@ -86,8 +105,6 @@ runs:
           status_description=
         fi
 
-        export TRACEPARENT="${{inputs.traceparent}}"
-
         # This is (unintuitively) set here because we don't know the true end time until we
         # go though the steps.
         otel-cli span create \
@@ -96,7 +113,7 @@ runs:
                     --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
                     --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
                     --end "${last_timestamp}" \
-                    --verbose \
+                    --verbose --fail \
                     $status_description
 
         otel-cli span create \
@@ -105,4 +122,4 @@ runs:
                     --force-parent-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
                     --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
                     --end "$(cat job_info.json  | jq -r '.started_at // "now"')" \
-                    --verbose
+                    --verbose --fail

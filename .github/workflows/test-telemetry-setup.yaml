@@ -1,51 +1,93 @@
+# This workflow is meant to imitate the behavior of RAPIDS project PR workflows, such as
+
+
 on:
   pull_request:
-  push:
   workflow_dispatch:
 
 env:
-  SHARED_ACTIONS_REF: ${{github.ref}}
+  SHARED_ACTIONS_REF: ${{ github.ref}}
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  compute_traceparent:
+  base-env-setup:
     runs-on: ubuntu-latest
+    # These will be stashed. The names are not arbitrary. They match special OpenTelemetry names
+    # or names that are hard-coded in actions/scripts downstream.
+    env:
+        SHARED_ACTIONS_REPO: rapidsai/shared-actions
+        SHARED_ACTIONS_REF: ${{ github.ref }}
+        # this should stay the same throughout this workflow, but child workflows will each
+        # have their own OTEL_SERVICE_NAME. It is generally the job name, including any matrix elements.
+        # This is what distinguishes one job trace from another, so it is important to be distinct
+        # between jobs.
+        OTEL_SERVICE_NAME: test-telemetry plus something
+        # TODO: this should be set as an org-wide variable
+        OTEL_EXPORTER_OTLP_ENDPOINT: https://tempo.gha-runners.nvidia.com:4318
+        OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+        OTEL_RESOURCE_ATTRIBUTES: "git.repository=${{ github.repository }},git.ref=${{ github.ref }},git.sha=${{ github.sha }},git.job_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+    outputs:
+        service-name: ${{ steps.export.outputs.service_name }}
+
     steps:
-      - name: Checkout actions
-        uses: actions/checkout@v4
-        with:
-            ref: ${{env.SHARED_ACTIONS_REF}}
-            path: ./shared-actions
-      - name: Get job traceparent
-        uses: ./shared-actions/telemetry-traceparent
-        id: job-traceparent
-      - name: Echo value from job
-        run: echo "${{steps.job-traceparent.outputs.traceparent}}"
-  example_matrix:
-    name: Test ${{ matrix.os}}-${{ matrix.version }}
+    - name: Compute traceparent and stash telemetry-related env vars
+      uses: rapidsai/shared-actions/telemetry-dispatch-stash-base-env-vars@telemetry-dispatch-actions
+    - name: Export service name so we can check it below
+      id: export
+      run: echo service_name="${OTEL_SERVICE_NAME}" >> ${GITHUB_OUTPUT}
+  child-workflow:
+    needs: base-env-setup
+    secrets: inherit
+    uses: rapidsai/shared-actions/.github/workflows/test-child-workflow.yaml@telemetry-dispatch-actions
+  summarize-top-level:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        version: [1, 2]
-        os: [ubuntu-latest] # , windows-latest
+    continue-on-error: true
+    needs:
+        - base-env-setup
+        - child-workflow
     steps:
-      - name: Checkout actions
-        uses: actions/checkout@v4
+      - name: Load base env vars, including OTEL_SERVICE_NAME
+        uses: rapidsai/shared-actions/telemetry-dispatch-load-base-env-vars@telemetry-dispatch-actions
         with:
-            ref: ${{env.SHARED_ACTIONS_REF}}
-            path: ./shared-actions
-      # Run job with traceparent. We'll validate that this matches in the summary data.
-      - name: Get job traceparent in matrix job
-        uses: ./shared-actions/telemetry-traceparent
-        id: job-traceparent
-      - name: Generate traceparent for a step
-        uses: ./shared-actions/telemetry-traceparent
-        id: step-traceparent
-        with:
-            step_name: "Download gha-tools with git clone"
-      - name: Echo computed step traceparent
+            load_service_name: "true"
+      - name: Check if service name took on an unexpected value
         run: |
-            echo "GHA tools clone job traceparent: ${{ steps.step-traceparent.outputs.traceparent }}"
-      - name: Test OTel export of job JSON
-        uses: ./shared-actions/telemetry-summarize
+          echo "(should be the value set to the OTEL_SERVICE_NAME env var in base-env-setup job)"
+          [ "${OTEL_SERVICE_NAME}" = "${{needs.base-env-setup.outputs.service-name}}" ] || exit 1
+      - name: Telemetry summarize
+        uses: rapidsai/shared-actions/telemetry-dispatch-write-summary@telemetry-dispatch-actions
         with:
-            traceparent: ${{ steps.job-traceparent.outputs.traceparent}}
+          cert_concat: "${{ secrets.OTEL_EXPORTER_OTLP_CA_CERTIFICATE }};${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE }};${{ secrets.OTEL_EXPORTER_OTLP_CLIENT_KEY }}"
+
+      - name: Check if service name was altered during telemetry summary
+        run: |
+          echo "(should be the value set to the OTEL_SERVICE_NAME env var in base-env-setup job)"
+          [ "${OTEL_SERVICE_NAME}" = "${{needs.base-env-setup.outputs.service-name}}" ] || exit 1
+      - name: Query the Tempo HTTP API and check that our trace is present and has expected properties
+        run: |
+          TRACE_ID=$( cut -d '-' -f 2 <<< "$TRACEPARENT" );
+          echo "Trace ID is: ${TRACE_ID}";
+          TRACE_URL="${OTEL_EXPORTER_OTLP_ENDPOINT/4318/3200}/api/traces/${TRACE_ID}"
+          echo "Trace URL is: ${TRACE_URL}"
+          curl \
+            --cert /tmp/certs/client.crt.pem --key /tmp/certs/client.key.pem --cacert /tmp/certs/ca.crt.pem \
+            -Gs "${TRACE_URL}" > trace_record.json;
+      - name: Upload trace record
+        uses: actions/upload-artifact@v4
+        with:
+            name: trace-record
+            path: trace_record.json
+      - name: Validate span metadata
+        # these are not returned in any particular order. The span kind is the only one
+        # that we can reliably expect to be the same.
+        run: |
+          span_kind="$(jq -r '.batches[0].scopeSpans[0].spans[0].kind' trace_record.json )";
+          echo "Checking if span kind is as expected"
+          echo "Span kind is: "${span_kind}""
+          [ "${span_kind}" = "SPAN_KIND_CLIENT" ] || exit 1
+          echo "Verify that job names (also called service name) are correct"
+          job_names="$(jq -c '[.batches[].resource.attributes[] | select(.key == "service.name") | .value.stringValue] | unique' trace_record.json)"
+          [ "$job_names" = '["child-workflow / Jobby McJobface (with)","child-workflow / Jobby McJobface (without)","test-telemetry plus something"]' ] || exit 1

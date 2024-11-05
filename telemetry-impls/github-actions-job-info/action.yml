@@ -13,6 +13,7 @@ runs:
       with:
         retries: 3
         script: |
+          const fs = require('node:fs')
           const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
 
           get_job = async ({github, context, process}) => {
@@ -55,5 +56,9 @@ runs:
             throw "Telemetry values were not available. Please see debug logs for more info."
           }
           core.setOutput("job_info_json", this_job);
-    - shell: bash
-      run: echo "${{toJSON(steps.get-job-info.outputs.job_info_json)}}" > job_info.json
+          try {
+            fs.writeFileSync('job_info.json', JSON.stringify(this_job));
+          } catch(err) {
+           console.error(err)
+           throw(err)
+          }

@@ -1,0 +1,22 @@
+name: 'Clone/checkout specific fork/ref of shared-actions repo and call its stash-base-env-vars script'
+description: |
+  The purpose of this wrapper is to keep it easy for external consumers to switch branches of
+  the shared-actions repo when they are changing something about shared-actions and need to test it
+  in their pipelines.
+
+  Inputs here are all assumed to be env vars set outside of this script.
+  Set them in your main repo's workflows.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Clone shared-actions repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO}}
+        ref: ${{ env.SHARED_ACTIONS_REF}}
+        path: ./shared-actions
+    - name: Get traceparent representation of current workflow
+      uses: ./shared-actions/telemetry-impls/traceparent
+    - name: Stash base env vars
+      uses: ./shared-actions/telemetry-impls/stash-base-env-vars

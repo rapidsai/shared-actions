@@ -1,0 +1,1 @@
+These actions are meant to be called by "telemetry-dispatch-*" scripts, not directly.

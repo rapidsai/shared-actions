@@ -21,15 +21,15 @@ runs:
     - name: Add attribute metadata beyond the stashed basic stuff
       shell: bash
       run:
-          labels=$(echo "${{steps.job-info.outputs.job-info}}" | jq -r '.labels | join(" ")');
+          labels="$(jq -r '.labels | join(" ")' job_info.json)";
           attributes="${OTEL_RESOURCE_ATTRIBUTES}";
-          if [ ${labels} != "" ]; then
-            attributes="$attributes,rapids.labels=${labels}";
+          if [ "${labels}" != "" ]; then
+            attributes="${attributes},rapids.labels=${labels}";
           fi;
           if [ "${{ inputs.extra_attributes }}" != "" ]; then
-            attributes="$attributes,${{ inputs.extra_attributes }}";
+            attributes="$attributes},${{ inputs.extra_attributes }}";
           fi;
-          echo OTEL_RESOURCE_ATTRIBUTES="$attributes" >> ${GITHUB_ENV};
+          echo OTEL_RESOURCE_ATTRIBUTES="${attributes}" >> ${GITHUB_ENV};
 
     - uses: ./shared-actions/telemetry-impls/set-otel-service-name
       if: env.OTEL_SERVICE_NAME == ''
@@ -74,7 +74,7 @@ runs:
         last_timestamp=$(date +'%s')
 
         # Base64 encoding is to avoid issues with spaces/newlines/whatever funny business
-        for row in $(cat job_info.json | jq -r '.steps[] | @base64'); do
+        for row in $(jq -r '.steps[] | @base64' job_info.json); do
             name="$(echo ${row} | base64 --decode | jq -r ".name")"
             conclusion="$(echo ${row} | base64 --decode | jq -r ".conclusion")"
 
@@ -125,7 +125,7 @@ runs:
                     --name "workflow root" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                     --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
+                    --start "$(jq -r '.created_at // "now"' job_info.json)" \
                     --end "${last_timestamp}" \
                     --verbose --fail \
                     $status_description
@@ -134,6 +134,6 @@ runs:
                     --name "Start delay time" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                     --force-parent-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                    --start "$(cat job_info.json | jq -r '.created_at // "now"')" \
-                    --end "$(cat job_info.json  | jq -r '.started_at // "now"')" \
+                    --start "$(jq -r '.created_at // "now"' job_info.json)" \
+                    --end "$(jq -r '.started_at // "now"' job_info.json)" \
                     --verbose --fail

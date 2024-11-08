@@ -18,6 +18,7 @@ runs:
     # Writes JSON file that jobs below consume
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info
       id: github-job-info
+
     - name: Add attribute metadata beyond the stashed basic stuff
       shell: bash
       run:
@@ -60,14 +61,7 @@ runs:
 
     - shell: bash
       run: |
-        # NOTE: OTEL_SERVICE_NAME is set at this point. It either comes in as an env var set outside
-        #    of this action, or it is set in the `telemetry-set-otel-service-name` action above this.
-
         set -e
-
-        export job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
-
-        export TRACEPARENT=${job_traceparent}
 
         # The reporting of the completion time is earlier than the actual last step's completion.
         # We compensate for that by picking up the last known completion time of any step.
@@ -121,6 +115,7 @@ runs:
 
         # This is (unintuitively) set here because we don't know the true end time until we
         # go though the steps.
+        echo "Submitting workflow root span ${job_traceparent}"
         otel-cli span create \
                     --name "workflow root" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
@@ -130,6 +125,7 @@ runs:
                     --verbose --fail \
                     $status_description
 
+        echo "Submitting start delay time"
         otel-cli span create \
                     --name "Start delay time" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \

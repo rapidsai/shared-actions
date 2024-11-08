@@ -11,6 +11,12 @@ description: |
 inputs:
   cert_concat:
     description: Concatenation of certs (CA;Client;ClientKey)
+  extra_attributes:
+    description:
+      Additional attributes to add to OTEL_RESOURCE_ATTRIBUTES.
+      See https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_resource_attributes
+
+      Do not include any leading or trailing join characters (,)
 
 runs:
   using: 'composite'
@@ -29,3 +35,4 @@ runs:
       uses: ./shared-actions/telemetry-impls/summarize
       with:
         cert_concat: ${{ inputs.cert_concat }}
+        extra_attributes: ${{ inputs.extra_attributes }}

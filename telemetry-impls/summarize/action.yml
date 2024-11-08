@@ -4,6 +4,12 @@ description: |
 inputs:
   cert_concat:
     description: Concatenation of certs (CA;Client;ClientKey)
+  extra_attributes:
+    description: |
+      Additional attributes to add to OTEL_RESOURCE_ATTRIBUTES.
+      See https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_resource_attributes
+
+      Do not include any leading or trailing join characters (,)
 
 runs:
   using: 'composite'
@@ -12,11 +18,16 @@ runs:
     # Writes JSON file that jobs below consume
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info
       id: github-job-info
-    - name: Add RAPIDS worker labels to metadata
+    - name: Add attribute metadata beyond the stashed basic stuff
       shell: bash
       run:
           labels=$(echo "${{steps.job-info.outputs.job-info}}" | jq -r '.labels | join(" ")')
-          echo OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},rapids.labels=${labels}" >> ${GITHUB_ENV}
+          if [ ${labels} != "" ]; then
+            echo OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},rapids.labels=${labels}" >> ${GITHUB_ENV}
+          fi
+          if [ "${{ inputs.extra_attributes }}" != "" ]; then
+            echo OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},${{ inputs.extra_attributes }}" >> ${GITHUB_ENV}
+          fi
     - uses: ./shared-actions/telemetry-impls/set-otel-service-name
       if: env.OTEL_SERVICE_NAME == ''
 

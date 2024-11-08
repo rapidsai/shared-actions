@@ -22,8 +22,8 @@ runs:
     - name: Add attribute metadata beyond the stashed basic stuff
       shell: bash
       run:
+          attributes="${OTEL_RESOURCE_ATTRIBUTES},git.repo=${GITHUB_REPOSITORY}";
           labels="$(jq -r '.labels | join(" ")' job_info.json)";
-          attributes="${OTEL_RESOURCE_ATTRIBUTES}";
           if [ "${labels}" != "" ]; then
             attributes="${attributes},rapids.labels=${labels}";
           fi;
@@ -118,7 +118,7 @@ runs:
           status_description=
         fi
 
-        if [ "${TOP_LEVEL_TRACEPARENT}" != "${job_traceparent}" ]; then
+        if [ "${TOP_LEVEL_TRACEPARENT}" = "${job_traceparent}" ]; then
           # This is (unintuitively) set here and not in the loop above
           #   because we don't know the true end time until we
           #   go though the steps.

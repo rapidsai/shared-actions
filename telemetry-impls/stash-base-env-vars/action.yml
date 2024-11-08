@@ -28,6 +28,8 @@ runs:
         OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME}"
         TRACEPARENT=${TRACEPARENT}
         EOF
+    - name: Re-export env vars so that defaults take effect
+      uses: ./shared-actions/telemetry-impls/load-base-env-vars
     - name: Upload env vars file
       uses: actions/upload-artifact@v4
       with:

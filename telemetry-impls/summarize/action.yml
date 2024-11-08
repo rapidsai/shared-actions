@@ -25,10 +25,10 @@ runs:
           attributes="${OTEL_RESOURCE_ATTRIBUTES}";
           if [ ${labels} != "" ]; then
             attributes="$attributes,rapids.labels=${labels}";
-          fi
+          fi;
           if [ "${{ inputs.extra_attributes }}" != "" ]; then
             attributes="$attributes,${{ inputs.extra_attributes }}";
-          fi
+          fi;
           echo OTEL_RESOURCE_ATTRIBUTES="$attributes" >> ${GITHUB_ENV};
 
     - uses: ./shared-actions/telemetry-impls/set-otel-service-name

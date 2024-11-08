@@ -24,8 +24,8 @@ runs:
     - name: Clone shared-actions repo
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO}}
-        ref: ${{ env.SHARED_ACTIONS_REF}}
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
     # This is necessary because this action will generally be run in a job separately from
     # where the env vars are set

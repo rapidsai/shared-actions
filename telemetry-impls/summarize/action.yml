@@ -63,6 +63,9 @@ runs:
       run: |
         set -e
 
+        job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}"")"
+        export TRACEPARENT=${job_traceparent}
+
         # The reporting of the completion time is earlier than the actual last step's completion.
         # We compensate for that by picking up the last known completion time of any step.
         last_timestamp=$(date +'%s')

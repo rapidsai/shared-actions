@@ -63,7 +63,9 @@ runs:
       run: |
         set -e
 
-        job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}"")"
+        TOP_LEVEL_TRACEPARENT=${TRACEPARENT}
+
+        job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
         export TRACEPARENT=${job_traceparent}
 
         # The reporting of the completion time is earlier than the actual last step's completion.
@@ -116,19 +118,21 @@ runs:
           status_description=
         fi
 
-        # This is (unintuitively) set here because we don't know the true end time until we
-        # go though the steps.
-        echo "Submitting workflow root span ${job_traceparent}"
-        otel-cli span create \
-                    --name "workflow root" \
-                    --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                    --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                    --start "$(jq -r '.created_at // "now"' job_info.json)" \
-                    --end "${last_timestamp}" \
-                    --verbose --fail \
-                    $status_description
+        if [ "${TOP_LEVEL_TRACEPARENT}" != "${job_traceparent}" ]; then
+          # This is (unintuitively) set here and not in the loop above
+          #   because we don't know the true end time until we
+          #   go though the steps.
+          otel-cli span create \
+                      --name "workflow root" \
+                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                      --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                      --force-parent-span-id "$(cut -d'-' -f3 <<<"$TOP_LEVEL_TRACEPARENT")" \
+                      --start "$(jq -r '.created_at // "now"' job_info.json)" \
+                      --end "${last_timestamp}" \
+                      --verbose --fail \
+                      $status_description;
+        fi
 
-        echo "Submitting start delay time"
         otel-cli span create \
                     --name "Start delay time" \
                     --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \

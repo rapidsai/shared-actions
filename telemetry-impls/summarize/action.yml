@@ -21,13 +21,16 @@ runs:
     - name: Add attribute metadata beyond the stashed basic stuff
       shell: bash
       run:
-          labels=$(echo "${{steps.job-info.outputs.job-info}}" | jq -r '.labels | join(" ")')
+          labels=$(echo "${{steps.job-info.outputs.job-info}}" | jq -r '.labels | join(" ")');
+          attributes="${OTEL_RESOURCE_ATTRIBUTES}";
           if [ ${labels} != "" ]; then
-            echo OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},rapids.labels=${labels}" >> ${GITHUB_ENV}
+            attributes="$attributes,rapids.labels=${labels}";
           fi
           if [ "${{ inputs.extra_attributes }}" != "" ]; then
-            echo OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},${{ inputs.extra_attributes }}" >> ${GITHUB_ENV}
+            attributes="$attributes,${{ inputs.extra_attributes }}";
           fi
+          echo OTEL_RESOURCE_ATTRIBUTES="$attributes" >> ${GITHUB_ENV};
+
     - uses: ./shared-actions/telemetry-impls/set-otel-service-name
       if: env.OTEL_SERVICE_NAME == ''
 

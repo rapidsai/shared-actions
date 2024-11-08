@@ -19,7 +19,7 @@ runs:
     - name: Write base env vars to a file
       shell: bash
       run: |
-        cat <<EOF > base-env-vars
+        cat <<EOF > telemetry-env-vars
         OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-https://tempo.gha-runners.nvidia.com:4318}
         OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-otlp/http}
         OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES}"
@@ -31,7 +31,7 @@ runs:
     - name: Upload env vars file
       uses: actions/upload-artifact@v4
       with:
-        name: base-env-vars
-        path: base-env-vars
+        name: telemetry-env-vars
+        path: telemetry-env-vars
     - name: Re-export env vars so that defaults take effect
       uses: ./shared-actions/telemetry-impls/load-base-env-vars

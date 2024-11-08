@@ -12,7 +12,7 @@ runs:
     - name: Download base environment variables file
       uses: actions/download-artifact@v4
       with:
-        name: base-env-vars
+        name: telemetry-env-vars
     - name: Set environment variables from file into GITHUB_ENV
       shell: bash
       # Only set the env var if it is not already set
@@ -28,4 +28,4 @@ runs:
           else
             echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
           fi
-        done <base-env-vars
+        done <telemetry-env-vars

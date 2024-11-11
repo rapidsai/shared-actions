@@ -24,7 +24,7 @@ runs:
           env_var_name="$( cut -d '=' -f 1 <<< "$LINE" )";
           if [ "${!env_var_name}" = "" ]; then
             env_var_value="$(echo ${LINE#*=} | tr -d '"')"
-            echo "${env_var_name}=${env_var_value/^,/}" >> ${GITHUB_ENV};
+            echo "${env_var_name}=$(echo "${env_var_value}" | sed 's/^,//')" >> ${GITHUB_ENV};
           else
             echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
           fi

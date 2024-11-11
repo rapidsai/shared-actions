@@ -30,7 +30,7 @@ runs:
           if [ "${{ inputs.extra_attributes }}" != "" ]; then
             attributes="$attributes},${{ inputs.extra_attributes }}";
           fi;
-          echo OTEL_RESOURCE_ATTRIBUTES="${attributes/^,/}" >> ${GITHUB_ENV};
+          echo OTEL_RESOURCE_ATTRIBUTES="$(echo "${attributes}" | sed 's/^,//')" >> ${GITHUB_ENV};
 
     - uses: ./shared-actions/telemetry-impls/set-otel-service-name
       if: env.OTEL_SERVICE_NAME == ''

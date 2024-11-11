@@ -130,6 +130,7 @@ runs:
                       --name "workflow root" \
                       --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                       --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                      --force-parent-span-id "" \
                       --start "${START_TIME}" \
                       --end "${last_timestamp}" \
                       --verbose --fail \
@@ -148,7 +149,7 @@ runs:
           #   because we don't know the true end time until we
           #   go though the steps.
           otel-cli span create \
-                      --name "workflow root" \
+                      --name "child workflow root" \
                       --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                       --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
                       --force-parent-span-id "$(cut -d'-' -f3 <<<"$TOP_LEVEL_TRACEPARENT")" \

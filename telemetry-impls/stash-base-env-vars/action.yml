@@ -30,7 +30,7 @@ runs:
         OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME}"
         SHARED_ACTIONS_REPO=${SHARED_ACTIONS_REPO}
         SHARED_ACTIONS_REF=${SHARED_ACTIONS_REF}
-        START_TIME=${START_TIME:-$(date +'%s')}
+        START_TIME="${START_TIME:-$(date --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")}"
         TRACEPARENT=${TRACEPARENT}
         EOF
     - name: Upload env vars file

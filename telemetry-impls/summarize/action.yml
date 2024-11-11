@@ -22,7 +22,7 @@ runs:
     - name: Add attribute metadata beyond the stashed basic stuff
       shell: bash
       run:
-          attributes="${OTEL_RESOURCE_ATTRIBUTES},git.repo=${GITHUB_REPOSITORY}";
+          attributes="${OTEL_RESOURCE_ATTRIBUTES}";
           labels="$(jq -r '.labels | join(" ")' job_info.json)";
           if [ "${labels}" != "" ]; then
             attributes="${attributes},rapids.labels=${labels}";
@@ -30,7 +30,7 @@ runs:
           if [ "${{ inputs.extra_attributes }}" != "" ]; then
             attributes="$attributes},${{ inputs.extra_attributes }}";
           fi;
-          echo OTEL_RESOURCE_ATTRIBUTES="$(echo "${attributes}" | sed 's/^,//')" >> ${GITHUB_ENV};
+          echo OTEL_RESOURCE_ATTRIBUTES="${attributes/^,//}" >> ${GITHUB_ENV};
 
     - uses: ./shared-actions/telemetry-impls/set-otel-service-name
       if: env.OTEL_SERVICE_NAME == ''

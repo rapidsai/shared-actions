@@ -68,6 +68,28 @@ runs:
         job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
         export TRACEPARENT=${job_traceparent}
 
+        if [ "${TOP_LEVEL_TRACEPARENT}" = "${job_traceparent}" ]; then
+          otel-cli span create \
+                      --name "workflow root" \
+                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                      --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                      --force-parent-span-id "" \
+                      --start "${START_TIME}" \
+                      --end "$(jq -r '.completed_at // "now"' job_info.json)" \
+                      --verbose --fail \
+                      $status_description;
+        else
+          otel-cli span create \
+                      --name "child workflow root" \
+                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                      --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                      --force-parent-span-id "$(cut -d'-' -f3 <<<"$TOP_LEVEL_TRACEPARENT")" \
+                      --start "$(jq -r '.created_at // "now"' job_info.json)" \
+                      --end "$(jq -r '.completed_at // "now"' job_info.json)" \
+                      --verbose --fail \
+                      $status_description;
+        fi
+
         # The reporting of the completion time is earlier than the actual last step's completion.
         # We compensate for that by picking up the last known completion time of any step.
         last_timestamp=$(date +'%s')
@@ -121,11 +143,14 @@ runs:
         set -x
 
         if [ "${TOP_LEVEL_TRACEPARENT}" = "${job_traceparent}" ]; then
-          # This is (unintuitively) set here and not in the loop above
-          #   because we don't know the true end time until we
-          #   go though the steps. This first condition is the top-level summary.
-          # The second condition is a per-workflow root that shows total time.
-          echo "Top-level span with trace ID: ${job_traceparent} (should match TRACEPARENT in file)"
+          otel-cli span create \
+                      --name "Start delay time" \
+                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                      --force-parent-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                      --start "${START_TIME}" \
+                      --end "$(jq -r '.started_at // "now"' job_info.json)" \
+                      --verbose --fail
+
           otel-cli span create \
                       --name "workflow root" \
                       --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
@@ -135,19 +160,15 @@ runs:
                       --end "${last_timestamp}" \
                       --verbose --fail \
                       $status_description;
-
+        else
           otel-cli span create \
                       --name "Start delay time" \
                       --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                       --force-parent-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                      --start "${START_TIME}" \
+                      --start "$(jq -r '.created_at // "now"' job_info.json)" \
                       --end "$(jq -r '.started_at // "now"' job_info.json)" \
                       --verbose --fail
-        else
-          echo "Job-level span with trace ID: ${job_traceparent} (should NOT match TRACEPARENT in file)"
-          # This is (unintuitively) set here and not in the loop above
-          #   because we don't know the true end time until we
-          #   go though the steps.
+
           otel-cli span create \
                       --name "child workflow root" \
                       --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
@@ -157,14 +178,6 @@ runs:
                       --end "${last_timestamp}" \
                       --verbose --fail \
                       $status_description;
-
-          otel-cli span create \
-                      --name "Start delay time" \
-                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                      --force-parent-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                      --start "$(jq -r '.created_at // "now"' job_info.json)" \
-                      --end "$(jq -r '.started_at // "now"' job_info.json)" \
-                      --verbose --fail
         fi
 
         set +x

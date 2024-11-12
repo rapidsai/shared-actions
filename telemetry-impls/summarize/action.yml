@@ -68,28 +68,6 @@ runs:
         job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
         export TRACEPARENT=${job_traceparent}
 
-        if [ "${TOP_LEVEL_TRACEPARENT}" = "${job_traceparent}" ]; then
-          otel-cli span create \
-                      --name "workflow root" \
-                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                      --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                      --force-parent-span-id "" \
-                      --start "${START_TIME}" \
-                      --end "$(jq -r '.completed_at // "now"' job_info.json)" \
-                      --verbose --fail \
-                      $status_description;
-        else
-          otel-cli span create \
-                      --name "child workflow root" \
-                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                      --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                      --force-parent-span-id "$(cut -d'-' -f3 <<<"$TOP_LEVEL_TRACEPARENT")" \
-                      --start "$(jq -r '.created_at // "now"' job_info.json)" \
-                      --end "$(jq -r '.completed_at // "now"' job_info.json)" \
-                      --verbose --fail \
-                      $status_description;
-        fi
-
         # The reporting of the completion time is earlier than the actual last step's completion.
         # We compensate for that by picking up the last known completion time of any step.
         last_timestamp=$(date +'%s')
@@ -142,6 +120,8 @@ runs:
 
         set -x
 
+        # unset this so that the parent does not automatically get picked up
+        export TRACEPARENT=
         if [ "${TOP_LEVEL_TRACEPARENT}" = "${job_traceparent}" ]; then
           otel-cli span create \
                       --name "Start delay time" \

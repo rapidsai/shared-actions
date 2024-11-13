@@ -78,8 +78,6 @@ runs:
             conclusion="$(echo ${row} | base64 --decode | jq -r ".conclusion")"
 
             step_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "$name")";
-            echo "OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME}", step_name: "$name"" >&2;
-            echo "$step_traceparent" >&2;
 
             timestamp_as_date=$last_timestamp
             case $timestamp_as_date in
@@ -101,7 +99,6 @@ runs:
               step_end_timestamp=$(date -d "$step_end_timestamp" +'%s');
               if [ ${step_end_timestamp} -ge ${last_timestamp} ]; then
                 last_timestamp=${step_end_timestamp};
-                echo "Set timestamp to ${last_timestamp}";
               fi
             fi
         done
@@ -117,8 +114,6 @@ runs:
         else
           status_description=
         fi
-
-        set -x
 
         # unset this so that the parent does not automatically get picked up
         export TRACEPARENT=
@@ -151,5 +146,3 @@ runs:
                       --verbose --fail \
                       $status_description;
         fi
-
-        set +x

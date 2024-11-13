@@ -14,7 +14,7 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
-        ref: ${{ env.SHARED_ACTIONS_REF || 'telemetry-dispatch-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
     - name: Get traceparent representation of current workflow
       uses: ./shared-actions/telemetry-impls/traceparent

@@ -20,7 +20,7 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
-        ref: ${{ env.SHARED_ACTIONS_REF || 'telemetry-dispatch-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
     - name: Set OTEL_SERVICE_NAME from job if not loading from stash
       if: ${{ inputs.load_service_name != 'true' }}

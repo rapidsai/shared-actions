@@ -36,8 +36,9 @@ runs:
       if: env.OTEL_SERVICE_NAME == ''
 
     # OpenTelemetry implementations look for these variable names to be set to the paths
-    # of the files with the mTLS certs and keys. We base64 encode them when storing them
-    # to avoid issues with quoting and multiline text.
+    #    of the files with the mTLS certs and keys. We base64 encode them when storing them
+    #    to avoid issues with quoting and multiline text.
+    # If these env vars are not set, then otel-cli will not attempt to use mTLS.
     - name: Write certificate files for mTLS
       if: "${{ inputs.cert_concat }} != ''"
       shell: bash

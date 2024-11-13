@@ -1,0 +1,29 @@
+name: dispatch-load-base-env-vars
+description: |
+  Wrapper that clones a specific branch/ref of the shared-actions repo, then
+  calls the `load-base-env-vars` action to download the base environment
+  variables and load them into the current environment.
+
+  This does not overwrite any environment variables that are already set.
+inputs:
+  load_service_name:
+    description: |
+      If true, loads OTEL_SERVICE_NAME from the stashed env vars. This is used for top-level workflows.
+      Otherwise the telemetry service name is obtained from Github job metadata.
+      Getting the service name from Github job metadata is for child workflows.
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Clone shared-actions repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'telemetry-dispatch-actions' }}
+        path: ./shared-actions
+    - name: Set OTEL_SERVICE_NAME from job if not loading from stash
+      if: ${{ inputs.load_service_name != 'true' }}
+      uses: ./shared-actions/telemetry-impls/set-otel-service-name
+    - name: Load base env vars
+      uses: ./shared-actions/telemetry-impls/load-base-env-vars

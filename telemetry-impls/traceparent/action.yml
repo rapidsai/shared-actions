@@ -1,20 +1,25 @@
-name: 'Telemetry traceparent'
-description: 'Outputs a trace identifier computed from the GitHub runtime environment. Requires the gha-tools repo to be on PATH.'
-inputs:
-  step_name:
-    description: 'If this trace is for a step, provide the step name in addition to the job name'
+name: traceparent
+description: |
+  Outputs a trace identifier computed from the GitHub runtime environment
+
+  Trace identifier background:
+  https://www.w3.org/TR/trace-context/
+
+  Note that the TRACEPARENT env var is special to otel-cli. It will be picked up
+  automatically and used as a parent to whatever span otel-cli is created.
 outputs:
   traceparent:
-    description: 'The OpenTelemetry span id of the span that should be used for the root span created here'
+    description: The W3C-format traceparent, which identifies the current context
     value: ${{ steps.shell.outputs.TRACEPARENT }}
 
 runs:
   using: 'composite'
   steps:
-    - uses: ./shared-actions/telemetry-ensure-otel-cli-available
+    - uses: ./shared-actions/telemetry-impls/ensure-otel-cli-available
     # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
-    - uses: ./shared-actions/telemetry-set-otel-service-name
-    - uses: ./shared-actions/telemetry-sanity-checks
+    - uses: ./shared-actions/telemetry-impls/set-otel-service-name
+      if: env.OTEL_SERVICE_NAME == ''
+    - uses: ./shared-actions/telemetry-impls/sanity-checks
 
     - shell: bash
       id: output-inputs
@@ -31,11 +36,8 @@ runs:
         echo "::debug::JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{\OTEL_SERVICE_NAME}\})-01'"
         echo "::debug::evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}\)-01""
 
-        echo "::debug::JOB_SPAN_ID: '\${TRACE_ID}-\$\{OTEL_SERVICE_NAME\}'"
-        echo "::debug::STEP TRACEPARENT input: '\${JOB_SPAN_ID}-\${STEP_NAME}'"
-        echo "::debug::evaluated span traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}-${{inputs.step_name}}\)-01""
-
     - shell: bash
       id: shell
       run: |
-        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "${{inputs.step_name}}")" >> ${GITHUB_OUTPUT}
+        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")" >> ${GITHUB_OUTPUT}
+        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")" >> ${GITHUB_ENV}

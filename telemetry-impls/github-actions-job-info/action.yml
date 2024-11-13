@@ -1,9 +1,11 @@
 name: 'Github Actions Job info'
-description: 'Outputs a trace identifier computed from the GitHub runtime environment. Requires the gha-tools repo to be on PATH.'
-outputs:
-  job-info:
-    description: 'A JSON blob that contains job metadata, including name, start/stop time, and steps info. This is seemingly the only programmatic access to the job name.'
-    value: ${{ toJSON(steps.get-job-info.outputs.job_info_json) }}
+description: |
+  Obtains job metadata from the GitHub Actions API.
+  Provides this as a file on disk, job_info.json.
+
+  If debug logging is enabled, this action will save an additional file,
+  all_jobs.json, that captures all jobs in the pipeline. This is useful
+  for troubleshooting misbehaving spans.
 
 runs:
   using: 'composite'
@@ -13,6 +15,7 @@ runs:
       with:
         retries: 3
         script: |
+          const fs = require('node:fs')
           const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
 
           get_job = async ({github, context, process}) => {
@@ -25,6 +28,16 @@ runs:
                     per_page: 100
                 });
             const jobs = await github.paginate(opts);
+
+            if (core.getBooleanInput('debug') || core.isDebug()) {
+              try {
+                fs.writeFileSync('all_jobs.json', JSON.stringify(jobs));
+              } catch(err) {
+                console.error(err)
+                throw(err)
+              }
+            }
+
             // We know what the run ID is, but we don't know which specific job we're being run from.
             // https://github.com/orgs/community/discussions/8945
             return jobs.find((job) => {
@@ -54,6 +67,15 @@ runs:
 
             throw "Telemetry values were not available. Please see debug logs for more info."
           }
-          core.setOutput("job_info_json", this_job);
-    - shell: bash
-      run: echo "${{toJSON(steps.get-job-info.outputs.job_info_json)}}" > job_info.json
+          try {
+            fs.writeFileSync('job_info.json', JSON.stringify(this_job));
+          } catch(err) {
+           console.error(err)
+           throw(err)
+          }
+    - name: Upload job_info_json if in debug mode
+      if:  runner.debug == '1'
+      uses: actions/upload-artifact@v4
+      with:
+        name: github-job-info
+        path: all_jobs.json

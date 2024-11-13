@@ -1,0 +1,31 @@
+name: dispatch-summarize
+description: |
+  Clones a particular branch/ref of a shared-actions repo, then calls its telemetry summarize
+  action. The summarize action downloads and parses Github job metadata, and creates
+  OpenTelemetry spans from the job metadata. These are sent to the configured OTLP receiver/endpoint.
+inputs:
+  cert_concat:
+    description: Concatenation of certs (CA;Client;ClientKey)
+  extra_attributes:
+    description:
+      Additional attributes to add to OTEL_RESOURCE_ATTRIBUTES.
+      See https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_resource_attributes
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Clone shared-actions repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'telemetry-dispatch-actions' }}
+        path: ./shared-actions
+    # This is necessary because this action will generally be run in a job separately from
+    # where the env vars are set
+    - name: Load base environment variables
+      uses: ./shared-actions/telemetry-impls/load-base-env-vars
+    - name: Run summarize action
+      uses: ./shared-actions/telemetry-impls/summarize
+      with:
+        cert_concat: ${{ inputs.cert_concat }}
+        extra_attributes: ${{ inputs.extra_attributes }}

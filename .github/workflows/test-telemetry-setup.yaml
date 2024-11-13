@@ -86,7 +86,7 @@ jobs:
         run: |
           span_kind="$(jq -r '.batches[0].scopeSpans[0].spans[0].kind' trace_record.json )";
           echo "Checking if span kind is as expected"
-          echo "Span kind is: "${span_kind}""
+          echo "Span kind is: \"${span_kind}\""
           [ "${span_kind}" = "SPAN_KIND_CLIENT" ] || exit 1
           echo "Verify that job names (also called service name) are correct"
           job_names="$(jq -c '[.batches[].resource.attributes[] | select(.key == "service.name") | .value.stringValue] | unique' trace_record.json)"

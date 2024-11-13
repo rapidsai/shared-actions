@@ -12,7 +12,7 @@ at a particular ref, and then dispatch to an implementation action from that rep
 This adds complexity, but has other advantages:
 
 * simplifies specifying a custom branch for actions for development and testing
-* Changes all shared-actions calls in a workflow at once, instead of changing each one
+* changes all shared-actions calls in a workflow at once, instead of changing each one
 * allows reuse of shared-actions within the shared-actions repo. Trying to use these
   without the clone and relative path would not otherwise keep the repo and ref
   consistent, leading to great confusion over why changes aren't being reflected.

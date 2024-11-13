@@ -21,7 +21,7 @@ jobs:
     env:
         SHARED_ACTIONS_REPO: rapidsai/shared-actions
         SHARED_ACTIONS_REF: ${{ github.ref }}
-        # this should stay the same throughout this workflow, but child workflows will each
+        # This should stay the same throughout this workflow, but child workflows will each
         # have their own OTEL_SERVICE_NAME. It is generally the job name, including any matrix elements.
         # This is what distinguishes one job trace from another, so it is important to be distinct
         # between jobs.

@@ -1,0 +1,15 @@
+---
+# Copyright (c) 2024, NVIDIA CORPORATION.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-added-large-files
+      - id: check-yaml
+      - id: end-of-file-fixer
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.4
+    hooks:
+      - id: actionlint-docker

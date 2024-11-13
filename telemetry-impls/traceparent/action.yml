@@ -1,6 +1,12 @@
-name: 'Telemetry traceparent'
+name: traceparent
 description: |
   Outputs a trace identifier computed from the GitHub runtime environment
+
+  Trace identifier background:
+  https://www.w3.org/TR/trace-context/
+
+  Note that the TRACEPARENT env var is special to otel-cli. It will be picked up
+  automatically and used as a parent to whatever span otel-cli is created.
 outputs:
   traceparent:
     description: The W3C-format traceparent, which identifies the current context

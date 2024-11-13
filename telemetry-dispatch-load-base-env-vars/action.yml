@@ -1,15 +1,16 @@
-name: 'Clone/checkout specific fork/ref of shared-actions repo and call its load-base-env-vars script'
+name: dispatch-load-base-env-vars
 description: |
-  The purpose of this wrapper is to keep it easy for external consumers to switch branches of
-  the shared-actions repo when they are changing something about shared-actions and need to test it
-  in their pipelines.
+  Wrapper that clones a specific branch/ref of the shared-actions repo, then
+  calls the `load-base-env-vars` action to download the base environment
+  variables and load them into the current environment.
 
-  Outputs here are all assumed to be env vars set in the calling environment
+  This does not overwrite any environment variables that are already set.
 inputs:
   load_service_name:
     description: |
       If true, loads OTEL_SERVICE_NAME from the stashed env vars. This is used for top-level workflows.
-      Otherwise the telemetry service name is obtained from Github job metadata. This is for child workflows.
+      Otherwise the telemetry service name is obtained from Github job metadata.
+      Getting the service name from Github job metadata is for child workflows.
     default: 'false'
 
 runs:

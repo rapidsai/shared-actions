@@ -1,8 +1,8 @@
-name: 'Clone/checkout specific fork/ref of shared-actions repo and call its stash-base-env-vars script'
+name: dispatch-stash-base-env-vars
 description: |
-  The purpose of this wrapper is to keep it easy for external consumers to switch branches of
-  the shared-actions repo when they are changing something about shared-actions and need to test it
-  in their pipelines.
+  Clones a particular branch/ref of a shared-actions repo, then
+  call the stash-base-env-vars implementation script, which writes
+  some environment variables so that downstream jobs can refer to them.
 
   Inputs here are all assumed to be env vars set outside of this script.
   Set them in your main repo's workflows.

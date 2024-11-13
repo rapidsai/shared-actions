@@ -3,6 +3,10 @@ description: |
   Obtains job metadata from the GitHub Actions API.
   Provides this as a file on disk, job_info.json.
 
+  If debug logging is enabled, this action will save an additional file,
+  all_jobs.json, that captures all jobs in the pipeline. This is useful
+  for troubleshooting misbehaving spans.
+
 runs:
   using: 'composite'
   steps:

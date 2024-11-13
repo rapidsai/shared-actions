@@ -1,6 +1,13 @@
 
-name: 'Set OTEL_SERVICE_NAME from github job info'
+name: set-otel-service-name
 description: |
+    Set OTEL_SERVICE_NAME from github job info
+
+    OTEL_SERVICE_NAME is a special environment variable that represents a job for us.
+    Each different OTEL_SERVICE_NAME is represented by a different color when looking at the trace
+    in Grafana. We have different OTEL_SERVICE_NAME for each different job, as
+    well as each matrix configuration of jobs that have matrices.
+
     Obtains GitHub Actions job list and matches current job using runner name and attempt number.
     Returns name of current workflow, which will include any matrix components
     Sets the OTEL_SERVICE_NAME environment variable. Output is also here if you prefer.

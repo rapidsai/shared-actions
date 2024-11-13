@@ -1,9 +1,13 @@
-name: Stash base environment variables
+name: stash-base-env-vars
 description: |
-  This is a strategy to pass environment variable values between jobs. Because the top-level env
-  is not passed to child shared-workflow calls, we either have to have lots of inputs, or pass these
-  environment variables another way. The idea here is that the top-level job exports these values,
-  then the child shared-workflow jobs start with loading these values.
+  Stash base environment variables
+
+  This is a strategy to pass environment variable values between jobs. There are
+  a lot of variables that need to be passed to a lot of child workflows. Because
+  the top-level env is not inherited by child shared-workflow calls, we either have
+  to have lots of inputs, or pass these environment variables another way. The
+  idea here is that the top-level job exports these values, then the child
+  shared-workflow jobs start with loading these values.
 
   This script should only ever be called by the top-level workflow. The child workflows should
   load this, then augment the environment in whatever way they need to (e.g. matrix values)

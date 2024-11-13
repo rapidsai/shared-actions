@@ -1,10 +1,10 @@
-name: Load environment variables from a file and set them in the current env
+name: load-base-env-vars
 description: |
-  This script is the counterpart to _stash-base-env-vars. It is called by child shared-workflows
-  to load variables that are set by the top-level workflow.
+  Load environment variables from a file and set them in the current env. This is used to pass
+  information from the base workflow into child workflows.
 
-  This script will be called only by the child workflows. The parent workflow should not need
-  to reload the values here, and it also should not need access to child workflow variables.
+  This script is the counterpart to stash-base-env-vars. It is called by child shared-workflows
+  to load variables that are set by the top-level workflow.
 
 runs:
   using: 'composite'

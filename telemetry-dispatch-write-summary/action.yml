@@ -1,14 +1,8 @@
-name: Dispatch to summarize
+name: dispatch-summarize
 description: |
-  The purpose of this wrapper is to keep it easy for external consumers to switch branches of
-  the shared-actions repo when they are changing something about shared-actions and need to test it
-  in their pipelines.
-
-  This script is meant to be standalone in that it should not require external inputs from
-  consumers. Consumers may set SHARED_ACTIONS_REPO and SHARED_ACTIONS_REF to test changes
-  in their customized shared-actions repo, but they should not add inputs to those scripts.
-  Instead, they should add those inputs to the variables that get stashed in
-  telemetry-impls/stash-base-env-vars.
+  Clones a particular branch/ref of a shared-actions repo, then calls its telemetry summarize
+  action. The summarize action downloads and parses Github job metadata, and creates
+  OpenTelemetry spans from the job metadata. These are sent to the configured OTLP receiver/endpoint.
 inputs:
   cert_concat:
     description: Concatenation of certs (CA;Client;ClientKey)

@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 # This workflow is meant to imitate the behavior of RAPIDS project PR workflows, such as
 
 
@@ -91,3 +92,5 @@ jobs:
           echo "Verify that job names (also called service name) are correct"
           job_names="$(jq -c '[.batches[].resource.attributes[] | select(.key == "service.name") | .value.stringValue] | unique' trace_record.json)"
           [ "$job_names" = '["child-workflow / Jobby McJobface (with)","child-workflow / Jobby McJobface (without)","test-telemetry plus something"]' ] || exit 1
+=======
+>>>>>>> Stashed changes

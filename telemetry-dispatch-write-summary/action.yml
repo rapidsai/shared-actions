@@ -1,4 +1,4 @@
-name: 'Clone/checkout specific fork/ref of shared-actions repo and call its _telemetry-finalize-root-span script'
+name: Dispatch to summarize
 description: |
   The purpose of this wrapper is to keep it easy for external consumers to switch branches of
   the shared-actions repo when they are changing something about shared-actions and need to test it
@@ -7,7 +7,8 @@ description: |
   This script is meant to be standalone in that it should not require external inputs from
   consumers. Consumers may set SHARED_ACTIONS_REPO and SHARED_ACTIONS_REF to test changes
   in their customized shared-actions repo, but they should not add inputs to those scripts.
-  Instead, they should add those inputs to the variables that get stashed in _stash-base-env-vars.
+  Instead, they should add those inputs to the variables that get stashed in
+  telemetry-impls/stash-base-env-vars.
 inputs:
   cert_concat:
     description: Concatenation of certs (CA;Client;ClientKey)
@@ -15,8 +16,6 @@ inputs:
     description:
       Additional attributes to add to OTEL_RESOURCE_ATTRIBUTES.
       See https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_resource_attributes
-
-      Do not include any leading or trailing join characters (,)
 
 runs:
   using: 'composite'

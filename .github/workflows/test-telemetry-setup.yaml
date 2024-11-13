@@ -85,7 +85,7 @@ jobs:
         # these are not returned in any particular order. The span kind is the only one
         # that we can reliably expect to be the same.
         run: |
-          span_kind="$(jq -r '.batches[0].scopeSpans[0].spans[0].kind' trace_record.json )";
+          span_kind="$(jq -r '.batches[0].scopeSpans[0].spans[0].kind' trace_record.json)";
           echo "Checking if span kind is as expected"
           echo "Span kind is: \"${span_kind}\""
           [ "${span_kind}" = "SPAN_KIND_CLIENT" ] || exit 1

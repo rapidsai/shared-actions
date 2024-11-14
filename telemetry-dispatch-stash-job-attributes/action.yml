@@ -1,0 +1,23 @@
+name: telemetry-dispatch-stash-job-attributes
+description: |
+  The main purpose of this script is to capture metadata within a job that
+  can be associated with that job's timing metadata in a separate job. The
+  kinds of metadata that need this approach are things like the value of
+  the various matrix dimensions.
+
+  This action is generally only called in child workflows. It should be run
+  after other actions, such that any variable setting that needs to be captured
+  will have already been done prior to calling this action.
+
+inputs:
+  extra_attributes:
+    description: "comma-separated key=value attributes to associate with the current job"
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
+    - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
+      uses: ./shared-actions/telemetry-impls/stash-job-attributes
+      with:
+        extra_attributes: ${{ inputs.extra_attributes }}

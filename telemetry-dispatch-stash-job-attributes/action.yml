@@ -10,7 +10,6 @@ inputs:
   extra_attributes:
     description: "comma-separated key=value attributes to associate with the current job"
 
-
 runs:
   using: 'composite'
   steps:

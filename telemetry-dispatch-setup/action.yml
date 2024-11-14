@@ -1,13 +1,12 @@
-name: dispatch-setup
+name: telemetry-dispatch-setup
 description: |
   This script sets important environment variables that may be used by tools that
   implement OpenTelemetry. This script also stores attributes (metadata) for the
   current job, so that this metadata can be associated with spans during the final
   parsing of job metadata.
 
-  This is a wrapper that clones a specific branch/ref of the shared-actions repo, then
-  executes the script in that branch/ref.
-
+  This action should be called at the beginning of child workflows, generally as the first
+  step in any job other than computing the matrix.
 
 inputs:
   extra_attributes:

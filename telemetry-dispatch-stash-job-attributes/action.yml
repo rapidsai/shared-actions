@@ -23,4 +23,4 @@ runs:
     - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
       uses: ./shared-actions/telemetry-impls/stash-job-attributes
       with:
-        extra_attributes: ${{inputs.extra_attributes}}
+        extra_attributes: ${{ inputs.extra_attributes }}

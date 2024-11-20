@@ -24,8 +24,9 @@ runs:
     # where the env vars are set
     - name: Load base environment variables
       uses: ./shared-actions/telemetry-impls/load-base-env-vars
+      with:
+        load_service_name: true
     - name: Run summarize action
       uses: ./shared-actions/telemetry-impls/summarize
       with:
         cert_concat: ${{ inputs.cert_concat }}
-        extra_attributes: ${{ inputs.extra_attributes }}

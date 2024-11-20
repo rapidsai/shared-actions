@@ -4,12 +4,6 @@ description: |
 inputs:
   cert_concat:
     description: Concatenation of certs (CA;Client;ClientKey)
-  extra_attributes:
-    description: |
-      Additional attributes to add to OTEL_RESOURCE_ATTRIBUTES.
-      See https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_resource_attributes
-
-      Do not include any leading or trailing join characters (,)
 
 runs:
   using: 'composite'
@@ -35,7 +29,7 @@ runs:
 
         TOP_LEVEL_TRACEPARENT=${TRACEPARENT}
 
-        for job_row in $(jq -r '.jobs[] | @base64' job_info.json); do
+        for job_row in $(jq -r '.jobs[] | @base64' all_jobs.json); do
 
           job_name="$(echo ${job_row} | base64 --decode | jq -r ".name")"
           job_traceparent="$(rapids-get-telemetry-traceparent "${job_name}")"

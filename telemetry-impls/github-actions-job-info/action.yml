@@ -1,10 +1,12 @@
 name: 'Github Actions Job info'
 description: |
   Obtains job metadata from the GitHub Actions API.
-  Provides this as a file on disk, job_info.json.
+  Provides two files on disk:
+  - job_info.json: metadata for the job that is calling this script
+  - all_jobs.json: metadata for all jobs under the top-level workflow
 
-  If debug logging is enabled, this action will save an additional file,
-  all_jobs.json, that captures all jobs in the pipeline. This is useful
+  If debug logging is enabled, this action will upload all_jobs.json,
+  which captures all jobs in the pipeline. This is useful
   for troubleshooting misbehaving spans.
 
 runs:
@@ -28,30 +30,16 @@ runs:
                     per_page: 100
                 });
             const jobs = await github.paginate(opts);
-
-            if (core.getBooleanInput('debug') || core.isDebug()) {
-              try {
-                fs.writeFileSync('all_jobs.json', JSON.stringify(jobs));
-              } catch(err) {
-                console.error(err)
-                throw(err)
-              }
-            }
-
-            // We know what the run ID is, but we don't know which specific job we're being run from.
-            // https://github.com/orgs/community/discussions/8945
-            return jobs.find((job) => {
-                return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
-            });
+            return jobs;
           };
 
-          var this_job = undefined;
+          var jobs = undefined;
           var retryCount = 0;
           maxRetries = 5;
           initialDelay = 2000;
-          while (this_job === undefined) {
-            this_job = await get_job({github, context, process});
-            if (this_job === undefined && retryCount < maxRetries) {
+          while (jobs === undefined) {
+            jobs = await get_job({github, context, process});
+            if (jobs === undefined && retryCount < maxRetries) {
               retryCount++;
               await new Promise(res => setTimeout(res, initialDelay * Math.pow(2, retryCount - 1)));
             } else {
@@ -59,23 +47,36 @@ runs:
             }
           }
 
-          if (this_job === undefined){
-            github.log.error("Telemetry values were not available. Please see debug logs for more info.");
-            github.log.error("All jobs:");
-            const jobs = await get_job({github, context, process});
-            github.log.error(JSON.stringify(jobs));
+          // The logic of the single job is helpful in getting
+          // the current job name and id, but the content of all_jobs.json is
+          // what we get timing info from
+          try {
+            fs.writeFileSync('all_jobs.json', JSON.stringify(jobs));
+          } catch(err) {
+            console.error(err)
+            throw(err)
+          }
 
-            throw "Telemetry values were not available. Please see debug logs for more info."
+          // We know what the run ID is, but we don't know which specific job we're being run from.
+          // https://github.com/orgs/community/discussions/8945
+          const this_job = jobs.find((job) => {
+              return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
+          });
+
+
+          if (this_job === undefined){
+            throw "Could not identify current job in workflow. Please see debug logs for more info."
           }
           try {
             fs.writeFileSync('job_info.json', JSON.stringify(this_job));
           } catch(err) {
-           console.error(err)
-           throw(err)
+            console.error(err)
+            throw(err)
           }
-    - name: Upload job_info_json if in debug mode
+
+    - name: Upload all_jobs.json if debug is enabled
       if:  runner.debug == '1'
       uses: actions/upload-artifact@v4
       with:
-        name: github-job-info
-        path: all_jobs.json
+        name: all_jobs.json
+        path: "all_jobs.json"

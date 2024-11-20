@@ -1,0 +1,48 @@
+
+name: stash-job-attributes
+description: |
+    Obtains GitHub Actions job list and matches current job using runner name and attempt number.
+    Saves and uploads a file with telemetry attributes that should be attached to spans from this run.
+
+    We stash only the attributes here because we retrieve the rest of the timing
+    info later. We get info for all jobs at once, so we wait to retrieve that info
+    at the very end of the top-level job.
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: ./shared-actions/telemetry-impls/github-actions-job-info
+      id: github-job-info
+    - shell: bash
+      id: get-job-id
+      run:
+        echo JOB_ID="$(cat job_info.json | jq -r '.id')" >> ${GITHUB_OUTPUT};
+
+    - name: Add attribute metadata beyond the stashed basic stuff
+      shell: bash
+      run:
+          attributes="${OTEL_RESOURCE_ATTRIBUTES}";
+          labels="$(jq -r '.labels | join(" ")' job_info.json)";
+          if [ "${labels}" != "" ]; then
+            attributes="${attributes},rapids.labels=${labels}";
+          fi;
+          if [ "${{ inputs.extra_attributes }}" != "" ]; then
+            attributes="${attributes},${{ inputs.extra_attributes }}";
+          fi;
+          echo OTEL_RESOURCE_ATTRIBUTES="$(echo "${attributes}" | sed 's/^,//')" >> ${GITHUB_ENV};
+
+    - name: Write attributes to file
+      shell: bash
+      run:
+        ATTRS_FILENAME=attrs-${{ steps.get-job-id.outputs.JOB_ID }};
+        IFS=, read -ra values <<< "$OTEL_RESOURCE_ATTRIBUTES";
+        for v in "${values[@]}"
+        do
+          echo "$v" >> ${ATTRS_FILENAME};
+        done
+
+    - name: Upload attr file
+      uses: actions/upload-artifact@v4
+      with:
+        name: attrs-${{ steps.get-job-id.outputs.JOB_ID }}
+        path: attrs-${{ steps.get-job-id.outputs.JOB_ID }}

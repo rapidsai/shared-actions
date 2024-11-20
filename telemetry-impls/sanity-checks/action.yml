@@ -11,14 +11,3 @@ runs:
           echo "OTEL_SERVICE_NAME is empty. Erroring out.";
           exit 1;
         fi
-
-
-        if ! otel-cli --help  2>&1 >/dev/null; then
-          echo "otel-cli is missing";
-          exit 1;
-        fi
-
-        if ! type -P rapids-get-telemetry-trace-id 2>&1 >/dev/null; then
-          echo "rapidsai/gha-tools is missing or lacks telemetry scripts";
-          exit 1;
-        fi

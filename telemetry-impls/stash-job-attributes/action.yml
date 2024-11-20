@@ -7,6 +7,9 @@ description: |
     We stash only the attributes here because we retrieve the rest of the timing
     info later. We get info for all jobs at once, so we wait to retrieve that info
     at the very end of the top-level job.
+inputs:
+  extra_attributes:
+    description: "comma-separated key=value attributes to associate with the current job"
 
 runs:
   using: 'composite'
@@ -29,7 +32,9 @@ runs:
           if [ "${{ inputs.extra_attributes }}" != "" ]; then
             attributes="${attributes},${{ inputs.extra_attributes }}";
           fi;
-          echo OTEL_RESOURCE_ATTRIBUTES="$(echo "${attributes}" | sed 's/^,//')" >> ${GITHUB_ENV};
+          attributes=$(echo "${attributes}" | sed 's/^,//')
+          attributes=$(echo "${attributes}" | sed 's/,$//')
+          echo OTEL_RESOURCE_ATTRIBUTES="${attributes}" >> ${GITHUB_ENV};
 
     - name: Write attributes to file
       shell: bash

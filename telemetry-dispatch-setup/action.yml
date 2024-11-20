@@ -1,10 +1,14 @@
-name: dispatch-load-base-env-vars
+name: dispatch-setup
 description: |
-  Wrapper that clones a specific branch/ref of the shared-actions repo, then
-  calls the `load-base-env-vars` action to download the base environment
-  variables and load them into the current environment.
+  This script sets important environment variables that may be used by tools that
+  implement OpenTelemetry. This script also stores attributes (metadata) for the
+  current job, so that this metadata can be associated with spans during the final
+  parsing of job metadata.
 
-  This does not overwrite any environment variables that are already set.
+  This is a wrapper that clones a specific branch/ref of the shared-actions repo, then
+  executes the script in that branch/ref.
+
+
 inputs:
   load_service_name:
     description: |
@@ -12,6 +16,8 @@ inputs:
       Otherwise the telemetry service name is obtained from Github job metadata.
       Getting the service name from Github job metadata is for child workflows.
     default: 'false'
+  extra_attributes:
+    description: "comma-separated key=value attributes to associate with the current job"
 
 runs:
   using: 'composite'
@@ -27,3 +33,9 @@ runs:
       uses: ./shared-actions/telemetry-impls/set-otel-service-name
     - name: Load base env vars
       uses: ./shared-actions/telemetry-impls/load-base-env-vars
+    - name: Store attributes to use as metadata when creating spans
+      # This also sets OTEL_RESOURCE_ATTRIBUTES, for any subsequent steps
+      # in the calling workflow that might use it.
+      uses: ./shared-actions/telemetry-impls/stash-job-attributes
+      with:
+        extra_attributes: ${{ inputs.extra_attributes }}

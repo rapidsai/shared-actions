@@ -10,12 +10,7 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - name: Clone shared-actions repo
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
-        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
-        path: ./shared-actions
+    - uses: rapidsai/shared-actions/clone-load-clone@empty-certs
     - name: Get traceparent representation of current workflow
       uses: ./shared-actions/telemetry-impls/traceparent
     - name: Stash base env vars

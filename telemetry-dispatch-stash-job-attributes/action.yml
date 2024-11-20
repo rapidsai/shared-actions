@@ -14,12 +14,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Clone shared-actions repo
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
-        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
-        path: ./shared-actions
+    - uses: rapidsai/shared-actions/clone-load-clone@empty-certs
     - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
       uses: ./shared-actions/telemetry-impls/stash-job-attributes
       with:

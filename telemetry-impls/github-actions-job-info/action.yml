@@ -85,5 +85,5 @@ runs:
       if:  runner.debug == '1' && inputs.all_jobs == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: all_jobs.json
+        name: telemetry-tools-all_jobs.json
         path: "all_jobs.json"

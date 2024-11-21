@@ -40,7 +40,7 @@ runs:
     - name: Upload env vars file
       uses: actions/upload-artifact@v4
       with:
-        name: telemetry-env-vars
+        name: telemetry-tools-env-vars
         path: telemetry-env-vars
     - name: Re-export env vars so that defaults take effect
       uses: ./shared-actions/telemetry-impls/load-base-env-vars

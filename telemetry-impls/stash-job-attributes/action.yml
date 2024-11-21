@@ -36,15 +36,11 @@ runs:
           attributes=$(echo "${attributes}" | sed 's/,$//')
           echo OTEL_RESOURCE_ATTRIBUTES="${attributes}" >> ${GITHUB_ENV};
 
-    - name: Write attributes to file
+    - name: Write attributes to file, one per line
       shell: bash
       run:
-        ATTRS_FILENAME=attrs-${{ steps.get-job-id.outputs.JOB_ID }};
         IFS=, read -ra values <<< "$OTEL_RESOURCE_ATTRIBUTES";
-        for v in "${values[@]}"
-        do
-          echo "$v" >> ${ATTRS_FILENAME};
-        done
+        printf "%s\n" "${values[@]}" > attrs-${{ steps.get-job-id.outputs.JOB_ID }};
 
     - name: Upload attr file
       uses: actions/upload-artifact@v4

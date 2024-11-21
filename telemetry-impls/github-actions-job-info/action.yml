@@ -54,8 +54,8 @@ runs:
               break;
             }
           }
-          script: |
-          if (process.env.ALL_JOBS == 'true') {
+          const { ALL_JOBS } = process.env
+          if (ALL_JOBS == 'true') {
             try {
               fs.writeFileSync('all_jobs.json', JSON.stringify(jobs));
             } catch(err) {

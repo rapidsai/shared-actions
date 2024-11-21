@@ -10,6 +10,9 @@
 # The job name must always be provided as the first argument.
 # A step name MAY be provided as the second argument. If it is specified, the output corresponds to
 #     the step within the context of its job.
+#
+# This is a shell script instead of an action because we need to call it
+# in loops that iterate through job metadata.
 
 JOB_NAME=$1
 STEP_NAME=${2:-}

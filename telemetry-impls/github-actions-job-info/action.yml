@@ -22,6 +22,8 @@ runs:
       id: get-job-info
       with:
         retries: 3
+        env:
+          ALL_JOBS: "${{ inputs.all_jobs }}"
         script: |
           const fs = require('node:fs')
           const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
@@ -52,8 +54,8 @@ runs:
               break;
             }
           }
-
-          if (inputs.all_jobs == 'true') {
+          script: |
+          if (process.env.ALL_JOBS == 'true') {
             try {
               fs.writeFileSync('all_jobs.json', JSON.stringify(jobs));
             } catch(err) {

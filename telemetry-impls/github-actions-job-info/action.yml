@@ -5,9 +5,6 @@ description: |
   - job_info.json: metadata for the job that is calling this script
   - all_jobs.json: metadata for all jobs under the top-level workflow
 
-  If debug logging is enabled, this action will upload all_jobs.json,
-  which captures all jobs in the pipeline. This is useful
-  for troubleshooting misbehaving spans.
 inputs:
   all_jobs:
     description: |

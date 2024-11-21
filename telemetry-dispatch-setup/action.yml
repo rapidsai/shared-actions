@@ -10,12 +10,6 @@ description: |
 
 
 inputs:
-  load_service_name:
-    description: |
-      If true, loads OTEL_SERVICE_NAME from the stashed env vars. This is used for top-level workflows.
-      Otherwise the telemetry service name is obtained from Github job metadata.
-      Getting the service name from Github job metadata is for child workflows.
-    default: 'false'
   extra_attributes:
     description: "comma-separated key=value attributes to associate with the current job"
 
@@ -23,10 +17,9 @@ runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
-    - name: Set OTEL_SERVICE_NAME from job if not loading from stash
-      if: ${{ inputs.load_service_name != 'true' }}
+    # overrides loaded value
+    - name: Set OTEL_SERVICE_NAME from job
       uses: ./shared-actions/telemetry-impls/set-otel-service-name
-
     - name: Store attributes to use as metadata when creating spans
       # This also sets OTEL_RESOURCE_ATTRIBUTES, for any subsequent steps
       # in the calling workflow that might use it.

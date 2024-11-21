@@ -1,15 +1,19 @@
 name: dispatch-stash-base-env-vars
 description: |
-  Clones a particular branch/ref of a shared-actions repo, then
-  call the stash-base-env-vars implementation script, which writes
-  some environment variables so that downstream jobs can refer to them.
-
-  Inputs here are all assumed to be env vars set outside of this script.
-  Set them in your main repo's workflows.
+  Stores base environment variables in a file and uploads that file
+  as an artifact. This action should only be called once in a build,
+  at the start of the top-level workflow.
 
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
+    # We can't use the load-then-clone action because the env vars file
+    # that it needs is something that we create here.
+    - name: Clone shared-actions repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO}}
+        ref: ${{ env.SHARED_ACTIONS_REF}}
+        path: ./shared-actions
     - name: Stash base env vars
       uses: ./shared-actions/telemetry-impls/stash-base-env-vars

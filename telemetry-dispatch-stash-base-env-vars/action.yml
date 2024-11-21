@@ -10,7 +10,7 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/clone-load-clone@empty-certs
+    - uses: rapidsai/shared-actions/load-then-clone@empty-certs
     - name: Get traceparent representation of current workflow
       uses: ./shared-actions/telemetry-impls/traceparent
     - name: Stash base env vars

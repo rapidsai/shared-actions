@@ -19,7 +19,7 @@ runs:
     - shell: bash
       id: get-job-id
       run:
-        echo JOB_ID="$(cat job_info.json | jq -r '.id')" >> ${GITHUB_OUTPUT};
+        echo JOB_ID="$(cat job_info.json | jq -r '.id')" >> ${GITHUB_ENV};
 
     - name: Add attribute metadata beyond the stashed basic stuff
       shell: bash
@@ -32,18 +32,19 @@ runs:
           if [ "${{ inputs.extra_attributes }}" != "" ]; then
             attributes="${attributes},${{ inputs.extra_attributes }}";
           fi;
-          attributes=$(echo "${attributes}" | sed 's/^,//')
-          attributes=$(echo "${attributes}" | sed 's/,$//')
+          attributes=$(echo "${attributes}" | sed 's/^,//');
+          attributes=$(echo "${attributes}" | sed 's/,$//');
+          echo "${attributess}" | sed -r "s/(git.job_url=[^,]+)/\1\/job\/${JOB_ID}/";
           echo OTEL_RESOURCE_ATTRIBUTES="${attributes}" >> ${GITHUB_ENV};
 
     - name: Write attributes to file, one per line
       shell: bash
       run:
         IFS=, read -ra values <<< "$OTEL_RESOURCE_ATTRIBUTES";
-        printf "%s\n" "${values[@]}" > attrs-${{ steps.get-job-id.outputs.JOB_ID }};
+        printf "%s\n" "${values[@]}" > attrs-${JOB_ID};
 
     - name: Upload attr file
       uses: actions/upload-artifact@v4
       with:
-        name: attrs-${{ steps.get-job-id.outputs.JOB_ID }}
-        path: attrs-${{ steps.get-job-id.outputs.JOB_ID }}
+        name: attrs-${{ env.JOB_ID }}
+        path: attrs-${{ env.JOB_ID }}

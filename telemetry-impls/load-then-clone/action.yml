@@ -21,6 +21,8 @@ runs:
       uses: actions/download-artifact@v4
       with:
         name: telemetry-tools-env-vars
+    # We can't use ./telemetry-implementation/load-base-env-vars here
+    # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
       shell: bash
       # Only set the env var if it is not already set

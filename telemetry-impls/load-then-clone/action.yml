@@ -1,0 +1,45 @@
+name: load-then-clone
+description: |
+  This is a kind of bootstrapping action. Environment variables do not
+  transfer between top-level workflows and child workflows. We have to
+  pass them another way. We could use inputs and outputs, but that would
+  proliferate lots of boilerplate.
+
+  We use a scheme where the top-level workflows store environment variables
+  in files, and child workflows download those files and re-hydrate the
+  environment in their context. There are two variables that are especially
+  tricky, though. We allow users to specify their own repo and ref for where
+  to get the `shared-actions` repo. That info is in the shared file, but we
+  have to clone a `shared-actions` repo to use its script to load the variables.
+  As a result, we clone the code twice: first to learn how to load the variables,
+  then another time when the variables are actually set.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download base environment variables file
+      uses: actions/download-artifact@v4
+      with:
+        name: telemetry-env-vars
+    - name: Set environment variables from file into GITHUB_ENV
+      shell: bash
+      # Only set the env var if it is not already set
+      # the ${!VARIABLE} syntax is called "indirect expansion" and it is kind of equivalent to ${${env_var_name}}
+      #      in other words, expand to find the variable name, then dereference that variable name
+      # The goofy env_var_value filtering through tr is to ensure that the strings don't include quotes.
+      run: |
+        while read LINE; do
+          env_var_name="$( cut -d '=' -f 1 <<< "$LINE" )";
+          if [ "${!env_var_name}" = "" ]; then
+            env_var_value="$(echo ${LINE#*=} | tr -d '"')"
+            echo "${env_var_name}=$(echo "${env_var_value}" | sed 's/^,//')" >> ${GITHUB_ENV};
+          else
+            echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
+          fi
+        done <telemetry-env-vars
+    - name: Clone shared-actions repo with loaded env vars
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO }}
+        ref: ${{ env.SHARED_ACTIONS_REF }}
+        path: ./shared-actions

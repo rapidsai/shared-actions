@@ -14,7 +14,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/load-then-clone@empty-certs
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
     - name: Load base environment variables
       uses: ./shared-actions/telemetry-impls/load-base-env-vars
       with:

@@ -20,7 +20,7 @@ runs:
     - name: Download base environment variables file
       uses: actions/download-artifact@v4
       with:
-        name: telemetry-env-vars
+        name: telemetry-tools-env-vars
     - name: Set environment variables from file into GITHUB_ENV
       shell: bash
       # Only set the env var if it is not already set

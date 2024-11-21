@@ -8,6 +8,12 @@ description: |
   If debug logging is enabled, this action will upload all_jobs.json,
   which captures all jobs in the pipeline. This is useful
   for troubleshooting misbehaving spans.
+inputs:
+  all_jobs:
+    description: |
+      When true, saves a JSON file with all jobs. Otherwise, saves a JSON file
+      from only the current job.
+    default: "false"
 
 runs:
   using: 'composite'
@@ -47,35 +53,34 @@ runs:
             }
           }
 
-          // The logic of the single job is helpful in getting
-          // the current job name and id, but the content of all_jobs.json is
-          // what we get timing info from
-          try {
-            fs.writeFileSync('all_jobs.json', JSON.stringify(jobs));
-          } catch(err) {
-            console.error(err)
-            throw(err)
-          }
-
-          // We know what the run ID is, but we don't know which specific job we're being run from.
-          // https://github.com/orgs/community/discussions/8945
-          const this_job = jobs.find((job) => {
-              return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
-          });
+          if (inputs.all_jobs == 'true') {
+            try {
+              fs.writeFileSync('all_jobs.json', JSON.stringify(jobs));
+            } catch(err) {
+              console.error(err)
+              throw(err)
+            }
+          } else {
+            // We know what the run ID is, but we don't know which specific job we're being run from.
+            // https://github.com/orgs/community/discussions/8945
+            const this_job = jobs.find((job) => {
+                return job.runner_name === process.env.RUNNER_NAME && job.run_attempt === runAttempt;
+            });
 
 
-          if (this_job === undefined){
-            throw "Could not identify current job in workflow. Please see debug logs for more info."
-          }
-          try {
-            fs.writeFileSync('job_info.json', JSON.stringify(this_job));
-          } catch(err) {
-            console.error(err)
-            throw(err)
+            if (this_job === undefined){
+              throw "Could not identify current job in workflow. Please see debug logs for more info."
+            }
+            try {
+              fs.writeFileSync('job_info.json', JSON.stringify(this_job));
+            } catch(err) {
+              console.error(err)
+              throw(err)
+            }
           }
 
     - name: Upload all_jobs.json if debug is enabled
-      if:  runner.debug == '1'
+      if:  runner.debug == '1' && inputs.all_jobs == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: all_jobs.json

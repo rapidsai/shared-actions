@@ -12,7 +12,8 @@ runs:
     # Writes JSON file that jobs below consume
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info
       id: github-job-info
-
+      with:
+        all_jobs: true
     - uses: ./shared-actions/telemetry-impls/sanity-checks
     # This downloads ALL of the files that we have collected from each job.
     - uses: actions/download-artifact@v4

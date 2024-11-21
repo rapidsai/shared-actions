@@ -25,7 +25,6 @@ runs:
         set -e
 
         TOP_LEVEL_TRACEPARENT=${TRACEPARENT}
-
         for job_row in $(jq -r '.jobs[] | @base64' all_jobs.json); do
 
           job_name="$(echo ${job_row} | base64 --decode | jq -r ".name")"

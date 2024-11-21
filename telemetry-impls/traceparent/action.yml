@@ -7,20 +7,10 @@ description: |
 
   Note that the TRACEPARENT env var is special to otel-cli. It will be picked up
   automatically and used as a parent to whatever span otel-cli is created.
-outputs:
-  traceparent:
-    description: The W3C-format traceparent, which identifies the current context
-    value: ${{ steps.shell.outputs.TRACEPARENT }}
 
 runs:
   using: 'composite'
   steps:
-    - uses: ./shared-actions/telemetry-impls/ensure-otel-cli-available
-    # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
-    - uses: ./shared-actions/telemetry-impls/set-otel-service-name
-      if: env.OTEL_SERVICE_NAME == ''
-    - uses: ./shared-actions/telemetry-impls/sanity-checks
-
     - shell: bash
       id: output-inputs
       if:  runner.debug == '1'
@@ -32,12 +22,9 @@ runs:
         echo "::debug::Evaluated trace ID input (pre-hash): "${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}""
         export TRACE_ID="$(rapids-get-telemetry-trace-id)"
         echo "::debug::Computed trace ID: ${TRACE_ID}"
-
         echo "::debug::JOB TRACEPARENT input (step empty): '00-\${TRACE_ID}-hash(\${TRACE_ID}-\$\{\OTEL_SERVICE_NAME}\})-01'"
         echo "::debug::evaluated job traceparent input: "00-${TRACE_ID}-hash\(${TRACE_ID}-${OTEL_SERVICE_NAME}\)-01""
-
     - shell: bash
       id: shell
       run: |
-        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")" >> ${GITHUB_OUTPUT}
         echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")" >> ${GITHUB_ENV}

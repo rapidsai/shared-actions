@@ -18,7 +18,7 @@ runs:
       uses: actions/upload-artifact@v4
       if: runner.debug == '1'
       with:
-        name: telemetry-tools-all_jobs.son
+        name: telemetry-tools-all_jobs.json
         path: all_jobs.json
     - uses: ./shared-actions/telemetry-impls/sanity-checks
     # This downloads ALL of the files that we have collected from each job.
@@ -31,10 +31,10 @@ runs:
         set -e
 
         TOP_LEVEL_TRACEPARENT=${TRACEPARENT}
-        for job_row in $(jq -r '.jobs[] | @base64' all_jobs.json); do
+        for job_row in $(jq -r '.[]' all_jobs.json); do
 
           job_name="$(echo ${job_row} | base64 --decode | jq -r ".name")"
-          job_traceparent="$(rapids-get-telemetry-traceparent "${job_name}")"
+          job_traceparent="$(./shared-actions/telemetry-impls/traceparent.sh "${job_name}")"
 
           job_id="$(echo ${job_row} | base64 --decode | jq -r ".id")"
           attribute_file=./attributes_files/attrs-${job_id}
@@ -48,7 +48,7 @@ runs:
               step_name="$(echo ${step_row} | base64 --decode | jq -r ".name")"
               conclusion="$(echo ${step_row} | base64 --decode | jq -r ".conclusion")"
 
-              step_traceparent="$(rapids-get-telemetry-traceparent "${job_name}" "$step_name")";
+              step_traceparent="$(./shared-actions/telemetry-impls/traceparent.sh "${job_name}" "$step_name")";
 
               timestamp_as_date=$last_timestamp
               case $timestamp_as_date in

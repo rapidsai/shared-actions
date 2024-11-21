@@ -12,8 +12,8 @@ runs:
     - name: Clone shared-actions repo
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO | 'rapidsai/shared-actions' }}
-        ref: ${{ env.SHARED_ACTIONS_REF | 'main' }}
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
     - name: Stash base env vars
       uses: ./shared-actions/telemetry-impls/stash-base-env-vars

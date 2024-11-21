@@ -38,7 +38,7 @@ runs:
           job_traceparent="$(./shared-actions/telemetry-impls/traceparent.sh "${job_name}")"
 
           job_id="$(echo ${job_row} | base64 --decode | jq -r ".id")"
-          attribute_file=./attributes_files/attrs-${job_id}
+          attribute_file=./attributes_files/telemetry-tools-attrs-${job_id}
 
           # The reporting of the completion time is earlier than the actual last step's completion.
           # We compensate for that by picking up the last known completion time of any step.

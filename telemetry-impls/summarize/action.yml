@@ -56,7 +56,7 @@ runs:
                   *) timestamp_as_date="$(date -d @${last_timestamp} --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")" ;;
               esac
 
-              otel span create "$step_name" \
+              otel span "$step_name" \
                   --attribute-file=${attribute_file}
                   --traceparent=${job_traceparent}
                   --trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \

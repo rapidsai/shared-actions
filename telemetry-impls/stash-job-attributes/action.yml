@@ -34,7 +34,7 @@ runs:
           fi;
           attributes=$(echo "${attributes}" | sed 's/^,//');
           attributes=$(echo "${attributes}" | sed 's/,$//');
-          echo "${attributess}" | sed -r "s/(git.job_url=[^,]+)/\1\/job\/${JOB_ID}/";
+          attributes=$(echo "${attributes}" | sed -r "s/(git.job_url=[^,]+)/\1\/job\/${JOB_ID}/");
           echo OTEL_RESOURCE_ATTRIBUTES="${attributes}" >> ${GITHUB_ENV};
 
     - name: Write attributes to file, one per line

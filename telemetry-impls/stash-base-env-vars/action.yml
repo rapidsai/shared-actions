@@ -18,6 +18,7 @@ runs:
     - name: Write base env vars to a file
       shell: bash
       run: |
+        TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${OTEL_SERVICE_NAME}")
         OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},git.repository=${GITHUB_REPOSITORY}"
         OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},git.ref=${GITHUB_REF}"
         OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},git.sha=${GITHUB_SHA}"
@@ -30,7 +31,7 @@ runs:
         SHARED_ACTIONS_REPO=${SHARED_ACTIONS_REPO:-rapidsai/shared-actions}
         SHARED_ACTIONS_REF=${SHARED_ACTIONS_REF:-main}
         START_TIME="${START_TIME:-$(date --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")}"
-        TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")
+        TRACEPARENT="${TRACEPARENT}"
         EOF
     - name: Upload env vars file
       uses: actions/upload-artifact@v4

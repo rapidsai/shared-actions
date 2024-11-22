@@ -61,15 +61,16 @@ runs:
             artifacts = await get_job({github, context, process});
             if (artifacts === undefined && retryCount < maxRetries) {
               retryCount++;
-              await new Promise(res => setTimeout(res, initialDelay * Math.pow(2, retryCount - 1)));
+              await new Promise((res) => setTimeout(res, initialDelay * Math.pow(2, retryCount - 1)));
             } else {
               break;
             }
           }
 
+          console.log(artifacts)
           for (const artifact in artifacts) {
             console.log(artifact)
-            if (artifact.name.startsWith('telemetry-tools-')) {
+            if (artifact.name.startsWith("telemetry-tools-")) {
               octokit.rest.actions.deleteArtifact({
                 context.repo.owner,
                 context.repo.repo,

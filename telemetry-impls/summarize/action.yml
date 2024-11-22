@@ -47,7 +47,7 @@ runs:
 
           # The reporting of the completion time is earlier than the actual last step's completion.
           # We compensate for that by picking up the last known completion time of any step.
-          last_timestamp=$(date +'%s')
+          last_timestamp=$(date -u +%s%N)
 
           for step_row in $(echo "${job_row}" | base64 --decode | jq -r '.steps[] | @base64'); do
               step_name="$(echo ${step_row} | base64 --decode | jq -r ".name")"
@@ -55,35 +55,23 @@ runs:
 
               step_traceparent="$(./shared-actions/telemetry-impls/traceparent.sh "${job_name}" "$step_name")";
 
-              timestamp_as_date=$last_timestamp
-              case $timestamp_as_date in
-                  ''|*[!0-9]*) echo "Date is not an integer" ;;
-                  *) timestamp_as_date="$(date -d @${last_timestamp} --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")" ;;
-              esac
-
               otel span "$step_name" \
                   --attribute-file=${attribute_file} \
                   --traceparent=${job_traceparent} \
                   --trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
                   --span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
-                  --start="$(echo ${step_row} | base64 --decode | jq -r ".started_at // \"${timestamp_as_date}\"")" \
-                  --end="$(echo ${step_row} | base64 --decode | jq -r ".completed_at // \"${timestamp_as_date}\"")" \
+                  --start $(date -ud"$(echo ${step_row} | base64 --decode | jq -r ".started_at // \"${last_timestamp}\"")" +%s%N) \
+                  --end $(date -ud"$(echo ${step_row} | base64 --decode | jq -r ".completed_at // \"${last_timestamp}\"")" +%s%N)
 
               # Compare timestamps; keep the latest one
               step_end_timestamp="$(echo ${step_row} | base64 --decode | jq -r ".completed_at")";
               if [ "$step_end_timestamp" != "null" ]; then
-                step_end_timestamp=$(date -d "$step_end_timestamp" +'%s');
+                step_end_timestamp=$(date -ud "$step_end_timestamp" +%s%N);
                 if [ ${step_end_timestamp} -ge ${last_timestamp} ]; then
                   last_timestamp=${step_end_timestamp};
                 fi
               fi
           done
-
-          echo "Final timestamp is ${last_timestamp}"
-          case $last_timestamp in
-              ''|*[!0-9]*) echo "Date is not an integer" ;;
-              *) last_timestamp="$(date -d @${last_timestamp} --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")" ;;
-          esac
 
           if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then
             status_description="--status-description ${status_description}"
@@ -103,15 +91,15 @@ runs:
             otel span "Start delay time" \
                   --attribute-file=${attribute_file} \
                   --traceparent=${job_traceparent} \
-                  --start "$(jq -r '.created_at // "now"' job_info.json)" \
-                  --end "$(jq -r '.started_at // "now"' job_info.json)" \
+                  --start $(date -ud"$(jq -r '.created_at // "now"' job_info.json)" +%s%N) \
+                  --end "$(date -ud"$(jq -r '.started_at // "now"' job_info.json)" +%s%N) \
 
             otel span "child workflow root" \
                   --attribute-file=${attribute_file} \
                   --trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                   --span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
                   --traceparent ${TOP_LEVEL_TRACEPARENT} \
-                  --start "$(jq -r '.created_at // "now"' job_info.json)" \
+                  --start $(date -ud"$(jq -r '.created_at // "now"' job_info.json)" +%s%N) \
                   --end "${last_timestamp}";
           fi
         done

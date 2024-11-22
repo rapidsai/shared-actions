@@ -62,8 +62,8 @@ runs:
               esac
 
               otel span "$step_name" \
-                  --attribute-file=${attribute_file}
-                  --traceparent=${job_traceparent}
+                  --attribute-file=${attribute_file} \
+                  --traceparent=${job_traceparent} \
                   --trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
                   --span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
                   --start="$(echo ${step_row} | base64 --decode | jq -r ".started_at // \"${timestamp_as_date}\"")" \
@@ -94,24 +94,22 @@ runs:
           # unset this so that the parent does not automatically get picked up
           if [ "${TOP_LEVEL_TRACEPARENT}" = "${job_traceparent}" ]; then
             otel span "workflow root" \
-                  --attribute-file=${attribute_file}
+                  --attribute-file=${attribute_file} \
                   --trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
                   --span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
                   --start "${START_TIME}" \
                   --end "${last_timestamp}";
           else
             otel span "Start delay time" \
-                  --attribute-file=${attribute_file}
-                  --traceparent=${job_traceparent}
-                  --trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                  --span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                  --attribute-file=${attribute_file} \
+                  --traceparent=${job_traceparent} \
                   --start "$(jq -r '.created_at // "now"' job_info.json)" \
                   --end "$(jq -r '.started_at // "now"' job_info.json)" \
 
             otel span "child workflow root" \
-                  --attribute-file=${attribute_file}
-                  --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                  --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
+                  --attribute-file=${attribute_file} \
+                  --trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
+                  --span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
                   --traceparent ${TOP_LEVEL_TRACEPARENT} \
                   --start "$(jq -r '.created_at // "now"' job_info.json)" \
                   --end "${last_timestamp}";

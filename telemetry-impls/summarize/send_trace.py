@@ -203,9 +203,9 @@ def traceparent(run_url, run_attempt, job_name, step_name: Optional[str] = None)
 
 
 def date_str_to_epoch(date_str: str, value_if_not_set: int):
-    try:
+    if date_str:
         timestamp_ns = int(datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").timestamp() * 1e9)
-    except ValueError:
+    else:
         timestamp_ns = value_if_not_set
     return timestamp_ns
 

@@ -30,7 +30,7 @@ runs:
 
     - uses: actions/github-script@v7
       id: clean-up-files
-      if: runner.debug != ''
+      if: always() && runner.debug != ''
       with:
         retries: 3
         script: |

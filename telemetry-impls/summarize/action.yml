@@ -39,6 +39,11 @@ runs:
 
           job_id="$(echo ${job_row} | base64 --decode | jq -r ".id")"
           attribute_file=$(pwd)/attributes_files/telemetry-tools-attrs-${job_id}/attrs-${job_id}
+          if [ ! -f ${attribute_file} ]; then
+            mkdir -p $(dirname "${attribute_file}")
+            IFS=, read -ra values <<< "$OTEL_RESOURCE_ATTRIBUTES";
+            printf "%s\n" "${values[@]}" > "${attribute_file}";
+          fi
 
           # The reporting of the completion time is earlier than the actual last step's completion.
           # We compensate for that by picking up the last known completion time of any step.

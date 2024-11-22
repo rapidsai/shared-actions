@@ -13,8 +13,9 @@ runs:
       with:
         python-version: 3.11
         cache: 'pip'
+        cache-dependency-path: './shared-actions/telemetry-impls/summarize/requirements.txt'
     - name: Install dependencies
-      run: pip install opentelemetry-api opentelemetry-sdk
+      run: pip install -r './shared-actions/telemetry-impls/summarize/requirements.txt'
       shell: bash
     # Writes JSON file that jobs below consume
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info

@@ -49,8 +49,8 @@ runs:
                     run_id: context.runId,
                     per_page: 100
                 });
-            const jobs = await github.paginate(opts);
-            return jobs;
+            const artifacts = await github.paginate(opts);
+            return artifacts;
           };
 
           var artifacts = undefined;
@@ -58,7 +58,7 @@ runs:
           maxRetries = 5;
           initialDelay = 2000;
           while (artifacts === undefined) {
-            jobs = await get_job({github, context, process});
+            artifacts = await get_job({github, context, process});
             if (artifacts === undefined && retryCount < maxRetries) {
               retryCount++;
               await new Promise(res => setTimeout(res, initialDelay * Math.pow(2, retryCount - 1)));

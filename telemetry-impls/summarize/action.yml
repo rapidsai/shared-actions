@@ -8,7 +8,12 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: ./shared-actions/telemetry-impls/ensure-otel-cli-available
+    - name: setup python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
+        cache: 'pip'
+    - run: pip install opentelemetry-api opentelemetry-sdk
     # Writes JSON file that jobs below consume
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info
       id: github-job-info
@@ -26,7 +31,7 @@ runs:
 
     - shell: bash
       run: |
-        timeout 5m python ./shared-actions/telemetry-impls/summarize/send_trace.py
+        timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
 
     - uses: actions/github-script@v7
       id: clean-up-files

@@ -52,8 +52,8 @@ runs:
             for step_row in $(echo "${job_row}" | base64 --decode | jq -r '.steps[] | @base64'); do
                 step_name="$(echo ${step_row} | base64 --decode | jq -r ".name")"
                 conclusion="$(echo ${step_row} | base64 --decode | jq -r '.conclusion')"
-                step_start="$(echo ${step_row} | base64 --decode | jq -r \".started_at // ${last_timestamp}\")"
-                step_end="$(echo ${step_row} | base64 --decode | jq -r \".completed_at // ${last_timestamp}\")"
+                step_start="$(echo ${step_row} | base64 --decode | jq -r ".started_at // ${last_timestamp}")"
+                step_end="$(echo ${step_row} | base64 --decode | jq -r ".completed_at // ${last_timestamp}")"
                 step_end_timestamp=$(date -ud"${step_end}" +%s%N)
 
                 step_traceparent="$(./shared-actions/telemetry-impls/traceparent.sh "${job_name}" "$step_name")";

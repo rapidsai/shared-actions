@@ -68,6 +68,7 @@ runs:
           }
 
           for (const artifact in artifacts.artifacts) {
+            console.log(artifact)
             if (artifact.name.startsWith('telemetry-tools-')) {
               octokit.rest.actions.deleteArtifact({
                 context.repo.owner,

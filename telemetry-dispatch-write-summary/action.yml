@@ -3,14 +3,9 @@ description: |
   Clones a particular branch/ref of a shared-actions repo, then calls its telemetry summarize
   action. The summarize action downloads and parses Github job metadata, and creates
   OpenTelemetry spans from the job metadata. These are sent to the configured OTLP receiver/endpoint.
-inputs:
-  cert_concat:
-    description: Concatenation of certs (CA;Client;ClientKey)
 
 runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
     - uses: ./shared-actions/telemetry-impls/summarize
-      with:
-        cert_concat: ${{ inputs.cert_concat }}

@@ -26,7 +26,7 @@ runs:
 
     - shell: bash
       run: |
-        python ./shared-actions/telemetry-impls/summarize/send_trace.py
+        timeout 5m python ./shared-actions/telemetry-impls/summarize/send_trace.py
 
     - uses: actions/github-script@v7
       id: clean-up-files

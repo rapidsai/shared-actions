@@ -59,7 +59,7 @@ runs:
           maxRetries = 5;
           initialDelay = 2000;
           while (artifacts === undefined) {
-            artifacts = await get_job({github, context, process});
+            artifacts = await get_artifacts({github, context, process});
             if (artifacts === undefined && retryCount < maxRetries) {
               retryCount++;
               await new Promise((res) => setTimeout(res, initialDelay * Math.pow(2, retryCount - 1)));

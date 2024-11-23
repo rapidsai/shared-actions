@@ -36,7 +36,8 @@ runs:
 
     - name: Clean up telemetry files
       uses: actions/github-script@v7
-      if: always() && runner.debug != '1'
+      #  && runner.debug != '1'
+      if: always()
       with:
         retries: 3
         script: |

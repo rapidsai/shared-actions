@@ -41,6 +41,7 @@ runs:
       with:
         retries: 3
         script: |
+          const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
           get_artifacts = async ({github, context, process}) => {
             const opts = github.rest.actions.listWorkflowRunArtifacts.endpoint.merge(
                 {

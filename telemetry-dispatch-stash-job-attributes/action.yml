@@ -19,14 +19,14 @@ runs:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
       # If telemetry setup hasn't run as part of the parent job's steps, then
       # the env var file won't exist, and this action will fail.
-      if: ${{ env.TELEMETRY_ENABLED }} == '1'
+      if: ${{ env.TELEMETRY_ENABLED }} == 'true'
     - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
       # this is intended to gate rollout of this feature to repos that we have done
       # work to enable. Without gating this, we'd be adding the telemetry attribute
       # files to the artifacts and not cleaning them up. We want to avoid that mess.
       # Once all repos have the necessary setup code in their top-level builds, this
       # gate can possibly be removed.
-      if: ${{ env.TELEMETRY_ENABLED }} == '1'
+      if: ${{ env.TELEMETRY_ENABLED }} == 'true'
       uses: ./shared-actions/telemetry-impls/stash-job-attributes
       with:
         extra_attributes: ${{ inputs.extra_attributes }}

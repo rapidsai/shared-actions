@@ -18,6 +18,12 @@ runs:
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
     - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
+      # this is intended to gate rollout of this feature to repos that we have done
+      # work to enable. Without gating this, we'd be adding the telemetry attribute
+      # files to the artifacts and not cleaning them up. We want to avoid that mess.
+      # Once all repos have the necessary setup code in their top-level builds, this
+      # gate can possibly be removed.
+      if: ${{ env.TELEMETRY_ENABLED }} == '1'
       uses: ./shared-actions/telemetry-impls/stash-job-attributes
       with:
         extra_attributes: ${{ inputs.extra_attributes }}

@@ -1,149 +1,82 @@
 name: 'Telemetry summarize'
 description: |
   Consumes job info, parses into spans, and pushes spans.
-inputs:
-  cert_concat:
-    description: Concatenation of certs (CA;Client;ClientKey)
-  extra_attributes:
-    description: |
-      Additional attributes to add to OTEL_RESOURCE_ATTRIBUTES.
-      See https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_resource_attributes
-
-      Do not include any leading or trailing join characters (,)
 
 runs:
   using: 'composite'
   steps:
-    - uses: ./shared-actions/telemetry-impls/ensure-otel-cli-available
+    - name: Setup python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
+        cache: 'pip'
+        cache-dependency-path: './shared-actions/telemetry-impls/summarize/requirements.txt'
+    - name: Install dependencies
+      run: pip install -r './shared-actions/telemetry-impls/summarize/requirements.txt'
+      shell: bash
     # Writes JSON file that jobs below consume
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info
       id: github-job-info
-
-    - name: Add attribute metadata beyond the stashed basic stuff
-      shell: bash
-      run:
-          attributes="${OTEL_RESOURCE_ATTRIBUTES}";
-          labels="$(jq -r '.labels | join(" ")' job_info.json)";
-          if [ "${labels}" != "" ]; then
-            attributes="${attributes},rapids.labels=${labels}";
-          fi;
-          if [ "${{ inputs.extra_attributes }}" != "" ]; then
-            attributes="${attributes},${{ inputs.extra_attributes }}";
-          fi;
-          echo OTEL_RESOURCE_ATTRIBUTES="$(echo "${attributes}" | sed 's/^,//')" >> ${GITHUB_ENV};
-
-    - uses: ./shared-actions/telemetry-impls/set-otel-service-name
-      if: env.OTEL_SERVICE_NAME == ''
-
-    # OpenTelemetry implementations look for these variable names to be set to the paths
-    #    of the files with the mTLS certs and keys. We base64 encode them when storing them
-    #    to avoid issues with quoting and multiline text.
-    # If these env vars are not set, then otel-cli will not attempt to use mTLS.
-    - name: Write certificate files for mTLS
-      if: "${{ inputs.cert_concat }} != ''"
-      shell: bash
-      run: |
-        mkdir -p /tmp/certs
-        IFS='; ' read -r -a CERT_PARTS <<< "${{ inputs.cert_concat }}"
-
-        OTEL_EXPORTER_OTLP_CERTIFICATE=/tmp/certs/ca.crt.pem
-        echo "${CERT_PARTS[0]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CERTIFICATE}
-        echo OTEL_EXPORTER_OTLP_CERTIFICATE=${OTEL_EXPORTER_OTLP_CERTIFICATE} >> ${GITHUB_ENV}
-
-        OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/tmp/certs/client.crt.pem
-        echo "${CERT_PARTS[1]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}
-        echo OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE} >> ${GITHUB_ENV}
-
-        OTEL_EXPORTER_OTLP_CLIENT_KEY=/tmp/certs/client.key.pem
-        echo "${CERT_PARTS[2]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CLIENT_KEY}
-        echo OTEL_EXPORTER_OTLP_CLIENT_KEY=${OTEL_EXPORTER_OTLP_CLIENT_KEY} >> ${GITHUB_ENV}
-
+      with:
+        all_jobs: true
+    - name: Upload job JSON file if debugging
+      uses: actions/upload-artifact@v4
+      if: runner.debug == '1'
+      with:
+        name: telemetry-tools-all_jobs.json
+        path: all_jobs.json
     - uses: ./shared-actions/telemetry-impls/sanity-checks
+    # This downloads ALL of the files that we have collected from each job.
+    - uses: actions/download-artifact@v4
 
-    - shell: bash
+    - name: Run parse and send trace/spans to endpoint
+      shell: bash
       run: |
-        set -e
+        timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
 
-        TOP_LEVEL_TRACEPARENT=${TRACEPARENT}
+    - name: Clean up telemetry files
+      uses: actions/github-script@v7
+      #  && runner.debug != '1'
+      if: always()
+      with:
+        retries: 3
+        script: |
+          const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
+          get_artifacts = async ({github, context, process}) => {
+            const opts = github.rest.actions.listWorkflowRunArtifacts.endpoint.merge(
+                {
+                    attempt_number: runAttempt,
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: context.runId,
+                    per_page: 100
+                });
+            const artifacts = await github.paginate(opts);
+            return artifacts;
+          };
 
-        job_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
-        export TRACEPARENT=${job_traceparent}
+          var artifacts = undefined;
+          var retryCount = 0;
+          maxRetries = 5;
+          initialDelay = 2000;
+          while (artifacts === undefined) {
+            artifacts = await get_artifacts({github, context, process});
+            if (artifacts === undefined && retryCount < maxRetries) {
+              retryCount++;
+              await new Promise((res) => setTimeout(res, initialDelay * Math.pow(2, retryCount - 1)));
+            } else {
+              break;
+            }
+          }
 
-        # The reporting of the completion time is earlier than the actual last step's completion.
-        # We compensate for that by picking up the last known completion time of any step.
-        last_timestamp=$(date +'%s')
-
-        # Base64 encoding is to avoid issues with spaces/newlines/whatever funny business
-        for row in $(jq -r '.steps[] | @base64' job_info.json); do
-            name="$(echo ${row} | base64 --decode | jq -r ".name")"
-            conclusion="$(echo ${row} | base64 --decode | jq -r ".conclusion")"
-
-            step_traceparent="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}" "$name")";
-
-            timestamp_as_date=$last_timestamp
-            case $timestamp_as_date in
-                ''|*[!0-9]*) echo "Date is not an integer" ;;
-                *) timestamp_as_date="$(date -d @${last_timestamp} --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")" ;;
-            esac
-
-            otel-cli span create \
-                --name="$name" \
-                --force-trace-id="$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                --force-span-id="$(cut -d'-' -f3 <<<"$step_traceparent")" \
-                --start="$(echo ${row} | base64 --decode | jq -r ".started_at // \"${timestamp_as_date}\"")" \
-                --end="$(echo ${row} | base64 --decode | jq -r ".completed_at // \"${timestamp_as_date}\"")" \
-                --verbose --fail
-
-            # Compare timestamps; keep the latest one
-            step_end_timestamp="$(echo ${row} | base64 --decode | jq -r ".completed_at")";
-            if [ "$step_end_timestamp" != "null" ]; then
-              step_end_timestamp=$(date -d "$step_end_timestamp" +'%s');
-              if [ ${step_end_timestamp} -ge ${last_timestamp} ]; then
-                last_timestamp=${step_end_timestamp};
-              fi
-            fi
-        done
-
-        echo "Final timestamp is ${last_timestamp}"
-        case $last_timestamp in
-            ''|*[!0-9]*) echo "Date is not an integer" ;;
-            *) last_timestamp="$(date -d @${last_timestamp} --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")" ;;
-        esac
-
-        if [ "$status_description" != "" ] && [ "$status_description" != "null" ]; then
-          status_description="--status-description ${status_description}"
-        else
-          status_description=
-        fi
-
-        # unset this so that the parent does not automatically get picked up
-        export TRACEPARENT=
-        if [ "${TOP_LEVEL_TRACEPARENT}" = "${job_traceparent}" ]; then
-          otel-cli span create \
-                      --name "workflow root" \
-                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                      --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                      --force-parent-span-id "" \
-                      --start "${START_TIME}" \
-                      --end "${last_timestamp}" \
-                      --verbose --fail \
-                      $status_description;
-        else
-          otel-cli span create \
-                      --name "Start delay time" \
-                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                      --force-parent-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                      --start "$(jq -r '.created_at // "now"' job_info.json)" \
-                      --end "$(jq -r '.started_at // "now"' job_info.json)" \
-                      --verbose --fail
-
-          otel-cli span create \
-                      --name "child workflow root" \
-                      --force-trace-id "$(cut -d'-' -f2 <<<"$job_traceparent")" \
-                      --force-span-id "$(cut -d'-' -f3 <<<"$job_traceparent")" \
-                      --force-parent-span-id "$(cut -d'-' -f3 <<<"$TOP_LEVEL_TRACEPARENT")" \
-                      --start "$(jq -r '.created_at // "now"' job_info.json)" \
-                      --end "${last_timestamp}" \
-                      --verbose --fail \
-                      $status_description;
-        fi
+          console.log(artifacts)
+          for (const artifact in artifacts) {
+            console.log(artifact)
+            if (artifact.name.startsWith("telemetry-tools-")) {
+              octokit.rest.actions.deleteArtifact({
+                context.repo.owner,
+                context.repo.repo,
+                artifact.id,
+              });
+            }
+          }

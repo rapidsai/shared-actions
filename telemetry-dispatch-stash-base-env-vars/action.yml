@@ -11,15 +11,15 @@ runs:
   using: 'composite'
   steps:
     - name: Clone shared-actions repo
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
+      if: ${{ vars.TELEMETRY_ENABLED == 'true' }}
       uses: actions/checkout@v4
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
     - name: Get traceparent representation of current workflow
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
+      if: ${{ vars.TELEMETRY_ENABLED == 'true' }}
       uses: ./shared-actions/telemetry-impls/traceparent
     - name: Stash base env vars
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
+      if: ${{ vars.TELEMETRY_ENABLED == 'true' }}
       uses: ./shared-actions/telemetry-impls/stash-base-env-vars

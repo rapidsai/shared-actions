@@ -1,0 +1,15 @@
+name: telemetry-dispatch-summarize
+description: |
+  This action is run in a final job on the top-level workflow, after all other
+  jobs are completed. This action downloads the JSON records of all jobs from
+  the current run. It then associates metadata records that were uploaded with
+  the telemetry-dispatch-stash-job-attributes action with jobs. This is
+  effectively label metadata. Finally, this action creates OpenTelemetry spans
+  with the timing and label metadata, and sends it to the configured Tempo
+  endpoint (or forwarder).
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
+    - uses: ./shared-actions/telemetry-impls/summarize

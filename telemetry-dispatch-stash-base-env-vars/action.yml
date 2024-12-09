@@ -1,8 +1,13 @@
-name: dispatch-stash-base-env-vars
+name: telemetry-dispatch-stash-base-env-vars
 description: |
   Stores base environment variables in a file and uploads that file
-  as an artifact. This action should only be called once in a build,
-  at the start of the top-level workflow.
+  as an artifact.
+
+  This action should only be called once in a build,
+  at the start of the top-level workflow. All other jobs in the top
+  level workflow should come after this job. It is generally enough
+  to have only the checks and devcontainers jobs explicitly depend on
+  it and have everything else be downstream of them.
 
 runs:
   using: 'composite'

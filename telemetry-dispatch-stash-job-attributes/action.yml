@@ -1,21 +1,32 @@
-name: dispatch-stash-attributes
+name: telemetry-dispatch-stash-job-attributes
 description: |
-  Clones a particular branch/ref of a shared-actions repo, then
-  call the stash-attributes implementation script, which writes
-  some environment variables so that downstream jobs can refer to them.
+  The main purpose of this script is to capture metadata within a job that
+  can be associated with that job's timing metadata in a separate job. The
+  kinds of metadata that need this approach are things like the value of
+  the various matrix dimensions.
 
-  Inputs here are all assumed to be env vars set outside of this script.
-  Set them in your main repo's workflows.
+  This action is generally only called in child workflows. It should be run
+  after other actions, such that any variable setting that needs to be captured
+  will have already been done prior to calling this action.
+
 inputs:
   extra_attributes:
     description: "comma-separated key=value attributes to associate with the current job"
-
 
 runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
+      # If telemetry setup hasn't run as part of the parent job's steps, then
+      # the env var file won't exist, and this action will fail.
+      if: ${{ env.TELEMETRY_ENABLED }} == 'true'
     - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
+      # this is intended to gate rollout of this feature to repos that we have done
+      # work to enable. Without gating this, we'd be adding the telemetry attribute
+      # files to the artifacts and not cleaning them up. We want to avoid that mess.
+      # Once all repos have the necessary setup code in their top-level builds, this
+      # gate can possibly be removed.
+      if: ${{ env.TELEMETRY_ENABLED }} == 'true'
       uses: ./shared-actions/telemetry-impls/stash-job-attributes
       with:
         extra_attributes: ${{ inputs.extra_attributes }}

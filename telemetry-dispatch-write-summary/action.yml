@@ -16,6 +16,7 @@ runs:
   steps:
     - name: Clone shared-actions repo
       uses: actions/checkout@v4
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
@@ -23,8 +24,10 @@ runs:
     # This is necessary because this action will generally be run in a job separately from
     # where the env vars are set
     - name: Load base environment variables
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       uses: ./shared-actions/telemetry-impls/load-base-env-vars
     - name: Run summarize action
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       uses: ./shared-actions/telemetry-impls/summarize
       with:
         cert_concat: ${{ inputs.cert_concat }}

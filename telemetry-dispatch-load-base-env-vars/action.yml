@@ -17,13 +17,15 @@ runs:
   using: 'composite'
   steps:
     - name: Clone shared-actions repo
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       uses: actions/checkout@v4
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
     - name: Set OTEL_SERVICE_NAME from job if not loading from stash
-      if: ${{ inputs.load_service_name != 'true' }}
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }} && ${{ inputs.load_service_name != 'true' }}
       uses: ./shared-actions/telemetry-impls/set-otel-service-name
     - name: Load base env vars
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       uses: ./shared-actions/telemetry-impls/load-base-env-vars

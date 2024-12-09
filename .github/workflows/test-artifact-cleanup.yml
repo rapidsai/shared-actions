@@ -1,0 +1,23 @@
+name: pr
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+
+jobs:
+  telemetry-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Create dummy file
+        shell: bash
+        run: echo "Dumbo" > file.txt
+      - name: Upload dummy file
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-tools-attrs-1234
+          path: file.txt
+      - name: Telemetry setup
+        uses: ./shared-actions/telemetry-impls/clean-up-artifacts

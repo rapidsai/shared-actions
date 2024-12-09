@@ -34,49 +34,5 @@ runs:
       run: |
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
 
-    - name: Clean up telemetry files
-      uses: actions/github-script@v7
-      #  && runner.debug != '1'
-      if: always()
-      with:
-        retries: 3
-        script: |
-          const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10)
-          get_artifacts = async ({github, context, process}) => {
-            const opts = github.rest.actions.listWorkflowRunArtifacts.endpoint.merge(
-                {
-                    attempt_number: runAttempt,
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    run_id: context.runId,
-                    per_page: 100
-                });
-            const artifacts = await github.paginate(opts);
-            return artifacts;
-          };
-
-          var artifacts = undefined;
-          var retryCount = 0;
-          maxRetries = 5;
-          initialDelay = 2000;
-          while (artifacts === undefined) {
-            artifacts = await get_artifacts({github, context, process});
-            if (artifacts === undefined && retryCount < maxRetries) {
-              retryCount++;
-              await new Promise((res) => setTimeout(res, initialDelay * Math.pow(2, retryCount - 1)));
-            } else {
-              break;
-            }
-          }
-
-          console.log(artifacts)
-          for (const artifact in artifacts) {
-            console.log(artifact)
-            if (artifact.name.startsWith("telemetry-tools-")) {
-              octokit.rest.actions.deleteArtifact({
-                context.repo.owner,
-                context.repo.repo,
-                artifact.id,
-              });
-            }
-          }
+    - name: Clean up attributes artifacts from all jobs
+      uses: ./shared-actions/telemetry-impls/clean-up-artifacts

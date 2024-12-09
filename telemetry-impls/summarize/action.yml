@@ -35,29 +35,6 @@ runs:
     - uses: ./shared-actions/telemetry-impls/set-otel-service-name
       if: env.OTEL_SERVICE_NAME == ''
 
-    # OpenTelemetry implementations look for these variable names to be set to the paths
-    #    of the files with the mTLS certs and keys. We base64 encode them when storing them
-    #    to avoid issues with quoting and multiline text.
-    # If these env vars are not set, then otel-cli will not attempt to use mTLS.
-    - name: Write certificate files for mTLS
-      if: "${{ inputs.cert_concat }} != ''"
-      shell: bash
-      run: |
-        mkdir -p /tmp/certs
-        IFS='; ' read -r -a CERT_PARTS <<< "${{ inputs.cert_concat }}"
-
-        OTEL_EXPORTER_OTLP_CERTIFICATE=/tmp/certs/ca.crt.pem
-        echo "${CERT_PARTS[0]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CERTIFICATE}
-        echo OTEL_EXPORTER_OTLP_CERTIFICATE=${OTEL_EXPORTER_OTLP_CERTIFICATE} >> ${GITHUB_ENV}
-
-        OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/tmp/certs/client.crt.pem
-        echo "${CERT_PARTS[1]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE}
-        echo OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=${OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE} >> ${GITHUB_ENV}
-
-        OTEL_EXPORTER_OTLP_CLIENT_KEY=/tmp/certs/client.key.pem
-        echo "${CERT_PARTS[2]}" | base64 --decode > ${OTEL_EXPORTER_OTLP_CLIENT_KEY}
-        echo OTEL_EXPORTER_OTLP_CLIENT_KEY=${OTEL_EXPORTER_OTLP_CLIENT_KEY} >> ${GITHUB_ENV}
-
     - uses: ./shared-actions/telemetry-impls/sanity-checks
 
     - shell: bash

@@ -1,10 +1,10 @@
-name: pr
+name: test-artifact-cleanup
+# During this workflow, we upload a file that follows the 'telemetry-tools-*'
+# After running the clean-up-artifacts action, the artifact should no longer show up
+# in the web UI.
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - "pull-request/[0-9]+"
 
 jobs:
   telemetry-setup:
@@ -20,5 +20,5 @@ jobs:
         with:
           name: telemetry-tools-attrs-1234
           path: file.txt
-      - name: Telemetry setup
+      - name: Clean up telemetry intermediary artifacts
         uses: ./telemetry-impls/clean-up-artifacts

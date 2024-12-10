@@ -29,13 +29,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 from __future__ import annotations
 from datetime import datetime
 import hashlib
-from pathlib import Path
 import json
-import time
+import logging
 import os
+from pathlib import Path
 import re
-
+import time
 from typing import Optional, Mapping, Union, Iterable
+
 from opentelemetry import trace
 from opentelemetry.sdk.trace import Span
 from opentelemetry.trace import SpanKind
@@ -109,6 +110,9 @@ def parse_attributes(attrs: Iterable[str]) -> Mapping[str, Union[str, int, list,
     prefix_pattern = re.compile(r"^(?P<type>[^\[\n]*)(?P<array>\[(sep=?(?P<sep>.))?.*\])?$")
     attributes = {}
     for attr in attrs:
+        attr = attr.strip()
+        if not attr:
+            continue
         attr_match = attr_pattern.match(attr)
         if attr_match is None:
             raise ValueError(f"Unable to parse attribute: {attr}")
@@ -165,12 +169,6 @@ def create_span(
     provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
     tracer = trace.get_tracer("otel-cli-python", __version__, tracer_provider=provider)
 
-    if trace_id is not None:
-        tracer.id_generator.generate_trace_id = lambda: int(trace_id, 16)
-
-    if span_id is not None:
-        tracer.id_generator.generate_span_id = lambda: int(span_id, 16)
-
     if start_time is None:
         start_time = time.time_ns()
 
@@ -200,12 +198,6 @@ def create_span(
     return my_span
 
 
-def trace_id(run_url: str, run_attempt: str):
-    trace_id = hashlib.sha256()
-    trace_id.update(f"{run_url}+{run_attempt}".encode())
-    return trace_id.hexdigest()[:32]
-
-
 def span_id(trace_id: str, job_name: str, step_name: Optional[str] = None):
     span_id = hashlib.sha256()
     span_id.update(trace_id.encode())
@@ -213,12 +205,6 @@ def span_id(trace_id: str, job_name: str, step_name: Optional[str] = None):
     if step_name:
         span_id.update(bytes(step_name.encode()))
     return span_id.hexdigest()[:16]
-
-
-def traceparent(run_url, run_attempt, job_name, step_name: Optional[str] = None):
-    tid = trace_id(run_url=run_url, run_attempt=run_attempt)
-    sid = span_id(trace_id=tid, job_name=job_name, step_name=step_name)
-    return f"00-{tid}-{sid}-01"
 
 
 def date_str_to_epoch(date_str: str, value_if_not_set: int):
@@ -239,16 +225,16 @@ def map_conclusion_to_status_code(conclusion: str):
 
 
 def main(args):
+    logging.basicConfig(level=logging.DEBUG)
     with open("all_jobs.json") as f:
         jobs = json.loads(f.read())
-    tid = trace_id(jobs[0]["run_url"], jobs[0]["run_attempt"])
+    tid = os.environ['TRACEPARENT'].split('-')[1]
     try:
         top_level_job_name = os.environ["OTEL_SERVICE_NAME"]
     except KeyError:
         print("The `OTEL_SERVICE_NAME` environment variable must be set. Exiting")
         sys.exit(1)
-    top_level_span_id = span_id(tid, top_level_job_name)
-    top_level_traceparent = f"00-{tid}-{top_level_span_id}-01"
+    top_level_traceparent = os.environ['TRACEPARENT']
     # track the latest timestamp observed and use it for any unavailable times.
     last_timestamp = date_str_to_epoch(jobs[0]["completed_at"], 0)
     for job in jobs:
@@ -257,12 +243,15 @@ def main(args):
         job_span_id = span_id(tid, job_name=job["name"])
         job_traceparent = f"00-{tid}-{job_span_id}-01"
 
-        attribute_file = Path.cwd() / f"telemetry-tools-attrs-${job_id}/attrs-${job_id}"
+        attribute_file = Path.cwd() / f"telemetry-tools-attrs-{job_id}/attrs-{job_id}"
         if attribute_file.exists():
+            logging.debug(f"Found attribute file for job '{job_id}'")
             attributes = parse_attribute_file(attribute_file.as_posix())
         elif attributes_env_var := os.getenv("OTEL_RESOURCE_ATTRIBUTES"):
+            logging.debug("Found attributes environment variable")
             attributes = parse_attributes(attributes_env_var.split(","))
         else:
+            logging.warning(f"No attribute metadata found for job '{job_id}'")
             attributes = None
 
         for step in job["steps"]:

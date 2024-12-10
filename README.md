@@ -37,8 +37,8 @@ runs:
     - name: Clone shared-actions repo
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO}}
-        ref: ${{ env.SHARED_ACTIONS_REF}}
+        repository: ${{ env.SHARED_ACTIONS_REPO }}
+        ref: ${{ env.SHARED_ACTIONS_REF }}
         path: ./shared-actions
     - name: Run local implementation action
       uses: ./shared-actions/impls/example-action
@@ -152,7 +152,7 @@ jobs:
         continue-on-error: true
         if: always()
         with:
-          extra_attributes: "rapids.cuda=${{matrix.CUDA_VER}},rapids.py=${{matrix.PY_VER}},rapids.gpu=${{matrix.GPU}}"
+          extra_attributes: "rapids.cuda=${{ matrix.CUDA_VER }},rapids.py=${{ matrix.PY_VER }},rapids.gpu=${{ matrix.GPU }}"
 ```
 
 Behind the scenes, the implementation actions are:

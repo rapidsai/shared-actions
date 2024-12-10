@@ -1,6 +1,8 @@
-name: 'Telemetry summarize'
+name: 'clean-up-artifacts'
 description: |
-  Consumes job info, parses into spans, and pushes spans.
+  Artifact cleanup removes all of the temporary "carrier" files that are created
+  by each build job to transmit attribute values. Otherwise, these would be
+  noisy and make it harder to find "real," interesting artifacts.
 
 runs:
   using: 'composite'

@@ -1,9 +1,12 @@
 name: 'Github Actions Job info'
 description: |
   Obtains job metadata from the GitHub Actions API.
-  Provides two files on disk:
-  - job_info.json: metadata for the job that is calling this script
-  - all_jobs.json: metadata for all jobs under the top-level workflow
+  Provides one of two files on disk:
+  - job_info.json: metadata for the job that is calling this script. Jobs use this to know their
+    unique ID, which is used to associate attribute metadata with job timing information.
+  - all_jobs.json: metadata for all jobs under the top-level workflow. This is used by the
+    final job, which parses this file, associates the span information with attribute metadata,
+    and sends the spans to the OpenTelemetry receiver endpoint.
 
 inputs:
   all_jobs:

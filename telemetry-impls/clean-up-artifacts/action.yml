@@ -40,14 +40,12 @@ runs:
             }
           }
 
-          console.log(artifacts)
-          for (const artifact in artifacts) {
-            console.log(artifact)
-            // if (artifact.name.startsWith("telemetry-tools-")) {
-            //   octokit.rest.actions.deleteArtifact({
-            //     context.repo.owner,
-            //     context.repo.repo,
-            //     artifact.id,
-            //   });
-            // }
-          }
+          artifacts.forEach(artifact => {
+            if (artifact.name.startsWith('telemetry-tools-')) {
+              github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id
+              });
+            }
+          });

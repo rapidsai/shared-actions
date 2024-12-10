@@ -1,6 +1,7 @@
 name: pr
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - "pull-request/[0-9]+"
@@ -20,4 +21,4 @@ jobs:
           name: telemetry-tools-attrs-1234
           path: file.txt
       - name: Telemetry setup
-        uses: ./shared-actions/telemetry-impls/clean-up-artifacts
+        uses: ./telemetry-impls/clean-up-artifacts

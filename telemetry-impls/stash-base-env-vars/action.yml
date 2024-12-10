@@ -15,14 +15,10 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - name: Compute traceparent
-      # This sets TRACEPARENT env var, which we store below.
-      # TRACEPARENT implicity depends on OTEL_SERVICE_NAME being set. This will have one value
-      # for the top-level build (e.g. pr.yaml), and one value for each of the child workflows
-      uses: ./shared-actions/telemetry-impls/traceparent
     - name: Write base env vars to a file
       shell: bash
       run: |
+        TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${OTEL_SERVICE_NAME}")
         OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},git.repository=${GITHUB_REPOSITORY}"
         OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},git.ref=${GITHUB_REF}"
         OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},git.sha=${GITHUB_SHA}"
@@ -32,15 +28,15 @@ runs:
         OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
         OTEL_RESOURCE_ATTRIBUTES="$(echo "${OTEL_RESOURCE_ATTRIBUTES}" | sed 's/^,//')"
         OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME}"
-        SHARED_ACTIONS_REPO=${SHARED_ACTIONS_REPO}
-        SHARED_ACTIONS_REF=${SHARED_ACTIONS_REF}
-        START_TIME="${START_TIME:-$(date --rfc-3339=ns | sed "s/ /T/g" | sed "s/+00:00/Z/g")}"
-        TRACEPARENT=${TRACEPARENT}
+        SHARED_ACTIONS_REPO=${SHARED_ACTIONS_REPO:-rapidsai/shared-actions}
+        SHARED_ACTIONS_REF=${SHARED_ACTIONS_REF:-main}
+        START_TIME="${START_TIME:-$(date +'%s')}"
+        TRACEPARENT="${TRACEPARENT}"
         EOF
     - name: Upload env vars file
       uses: actions/upload-artifact@v4
       with:
-        name: telemetry-env-vars
+        name: telemetry-tools-env-vars
         path: telemetry-env-vars
     - name: Re-export env vars so that defaults take effect
       uses: ./shared-actions/telemetry-impls/load-base-env-vars

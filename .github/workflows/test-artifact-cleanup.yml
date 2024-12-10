@@ -1,0 +1,24 @@
+name: test-artifact-cleanup
+# During this workflow, we upload a file that follows the 'telemetry-tools-*'
+# After running the clean-up-artifacts action, the artifact should no longer show up
+# in the web UI.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  telemetry-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Create dummy file
+        shell: bash
+        run: echo "Dumbo" > file.txt
+      - name: Upload dummy file
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-tools-attrs-1234
+          path: file.txt
+      - name: Clean up telemetry intermediary artifacts
+        uses: ./telemetry-impls/clean-up-artifacts

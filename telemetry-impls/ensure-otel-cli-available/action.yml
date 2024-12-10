@@ -1,9 +1,0 @@
-name: 'ensure-otel-cli-available'
-description: 'Ensure otel-cli is available for sending spans'
-
-runs:
-  using: 'composite'
-  steps:
-    - shell: bash
-      id: install-otel-cli
-      run: pip install otel-cli

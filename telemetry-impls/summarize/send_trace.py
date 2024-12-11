@@ -39,12 +39,12 @@ from typing import Optional, Mapping, Union, Iterable
 
 from opentelemetry import trace
 from opentelemetry.sdk.trace import Span
-from opentelemetry.trace import SpanKind
-from opentelemetry.context import Context
+from opentelemetry.trace import SpanKind, NonRecordingSpan, SpanContext, TraceFlags
+from opentelemetry.context import Context, attach, detach
+from opentelemetry.propagate import extract
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor, BatchSpanProcessor
 from opentelemetry.trace.status import Status, StatusCode
 
 match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
@@ -55,6 +55,9 @@ match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
     case _:
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter as OTLPSpanExporter
 
+
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 try:
     from typing import Literal
@@ -144,60 +147,6 @@ def parse_attribute_file(filename: str) -> Mapping[str, Union[str, int, list, bo
     return attributes
 
 
-def create_span(
-    span_name: str,
-    service_name: str = "otel-cli-python",
-    service_version: str = __version__,
-    start_time: Optional[int] = None,
-    end_time: Optional[int] = None,
-    trace_id: Optional[str] = None,
-    span_id: Optional[str] = None,
-    kind: Literal["client", "consumer", "internal", "producer", "server"] = "internal",
-    traceparent: Optional[str] = None,
-    attributes: Optional[Mapping[str, str]] = None,
-    status_code: Literal["UNSET", "OK", "ERROR"] = "UNSET",
-    status_message: Optional[str] = None,
-) -> Span:
-    resource = Resource.create(
-        attributes={
-            "service.name": service_name,
-            "service.version": service_version,
-        }
-    )
-    provider = TracerProvider(resource=resource)
-    otlp_exporter = OTLPSpanExporter()
-    provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-    tracer = trace.get_tracer("otel-cli-python", __version__, tracer_provider=provider)
-
-    if start_time is None:
-        start_time = time.time_ns()
-
-    if end_time is None:
-        end_time = time.time_ns()
-
-    # Create a new context to avoid reusing context created by pytest
-    context = Context()
-    if not traceparent:
-        traceparent = os.getenv("TRACEPARENT")
-    if traceparent is not None:
-        carrier = {"traceparent": traceparent}
-        context = TraceContextTextMapPropagator().extract(carrier)
-
-    span_kind = SpanKind[kind.upper()]
-    statuscode = StatusCode[status_code]
-    span_status = Status(statuscode, description=status_message)
-    my_span = tracer.start_span(
-        span_name,
-        start_time=start_time,
-        kind=span_kind,
-        context=context,
-        attributes=attributes,
-    )
-    my_span._status = span_status
-    my_span.end(end_time=end_time)
-    return my_span
-
-
 def span_id(trace_id: str, job_name: str, step_name: Optional[str] = None):
     span_id = hashlib.sha256()
     span_id.update(trace_id.encode())
@@ -207,41 +156,47 @@ def span_id(trace_id: str, job_name: str, step_name: Optional[str] = None):
     return span_id.hexdigest()[:16]
 
 
-def date_str_to_epoch(date_str: str, value_if_not_set: int):
+def date_str_to_epoch(date_str: str, value_if_not_set: Optional[int] = 0) -> int:
     if date_str:
         timestamp_ns = int(datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").timestamp() * 1e9)
     else:
-        timestamp_ns = value_if_not_set
+        timestamp_ns = value_if_not_set or 0
     return timestamp_ns
 
 
-def map_conclusion_to_status_code(conclusion: str):
+def map_conclusion_to_status_code(conclusion: str) -> StatusCode:
     if conclusion == "success":
-        return "OK"
+        return StatusCode.OK
     elif conclusion == "failure":
-        return "ERROR"
+        return StatusCode.ERROR
     else:
-        return "UNSET"
+        return StatusCode.UNSET
 
 
 def main(args):
-    logging.basicConfig(level=logging.DEBUG)
+    # logging.basicConfig(level=logging.DEBUG)
     with open("all_jobs.json") as f:
         jobs = json.loads(f.read())
-    tid = os.environ['TRACEPARENT'].split('-')[1]
-    try:
-        top_level_job_name = os.environ["OTEL_SERVICE_NAME"]
-    except KeyError:
-        print("The `OTEL_SERVICE_NAME` environment variable must be set. Exiting")
-        sys.exit(1)
-    top_level_traceparent = os.environ['TRACEPARENT']
+
     # track the latest timestamp observed and use it for any unavailable times.
-    last_timestamp = date_str_to_epoch(jobs[0]["completed_at"], 0)
+    last_timestamp = date_str_to_epoch(jobs[0]["completed_at"])
+
+    # Create a new context to avoid reusing context created by pytest
+    carrier = {"traceparent": os.environ["TRACEPARENT"]}
+    outer_context = extract(carrier)
+    attach(outer_context)
+
+    provider = TracerProvider()
+    trace.set_tracer_provider(provider)
+    provider.add_span_processor(span_processor=SimpleSpanProcessor(OTLPSpanExporter()))
+    tracer = trace.get_tracer("GitHub Actions parser", __version__, tracer_provider=provider)
+    root_span = tracer.start_span("workflow root", start_time=date_str_to_epoch(jobs[0]['created_at']))
+    root_context = trace.set_span_in_context(root_span)
+
     for job in jobs:
         job_name = job["name"]
         job_id = job["id"]
-        job_span_id = span_id(tid, job_name=job["name"])
-        job_traceparent = f"00-{tid}-{job_span_id}-01"
+        print(job_name)
 
         attribute_file = Path.cwd() / f"telemetry-tools-attrs-{job_id}/attrs-{job_id}"
         if attribute_file.exists():
@@ -252,62 +207,45 @@ def main(args):
             attributes = parse_attributes(attributes_env_var.split(","))
         else:
             logging.warning(f"No attribute metadata found for job '{job_id}'")
-            attributes = None
+            attributes = {}
+
+        job_span = tracer.start_span(
+            name=job_name,
+            start_time=date_str_to_epoch(job["started_at"], last_timestamp),
+            context=root_context,
+            attributes=attributes,
+        )
+        job_context = trace.set_span_in_context(job_span)
+
+        job_span.set_status(map_conclusion_to_status_code(job["conclusion"]))
 
         for step in job["steps"]:
-            step_span_id = span_id(trace_id=tid, job_name=job_name, step_name=step["name"])
             start = date_str_to_epoch(step["started_at"], last_timestamp)
             end = date_str_to_epoch(step["completed_at"], last_timestamp)
+            print(step['name'])
+
+            step_span = tracer.start_span(
+                name=step['name'],
+                start_time=start,
+                context=job_context,
+                attributes=attributes,
+            )
+            step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
+            step_span.end(end)
 
             if end > last_timestamp:
                 last_timestamp = end
-            create_span(
-                span_name=step["name"],
-                service_name=job_name,
-                trace_id=tid,
-                span_id=step_span_id,
-                traceparent=job_traceparent,
-                start_time=start,
-                end_time=end,
-                attributes=attributes,
-                status_code=map_conclusion_to_status_code(step["conclusion"]),
-            )
-        job_create = date_str_to_epoch(job["created_at"], last_timestamp)
-        job_start = date_str_to_epoch(job["started_at"], last_timestamp)
-        job_end = max(date_str_to_epoch(job["completed_at"], last_timestamp), last_timestamp)
 
-        if job_name == top_level_job_name:
-            create_span(
-                span_name="workflow root",
-                service_name=job_name,
-                trace_id=tid,
-                span_id=job_span_id,
-                start_time=job_create,
-                end_time=job_end,
-                attributes=attributes,
-                status_code=map_conclusion_to_status_code(job["conclusion"]),
-            )
-        else:
-            create_span(
-                span_name="Start delay time",
-                service_name=job_name,
-                trace_id=tid,
-                traceparent=job_traceparent,
-                start_time=job_create,
-                end_time=job_start,
-                attributes=attributes,
-            )
-            create_span(
-                span_name="child workflow root",
-                service_name=job_name,
-                trace_id=tid,
-                span_id=job_span_id,
-                traceparent=top_level_traceparent,
-                start_time=job_create,
-                end_time=job_start,
-                attributes=attributes,
-                status_code=map_conclusion_to_status_code(job["conclusion"]),
-            )
+            job_create = date_str_to_epoch(job["created_at"], last_timestamp)
+            job_start = date_str_to_epoch(job["started_at"], last_timestamp)
+            job_end = max(date_str_to_epoch(job["completed_at"], last_timestamp), last_timestamp)
+
+            # if job_name != top_level_job_name:
+            #     delay_span = tracer.start_span(name="Start delay time", start_time=job_create)
+            #     delay_span.end(job_start)
+
+        job_span.end(job_end)
+    root_span.end(last_timestamp)
 
 
 if __name__ == "__main__":

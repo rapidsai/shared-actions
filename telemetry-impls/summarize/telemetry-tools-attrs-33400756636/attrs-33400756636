@@ -2,3 +2,4 @@ git.repository=rapidsai/rmm
 git.ref=refs/heads/pull-request/1750
 git.sha=e07b3788ccf8d8856454ca05c2f580806b800a87
 git.job_url=https://github.com/rapidsai/rmm/actions/runs/12260610218
+service.name=newservice

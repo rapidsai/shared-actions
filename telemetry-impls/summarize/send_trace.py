@@ -32,7 +32,7 @@ from opentelemetry.context import Context, attach, detach
 from opentelemetry.propagate import extract
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor, BatchSpanProcessor
 from opentelemetry.trace.status import Status, StatusCode
 
 match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
@@ -47,7 +47,7 @@ match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
-SpanProcessor = BatchSpanProcessor
+SpanProcessor = SimpleSpanProcessor # BatchSpanProcessor
 
 
 def parse_attribute_file(filename: str) -> Dict[str, str]:
@@ -137,15 +137,16 @@ def main(args):
             start = date_str_to_epoch(step["started_at"], last_timestamp)
             end = date_str_to_epoch(step["completed_at"], last_timestamp)
 
-            step_span = job_tracer.start_span(
-                name=step['name'],
-                start_time=start,
-                context=job_context,
-            )
-            step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
-            step_span.end(end)
+            if end - start > 0:
+                step_span = job_tracer.start_span(
+                    name=step['name'],
+                    start_time=start,
+                    context=job_context,
+                )
+                step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
+                step_span.end(end)
 
-            last_timestamp = max(end, last_timestamp)
+                last_timestamp = max(end, last_timestamp)
 
         job_create = date_str_to_epoch(job["created_at"], last_timestamp)
         job_start = date_str_to_epoch(job["started_at"], last_timestamp)

@@ -15,7 +15,7 @@
 
 
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -61,7 +61,7 @@ def parse_attribute_file(filename: str) -> Dict[str, str]:
 
 def date_str_to_epoch(date_str: str, value_if_not_set: Optional[int] = 0) -> int:
     if date_str:
-        timestamp_ns = int(datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").timestamp() * 1e9)
+        timestamp_ns = int(datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() * 1e9)
     else:
         timestamp_ns = value_if_not_set or 0
     return timestamp_ns
@@ -81,6 +81,12 @@ def main(args):
     with open("all_jobs.json") as f:
         jobs = json.loads(f.read())
 
+    env_vars = {}
+    with open('telemetry-tools-env-vars/telemetry-env-vars') as f:
+        for line in f.readlines():
+            k, v = line.split("=", 1)
+            env_vars[k] = v.strip().strip('"')
+
     first_timestamp = date_str_to_epoch(jobs[0]["created_at"])
     # track the latest timestamp observed and use it for any unavailable times.
     last_timestamp = date_str_to_epoch(jobs[0]["completed_at"])
@@ -89,8 +95,10 @@ def main(args):
     attributes = parse_attribute_file(attribute_file.as_posix())
     global_attrs = {}
     for k, v in attributes.items():
-        if k.startswith('git.') or k.startswith('service.'):
+        if k.startswith('git.'):
             global_attrs[k] = v
+
+    global_attrs['service.name'] = env_vars['OTEL_SERVICE_NAME']
 
     provider = TracerProvider(resource=Resource(global_attrs))
     provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
@@ -118,7 +126,7 @@ def main(args):
 
         job_span = job_tracer.start_span(
             name=job_name,
-            start_time=date_str_to_epoch(job["started_at"], first_timestamp),
+            start_time=date_str_to_epoch(job["created_at"], first_timestamp),
             context=root_context,
         )
         job_context = trace.set_span_in_context(job_span)
@@ -126,7 +134,7 @@ def main(args):
         job_span.set_status(map_conclusion_to_status_code(job["conclusion"]))
 
         for step in job["steps"]:
-            start = date_str_to_epoch(step["started_at"], first_timestamp)
+            start = date_str_to_epoch(step["started_at"], last_timestamp)
             end = date_str_to_epoch(step["completed_at"], last_timestamp)
 
             step_span = job_tracer.start_span(
@@ -139,8 +147,8 @@ def main(args):
 
             last_timestamp = max(end, last_timestamp)
 
-        job_create = date_str_to_epoch(job["created_at"], first_timestamp)
-        job_start = date_str_to_epoch(job["started_at"], first_timestamp)
+        job_create = date_str_to_epoch(job["created_at"], last_timestamp)
+        job_start = date_str_to_epoch(job["started_at"], last_timestamp)
         job_end = max(date_str_to_epoch(job["completed_at"], last_timestamp), last_timestamp)
 
         delay_span = job_tracer.start_span(

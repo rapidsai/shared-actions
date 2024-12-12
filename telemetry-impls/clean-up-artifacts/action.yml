@@ -9,8 +9,7 @@ runs:
   steps:
     - name: Clean up telemetry files
       uses: actions/github-script@v7
-      #  && runner.debug != '1'
-      if: always()
+      if: runner.debug != '1'
       with:
         retries: 3
         script: |

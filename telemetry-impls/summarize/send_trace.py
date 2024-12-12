@@ -16,24 +16,19 @@
 
 from __future__ import annotations
 from datetime import datetime, timezone
-import hashlib
 import json
 import logging
 import os
 from pathlib import Path
-import re
-import time
-from typing import Optional, Mapping, Union, Iterable, Dict
+from typing import Optional, Dict
 
 from opentelemetry import trace
-from opentelemetry.sdk.trace import Span
-from opentelemetry.trace import SpanKind, NonRecordingSpan, SpanContext, TraceFlags
-from opentelemetry.context import Context, attach, detach
+from opentelemetry.context import attach, Context
 from opentelemetry.propagate import extract
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, BatchSpanProcessor
-from opentelemetry.trace.status import Status, StatusCode
+from opentelemetry.trace.status import StatusCode
 
 match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
     case "http/protobuf":
@@ -45,7 +40,7 @@ match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
 
 
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 SpanProcessor = SimpleSpanProcessor # BatchSpanProcessor
 
@@ -103,12 +98,23 @@ def main(args):
     provider = TracerProvider(resource=Resource(global_attrs))
     provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
     tracer = trace.get_tracer("GitHub Actions parser", "0.0.1", tracer_provider=provider)
+
+    # purpose of this is to keep the trace ID constant if the same data is sent different times,
+    # which mainly happens during testing. Having the trace ID be something that we control
+    # will also be useful for tying together logs and metrics with our traces.
+    attach(extract(
+        carrier={'traceparent': env_vars["TRACEPARENT"]},
+    ))
+
     root_span = tracer.start_span("workflow root", start_time=first_timestamp)
     root_context = trace.set_span_in_context(root_span)
+
+    logging.info(f"Trace ID is {root_context.get('trace_id')}")
 
     for job in jobs:
         job_name = job["name"]
         job_id = job["id"]
+        logging.info(f"Processing job '{job_name}'")
 
         attribute_file = Path.cwd() / f"telemetry-tools-attrs-{job_id}/attrs-{job_id}"
         attributes = {}
@@ -116,7 +122,7 @@ def main(args):
             logging.debug(f"Found attribute file for job '{job_id}'")
             attributes = parse_attribute_file(attribute_file.as_posix())
         else:
-            logging.warning(f"No attribute metadata found for job '{job_id}'")
+            logging.debug(f"No attribute metadata found for job '{job_id}'")
 
         attributes["service.name"] = job_name
 
@@ -133,11 +139,23 @@ def main(args):
 
         job_span.set_status(map_conclusion_to_status_code(job["conclusion"]))
 
-        for step in job["steps"]:
-            start = date_str_to_epoch(step["started_at"], last_timestamp)
-            end = date_str_to_epoch(step["completed_at"], last_timestamp)
+        job_create = date_str_to_epoch(job["created_at"], last_timestamp)
+        job_start = date_str_to_epoch(job["started_at"], last_timestamp)
+        delay_span = job_tracer.start_span(
+            name="Start delay time",
+            start_time=job_create,
+            context=job_context,
+        )
+        delay_span.end(job_start)
 
-            if end - start > 0:
+        job_last_timestamp = date_str_to_epoch(job["completed_at"])
+
+        for step in job["steps"]:
+            start = date_str_to_epoch(step["started_at"], job_last_timestamp)
+            end = date_str_to_epoch(step["completed_at"], job_last_timestamp)
+
+            if (end - start) / 1e9 > 5:
+                logging.info(f"processing step: '{step['name']}'")
                 step_span = job_tracer.start_span(
                     name=step['name'],
                     start_time=start,
@@ -147,19 +165,10 @@ def main(args):
                 step_span.end(end)
 
                 last_timestamp = max(end, last_timestamp)
+                job_last_timestamp = max(end, last_timestamp)
 
-        job_create = date_str_to_epoch(job["created_at"], last_timestamp)
-        job_start = date_str_to_epoch(job["started_at"], last_timestamp)
-        job_end = max(date_str_to_epoch(job["completed_at"], last_timestamp), last_timestamp)
-
-        delay_span = job_tracer.start_span(
-            name="Start delay time",
-            start_time=job_create,
-            context=job_context,
-        )
-        delay_span.end(job_start)
-
-        job_span.end(job_end)
+        job_end = max(date_str_to_epoch(job["completed_at"], job_last_timestamp), job_last_timestamp)
+        job_span.end(job_end or last_timestamp)
     root_span.end(last_timestamp)
 
 

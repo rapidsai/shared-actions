@@ -109,12 +109,18 @@ def main(args):
     root_span = tracer.start_span("workflow root", start_time=first_timestamp)
     root_context = trace.set_span_in_context(root_span)
 
-    logging.info(f"Trace ID is {root_context.get('trace_id')}")
+    logging.info(f"Trace ID is {hex(root_span.get_span_context().trace_id)}")
 
     for job in jobs:
         job_name = job["name"]
         job_id = job["id"]
         logging.info(f"Processing job '{job_name}'")
+        job_create = date_str_to_epoch(job["created_at"])
+        job_start = date_str_to_epoch(job["started_at"])
+
+        if job_start == 0:
+            logging.info(f"Job is empty (no start time) - bypassing")
+            continue
 
         attribute_file = Path.cwd() / f"telemetry-tools-attrs-{job_id}/attrs-{job_id}"
         attributes = {}
@@ -139,8 +145,8 @@ def main(args):
 
         job_span.set_status(map_conclusion_to_status_code(job["conclusion"]))
 
-        job_create = date_str_to_epoch(job["created_at"], last_timestamp)
-        job_start = date_str_to_epoch(job["started_at"], last_timestamp)
+
+
         delay_span = job_tracer.start_span(
             name="Start delay time",
             start_time=job_create,

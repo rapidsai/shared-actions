@@ -1,0 +1,30 @@
+name: check-nightly-summarize
+description: Check if the nightlies have succeeded recently.
+inputs:
+  repo:
+    description: "The repository to check"
+    required: true
+    type: string
+  repo_owner:
+    description: "The org that owns the repo (default RAPIDSAI)"
+    required: false
+    default: "rapidsai"
+    type: string
+  workflow_id:
+    description: "The workflow whose runs to check"
+    required: false
+    default: "test.yaml"
+    type: string
+  max_days_without_success:
+    description: "The number of consecutive days that may go by without a successful CI run"
+    required: false
+    default: 7
+    type: integer
+
+runs:
+  using: composite
+  steps:
+    - name: Run the Python script
+      shell: bash
+      run:
+          python shared-actions/check_nightly_success/check-nightly-success/check.py ${{ inputs.repo }} --repo-owner ${{ inputs.repo_owner }} --workflow-id ${{ inputs.workflow_id }} --max-days-without-success ${{ inputs.max_days_without_success }}

@@ -4,6 +4,7 @@
 import argparse
 import itertools
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -46,7 +47,7 @@ def main(
 
     branch_ok = {}
     for branch, branch_runs in itertools.groupby(runs, key=lambda r: r["head_branch"]):
-        if branch.startswith("v"):  # Skip tags
+        if not re.match("branch-[0-9]{2}.[0-9]{2}", branch):
             continue
 
         branch_ok[branch] = False
@@ -59,14 +60,14 @@ def main(
                 branch_ok[branch] = True
                 break
 
-    all_success = all(branch_ok.values())
-    if not all_success:
+    failed_branches = [k for k, v in branch_ok.items() if not v]
+    if failed_branches:
         print(  # noqa: T201
             f"Branches with no successful runs of {workflow_id} in the last "
             f"{max_days_without_success} days: "
-            f"{', '.join(k for k, v in branch_ok.items() if not v)}",
+            f"{', '.join(failed_branches)}",
         )
-    return not all(branch_ok.values())
+    return len(failed_branches) > 0
 
 
 if __name__ == "__main__":
@@ -75,7 +76,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--repo-owner",
         default="rapidsai",
-        help="Repository organziation/owner",
+        help="Repository organization/owner",
     )
     parser.add_argument("--workflow-id", default="test.yaml", help="Workflow ID")
     parser.add_argument(

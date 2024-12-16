@@ -1,4 +1,4 @@
-name: check-nightly-summarize
+name: check-nightly-success
 description: Check if the nightlies have succeeded recently.
 inputs:
   repo:
@@ -6,7 +6,7 @@ inputs:
     required: true
     type: string
   repo_owner:
-    description: "The org that owns the repo (default RAPIDSAI)"
+    description: "The org that owns the repo (default: rapidsai)"
     required: false
     default: "rapidsai"
     type: string

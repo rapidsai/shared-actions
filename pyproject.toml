@@ -1,0 +1,17 @@
+# Copyright (c) 2024, NVIDIA CORPORATION.
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # Incompatible with D211
+    "D203",
+    # Incompatible with D213
+    "D213",
+    # Incompatible with ruff-format
+    "COM812",
+    "ISC001",
+]
+fixable = ["ALL"]

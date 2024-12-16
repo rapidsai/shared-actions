@@ -27,4 +27,5 @@ runs:
     - name: Run the Python script
       shell: bash
       run:
+          python -m pip install requests
           python shared-actions/check_nightly_success/check-nightly-success/check.py ${{ inputs.repo }} --repo-owner ${{ inputs.repo_owner }} --workflow-id ${{ inputs.workflow_id }} --max-days-without-success ${{ inputs.max_days_without_success }}

@@ -1,0 +1,28 @@
+name: 'Telemetry sanity checks'
+description: |
+  'Ensures that necessary components and env vars are available'
+
+  DEPRECATED: this is here to ensure a smooth transition while rolling out https://github.com/rapidsai/shared-actions/pull/28
+     It can/should be removed when there are no longer references to it in any repo pr.yaml files.
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      id: checks
+      run: |
+        echo "OTEL_SERVICE_NAME is ${OTEL_SERVICE_NAME}"
+        if [ "${OTEL_SERVICE_NAME}" = "" ]; then
+          echo "OTEL_SERVICE_NAME is empty. Erroring out.";
+          exit 1;
+        fi
+
+
+        if ! otel-cli --help  2>&1 >/dev/null; then
+          echo "otel-cli is missing";
+          exit 1;
+        fi
+
+        if ! type -P rapids-get-telemetry-trace-id 2>&1 >/dev/null; then
+          echo "rapidsai/gha-tools is missing or lacks telemetry scripts";
+          exit 1;
+        fi

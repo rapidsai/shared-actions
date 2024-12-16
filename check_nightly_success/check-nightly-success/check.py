@@ -33,9 +33,10 @@ def main(
         except requests.RequestException as e:
             exceptions.append(e)
     else:
+        sep = "\n\t"
         msg = (
             f"Failed to fetch {url} after {num_attempts} attempts with the following "
-            f"errors: \n\t{'\n\t'.join(exceptions)}"
+            f"errors: {sep}{'{sep}'.join(exceptions)}"
         )
         raise RuntimeError(msg)
 

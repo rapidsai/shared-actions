@@ -203,7 +203,7 @@ def main(args):
     # track the latest timestamp observed and use it for any unavailable times.
     last_timestamp = date_str_to_epoch(jobs[0]["completed_at"])
 
-    attribute_files = list(Path.cwd().glob(f"telemetry-tools-attrs-*/*"))
+    attribute_files = list(Path.cwd().glob(f"telemetry-artifacts/attrs-*"))
     if attribute_files:
         attribute_file = attribute_files[0]
         attributes = parse_attribute_file(attribute_file.as_posix())
@@ -236,7 +236,7 @@ def main(args):
                 logging.info(f"Job is empty (no start time) - bypassing")
                 continue
 
-            attribute_file = Path.cwd() / f"telemetry-tools-attrs-{job_id}/attrs-{job_id}"
+            attribute_file = Path.cwd() / f"telemetry-artifacts/attrs-{job_id}"
             attributes = {}
             if attribute_file.exists():
                 logging.debug(f"Found attribute file for job '{job_id}'")

@@ -27,6 +27,10 @@ runs:
         path: all_jobs.json
     # This downloads ALL of the files that we have collected from each job.
     - uses: actions/download-artifact@v4
+      with:
+        path: telemetry-artifacts
+        pattern: telemetry-tools-*
+        merge-multiple: true
 
     - name: Run parse and send trace/spans to endpoint
       shell: bash

@@ -41,12 +41,14 @@ runs:
             }
           }
 
-          artifacts.forEach(artifact => {
-            if (artifact.name.startsWith('telemetry-tools-')) {
+          await Promise.all(
+            artifacts
+            .filter(artifact => artifact.name.startsWith('telemetry-tools-'))
+            .map(artifact => {
               github.rest.actions.deleteArtifact({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 artifact_id: artifact.id
               });
-            }
-          });
+            })
+          );

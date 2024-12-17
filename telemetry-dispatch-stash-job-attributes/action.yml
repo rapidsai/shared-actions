@@ -13,7 +13,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
     - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
       uses: ./shared-actions/telemetry-impls/stash-job-attributes
       with:

@@ -11,5 +11,5 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@empty-certs
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
     - uses: ./shared-actions/telemetry-impls/summarize

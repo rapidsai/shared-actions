@@ -77,7 +77,7 @@ def map_conclusion_to_status_code(conclusion: str) -> StatusCode:
 
 def load_env_vars():
     env_vars = {}
-    with open('telemetry-tools-env-vars/telemetry-env-vars') as f:
+    with open('telemetry-artifacts/telemetry-env-vars') as f:
         for line in f.readlines():
             k, v = line.split("=", 1)
             env_vars[k] = v.strip().strip('"')

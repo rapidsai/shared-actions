@@ -7,6 +7,9 @@ description: |
 
   Note that the TRACEPARENT env var is special to otel-cli. It will be picked up
   automatically and used as a parent to whatever span otel-cli is created.
+
+  DEPRECATED: this is here to ensure a smooth transition while rolling out https://github.com/rapidsai/shared-actions/pull/28
+     It can/should be removed when there are no longer references to it in any repo pr.yaml files.
 outputs:
   traceparent:
     description: The W3C-format traceparent, which identifies the current context

@@ -1,0 +1,27 @@
+name: telemetry-dispatch-setup
+description: |
+  This script sets important environment variables that may be used by tools that
+  implement OpenTelemetry. This script also stores attributes (metadata) for the
+  current job, so that this metadata can be associated with spans during the final
+  parsing of job metadata.
+
+  This action should be called at the beginning of child workflows, generally as the first
+  step in any job other than computing the matrix.
+
+inputs:
+  extra_attributes:
+    description: "comma-separated key=value attributes to associate with the current job"
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+    # overrides loaded value
+    - name: Set OTEL_SERVICE_NAME from job
+      uses: ./shared-actions/telemetry-impls/set-otel-service-name
+    - name: Store attributes to use as metadata when creating spans
+      # This also sets OTEL_RESOURCE_ATTRIBUTES, for any subsequent steps
+      # in the calling workflow that might use it.
+      uses: ./shared-actions/telemetry-impls/stash-job-attributes
+      with:
+        extra_attributes: ${{ inputs.extra_attributes }}

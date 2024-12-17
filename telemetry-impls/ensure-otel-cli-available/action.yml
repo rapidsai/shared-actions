@@ -1,5 +1,9 @@
 name: 'ensure-otel-cli-available'
-description: 'Ensure otel-cli is available for sending spans'
+description: |
+  'Ensure otel-cli is available for sending spans'
+
+  DEPRECATED: this is here to ensure a smooth transition while rolling out https://github.com/rapidsai/shared-actions/pull/28
+     It can/should be removed when there are no longer references to it in any repo pr.yaml files.
 inputs:
   otel_cli_version:
     description: "version of otel-cli to download"

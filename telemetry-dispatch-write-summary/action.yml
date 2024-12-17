@@ -3,6 +3,10 @@ description: |
   Clones a particular branch/ref of a shared-actions repo, then calls its telemetry summarize
   action. The summarize action downloads and parses Github job metadata, and creates
   OpenTelemetry spans from the job metadata. These are sent to the configured OTLP receiver/endpoint.
+
+  DEPRECATED: this is here to ensure a smooth transition while rolling out https://github.com/rapidsai/shared-actions/pull/28
+     It can/should be removed when there are no longer references to it in any repo pr.yaml files.
+
 inputs:
   cert_concat:
     description: Concatenation of certs (CA;Client;ClientKey)

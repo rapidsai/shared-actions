@@ -28,4 +28,4 @@ runs:
     - shell: bash
       id: set-otel-service-name-env
       run: |
-        echo OTEL_SERVICE_NAME="${{ steps.get-job-name.outputs.JOB_NAME}}" >> ${GITHUB_ENV};
+        echo OTEL_SERVICE_NAME="${{ steps.get-job-name.outputs.JOB_NAME }}" >> ${GITHUB_ENV};

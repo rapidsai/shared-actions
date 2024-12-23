@@ -25,12 +25,28 @@ runs:
       with:
         name: telemetry-tools-all_jobs.json
         path: all_jobs.json
+
     # This downloads ALL of the files that we have collected from each job.
     - uses: actions/download-artifact@v4
+      continue-on-error: true
       with:
         path: telemetry-artifacts
         pattern: telemetry-tools-*
         merge-multiple: true
+
+    # If this is a re-run, we'll be missing our env vars. This will re-establish
+    # TRACEPARENT.  It is preferable to load the file if it is present, because
+    # we don't want to track extra env vars like we do in the initial telemetry
+    # setup (with handling defaults). This is really only to ensure that
+    # TRACEPARENT is set, so that any new spans from the re-run get grouped with
+    # the spans from other runs.
+    - name: Ensure that TRACEPARENT is set for re-runs
+      shell: bash
+      run: |
+        FILE="telemetry-artifacts/telmemetry-env-vars"
+        if [ ! -f "$FILE" ]; then
+          echo TRACEPARENT="$(bash ./shared-actions/telemetry-impls/traceparent.sh)" > "$FILE"
+        fi
 
     - name: Run parse and send trace/spans to endpoint
       shell: bash

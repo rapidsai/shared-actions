@@ -18,9 +18,28 @@ runs:
   using: 'composite'
   steps:
     - name: Download base environment variables file
+      id: download-env-file
       uses: actions/download-artifact@v4
+      continue-on-error: true
       with:
         name: telemetry-tools-env-vars
+
+    # If this is a re-run, we'll be missing our env vars. This will re-establish
+    # TRACEPARENT.  It is preferable to load the file if it is present, because
+    # we don't want to track extra env vars like we do in the initial telemetry
+    # setup (with handling defaults). This is really only to ensure that
+    # TRACEPARENT is set, so that any new spans from the re-run get grouped with
+    # the spans from other runs. Ignoring the other env vars might end up with
+    # different (fewer) tags, but this is better than nothing.
+    - name: Ensure that TRACEPARENT is set for re-runs
+      shell: bash
+      if: steps.download-env-file.outcome == 'failure'
+      run: |
+        FILE="telmemetry-env-vars"
+        if [ ! -f "$FILE" ]; then
+          echo TRACEPARENT="$(bash ./shared-actions/telemetry-impls/traceparent.sh)" > "$FILE"
+        fi
+
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
@@ -39,9 +58,10 @@ runs:
             echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
           fi
         done <telemetry-env-vars
+
     - name: Clone shared-actions repo with loaded env vars
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO }}
-        ref: ${{ env.SHARED_ACTIONS_REF }}
+        repository: ${{ env.SHARED_ACTIONS_REPO | rapidsai/shared-actions }}
+        ref: ${{ env.SHARED_ACTIONS_REF | main }}
         path: ./shared-actions

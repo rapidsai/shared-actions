@@ -24,7 +24,7 @@ fi
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-sha="$(echo "${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}" | sha256sum | cut -f1 -d' ')"
+sha="$(echo "${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}" | sha256sum | cut -f1 -d' ')"
 TRACE_ID="${sha:0:32}"
 JOB_SPAN_ID="${TRACE_ID}-${JOB_NAME}"
 STEP_SPAN_ID="${JOB_SPAN_ID}-${STEP_NAME}"

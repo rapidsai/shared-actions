@@ -22,7 +22,11 @@ def main(
     max_days_without_success: int,
     num_attempts: int = 5,
 ) -> bool:
-    """Check whether a GHA workflow has run successfully in the last N days."""
+    """Check whether a GHA workflow has run successfully in the last N days.
+
+    Returns True if the workflow has not run successfully in the last N days, False
+    otherwise (values are inverted for use as a return code).
+    """
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     url = f"https://api.github.com/repos/{repo_owner}/{repo}/actions/workflows/{workflow_id}/runs"
     exceptions = []
@@ -60,14 +64,15 @@ def main(
                 branch_ok[branch] = True
                 break
 
-    failed_branches = [k for k, v in branch_ok.items() if not v]
-    if failed_branches:
-        print(  # noqa: T201
-            f"Branches with no successful runs of {workflow_id} in the last "
-            f"{max_days_without_success} days: "
-            f"{', '.join(failed_branches)}",
-        )
-    return len(failed_branches) > 0
+    # Only check the latest branch (lexicographic ordering is sufficient for max here).
+    latest_branch = max(branch_ok)
+    retcode = not branch_ok[latest_branch]
+    status_msg = "no successful runs" if retcode else "a successful run"
+    print(  # noqa: T201
+        f"{latest_branch} has {status_msg} of {workflow_id} in the last "
+        f"{max_days_without_success} days: "
+    )
+    return retcode
 
 
 if __name__ == "__main__":

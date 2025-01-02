@@ -49,30 +49,40 @@ def main(
     tz = datetime.fromisoformat(runs[0]["run_started_at"]).tzinfo
     now = datetime.now(tz=tz)
 
-    branch_ok = {}
+    latest_success = {}
     for branch, branch_runs in itertools.groupby(runs, key=lambda r: r["head_branch"]):
         if not re.match("branch-[0-9]{2}.[0-9]{2}", branch):
             continue
 
-        branch_ok[branch] = False
+        latest_success[branch] = None
         for run in sorted(branch_runs, key=lambda r: r["run_started_at"], reverse=True):
-            if (
-                now - datetime.fromisoformat(run["run_started_at"])
-            ).days > max_days_without_success:
+            days_since_run = (now - datetime.fromisoformat(run["run_started_at"])).days
+            if days_since_run > max_days_without_success:
                 break
             if run["conclusion"] in GOOD_STATUSES:
-                branch_ok[branch] = True
+                latest_success[branch] = run
                 break
 
-    # Only check the latest branch (lexicographic ordering is sufficient for max here).
-    latest_branch = max(branch_ok)
-    retcode = not branch_ok[latest_branch]
-    status_msg = "no successful runs" if retcode else "a successful run"
-    print(  # noqa: T201
-        f"{latest_branch} has {status_msg} of {workflow_id} in the last "
-        f"{max_days_without_success} days: "
-    )
-    return retcode
+    latest_branch = max(latest_success)
+    success = latest_success[latest_branch] is not None
+
+    if success:
+        print(  # noqa: T201
+            f"The most recent successful run of the {workflow_id} workflow on "
+            f"{latest_branch} was "
+            f"{datetime.fromisoformat(latest_success[latest_branch]['run_started_at'])}, "
+            f"which is within the last {max_days_without_success} days. View logs:"
+            f"\n  - {latest_success[latest_branch]['html_url']}"
+        )
+    else:
+        print(  # noqa: T201
+            f"{latest_branch} has no successful runs of {workflow_id} in the last "
+            f"{max_days_without_success} days"
+        )
+
+    # We are producing Unix return codes so success/failure is inverted from the
+    # expected Python boolean values.
+    return not success
 
 
 if __name__ == "__main__":

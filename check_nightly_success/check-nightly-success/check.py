@@ -56,9 +56,8 @@ def main(
 
         latest_success[branch] = None
         for run in sorted(branch_runs, key=lambda r: r["run_started_at"], reverse=True):
-            if (
-                now - datetime.fromisoformat(run["run_started_at"])
-            ).days > max_days_without_success:
+            days_since_run = (now - datetime.fromisoformat(run["run_started_at"])).days
+            if days_since_run > max_days_without_success:
                 break
             if run["conclusion"] in GOOD_STATUSES:
                 latest_success[branch] = run
@@ -70,8 +69,10 @@ def main(
     if success:
         print(  # noqa: T201
             f"The most recent successful run of the {workflow_id} workflow on "
-            f"{latest_branch} was within the last {max_days_without_success} days. It "
-            f"may be viewed at {latest_success[latest_branch]['html_url']}."
+            f"{latest_branch} was "
+            f"{datetime.fromisoformat(latest_success[latest_branch]['run_started_at'])}, "
+            f"which is within the last {max_days_without_success} days. View logs:"
+            f"\n  - {latest_success[latest_branch]['html_url']}"
         )
     else:
         print(  # noqa: T201

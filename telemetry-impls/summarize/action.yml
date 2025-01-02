@@ -36,6 +36,12 @@ runs:
       shell: bash
       run: |
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
-
     - name: Clean up attributes artifacts from all jobs
       uses: ./shared-actions/telemetry-impls/clean-up-artifacts
+    # Telemetry jobs should never affect the pass/fail status of the overall CI
+    - name: Exit success
+      if: always()
+      continue-on-error: true
+      shell: bash
+      run: |
+        exit 0

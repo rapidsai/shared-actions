@@ -51,7 +51,9 @@ def main(
 
     latest_success = {}
     for branch, branch_runs in itertools.groupby(runs, key=lambda r: r["head_branch"]):
-        if not re.match("branch-[0-9]{2}.[0-9]{2}", branch):
+        # only consider RAPIDS release branches, which have versions like
+        # '25.02' (RAPIDS) or '0.42' (ucxx, ucx-py)
+        if not re.match("branch-[0-9]{1,2}.[0-9]{2}", branch):
             continue
 
         latest_success[branch] = None

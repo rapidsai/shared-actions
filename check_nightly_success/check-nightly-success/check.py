@@ -80,7 +80,7 @@ def main(
         )
     else:
         print(  # noqa: T201
-            f"{latest_branch} has no successful runs of {workflow_id} in the last " f"{max_days_without_success} days"
+            f"{latest_branch} has no successful runs of {workflow_id} in the last {max_days_without_success} days"
         )
 
     # We are producing Unix return codes so success/failure is inverted from the

@@ -1,10 +1,24 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 
 [tool.ruff]
+line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["ALL"]
+select = [
+    # pycodestyle
+    "E",
+    # pyflakes
+    "F",
+    # isort
+    "I",
+    # numpy
+    "NPY",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B"
+]
 ignore = [
     # Incompatible with D211
     "D203",

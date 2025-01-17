@@ -11,7 +11,9 @@ description: |
 runs:
   using: 'composite'
   steps:
+    - shell: bash
+      run: echo "test output to verify branch"
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
-      if: github.run_attempt == '1'
+      if: ${{ github.run_attempt == '1' }}
     - uses: ./shared-actions/telemetry-impls/summarize
-      if: github.run_attempt == '1'
+      if: ${{ github.run_attempt == '1' }}

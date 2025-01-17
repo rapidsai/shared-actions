@@ -12,4 +12,9 @@ runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+      if: ${{ github.run_attempt == '1' }}
     - uses: ./shared-actions/telemetry-impls/summarize
+      if: ${{ github.run_attempt == '1' }}
+    - shell: bash
+      run: echo "Skipping telemetry summary on rerun jobs."
+      if: ${{ github.run_attempt != '1' }}

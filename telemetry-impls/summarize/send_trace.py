@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2024, NVIDIA CORPORATION.
+# Copyright (c) 2019-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,55 +13,60 @@
 # limitations under the License.
 """Processes a GitHub Actions workflow log record and outputs OpenTelemetry span data."""
 
-
 from __future__ import annotations
-from datetime import datetime, timezone
+
 import hashlib
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Dict
 
 from opentelemetry import trace
-from opentelemetry.context import attach, detach
 from opentelemetry.propagate import extract
-from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace.status import StatusCode
 from opentelemetry.sdk.trace.id_generator import IdGenerator
+from opentelemetry.trace.status import StatusCode
 
 match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
     case "http/protobuf":
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
     case "grpc":
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter,
+        )
     case _:
-        from opentelemetry.sdk.trace.export import ConsoleSpanExporter as OTLPSpanExporter
+        from opentelemetry.sdk.trace.export import (
+            ConsoleSpanExporter as OTLPSpanExporter,
+        )
 
 
-import logging
 logging.basicConfig(level=logging.WARNING)
 
 SpanProcessor = BatchSpanProcessor
 
 
-def parse_attribute_file(filename: str) -> Dict[str, str]:
+def parse_attribute_file(filename: str) -> dict[str, str]:
     attributes = {}
-    with open(filename, "r") as attribute_file:
+    with open(filename) as attribute_file:
         for line in attribute_file.readlines():
-            key, value = line.strip().split('=', 1)
+            key, value = line.strip().split("=", 1)
             attributes[key] = value
     return attributes
 
 
-def date_str_to_epoch(date_str: str, value_if_not_set: Optional[int] = 0) -> int:
+def date_str_to_epoch(date_str: str, value_if_not_set: int | None = 0) -> int:
     if date_str:
         # replace bit is to attach the UTC timezone to our datetime object, so
         # that it doesn't "help" us by adjusting our string value, which is
         # already in UTC
-        timestamp_ns = int(datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() * 1e9)
+        timestamp_ns = int(
+            datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() * 1e9
+        )
     else:
         timestamp_ns = value_if_not_set or 0
     return timestamp_ns
@@ -75,13 +80,15 @@ def map_conclusion_to_status_code(conclusion: str) -> StatusCode:
     else:
         return StatusCode.UNSET
 
+
 def load_env_vars():
     env_vars = {}
-    with open('telemetry-artifacts/telemetry-env-vars') as f:
+    with open("telemetry-artifacts/telemetry-env-vars") as f:
         for line in f.readlines():
             k, v = line.split("=", 1)
             env_vars[k] = v.strip().strip('"')
     return env_vars
+
 
 class LoadTraceParentGenerator(IdGenerator):
     def __init__(self, traceparent) -> None:
@@ -89,10 +96,9 @@ class LoadTraceParentGenerator(IdGenerator):
         # which mainly happens during testing. Having the trace ID be something that we control
         # will also be useful for tying together logs and metrics with our traces.
         ctx = extract(
-            carrier={'traceparent': traceparent},
+            carrier={"traceparent": traceparent},
         )
         self.context = list(ctx.values())[0].get_span_context()
-
 
     def generate_span_id(self) -> int:
         """Get a new span ID.
@@ -115,6 +121,7 @@ class LoadTraceParentGenerator(IdGenerator):
             A 128-bit int for use as a trace ID
         """
         return self.context.trace_id
+
 
 class RapidsSpanIdGenerator(IdGenerator):
     def __init__(self, trace_id, job_name) -> None:
@@ -159,7 +166,7 @@ class GithubActionsParserGenerator(IdGenerator):
         # which mainly happens during testing. Having the trace ID be something that we control
         # will also be useful for tying together logs and metrics with our traces.
         ctx = extract(
-            carrier={'traceparent': traceparent},
+            carrier={"traceparent": traceparent},
         )
         self.context = list(ctx.values())[0].get_span_context()
 
@@ -168,7 +175,6 @@ class GithubActionsParserGenerator(IdGenerator):
 
     def update_span_step_name(self, new_name):
         self.step_name = new_name
-
 
     def generate_span_id(self) -> int:
         """Get a new span ID.
@@ -203,7 +209,7 @@ def main(args):
     # track the latest timestamp observed and use it for any unavailable times.
     last_timestamp = date_str_to_epoch(jobs[0]["completed_at"])
 
-    attribute_files = list(Path.cwd().glob(f"telemetry-artifacts/attrs-*"))
+    attribute_files = list(Path.cwd().glob("telemetry-artifacts/attrs-*"))
     if attribute_files:
         attribute_file = attribute_files[0]
         attributes = parse_attribute_file(attribute_file.as_posix())
@@ -211,12 +217,15 @@ def main(args):
         attributes = {}
     global_attrs = {}
     for k, v in attributes.items():
-        if k.startswith('git.'):
+        if k.startswith("git."):
             global_attrs[k] = v
 
-    global_attrs['service.name'] = env_vars['OTEL_SERVICE_NAME']
+    global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
 
-    provider = TracerProvider(resource=Resource(global_attrs), id_generator=LoadTraceParentGenerator(env_vars["TRACEPARENT"]))
+    provider = TracerProvider(
+        resource=Resource(global_attrs),
+        id_generator=LoadTraceParentGenerator(env_vars["TRACEPARENT"]),
+    )
     provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
     tracer = trace.get_tracer("GitHub Actions parser", "0.0.1", tracer_provider=provider)
 
@@ -233,7 +242,7 @@ def main(args):
             job_last_timestamp = date_str_to_epoch(job["completed_at"], job_start)
 
             if job_start == 0:
-                logging.info(f"Job is empty (no start time) - bypassing")
+                logging.info("Job is empty (no start time) - bypassing")
                 continue
 
             attribute_file = Path.cwd() / f"telemetry-artifacts/attrs-{job_id}"
@@ -252,35 +261,38 @@ def main(args):
             job_provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
             job_tracer = trace.get_tracer("GitHub Actions parser", "0.0.1", tracer_provider=job_provider)
 
-            with job_tracer.start_as_current_span(job['name'], start_time=job_create, end_on_exit=False) as job_span:
+            with job_tracer.start_as_current_span(job["name"], start_time=job_create, end_on_exit=False) as job_span:
                 job_span.set_status(map_conclusion_to_status_code(job["conclusion"]))
 
-                job_id_generator.update_step_name('start delay time')
+                job_id_generator.update_step_name("start delay time")
                 with job_tracer.start_as_current_span(
-                        name="start delay time",
-                        start_time=job_create,
-                        end_on_exit=False,
-                        ) as delay_span:
+                    name="start delay time",
+                    start_time=job_create,
+                    end_on_exit=False,
+                ) as delay_span:
                     delay_span.end(job_start)
 
                 for step in job["steps"]:
                     start = date_str_to_epoch(step["started_at"], job_last_timestamp)
                     end = date_str_to_epoch(step["completed_at"], start)
-                    job_id_generator.update_step_name(step['name'])
+                    job_id_generator.update_step_name(step["name"])
 
                     if (end - start) / 1e9 > 1:
                         logging.info(f"processing step: '{step['name']}'")
                         with job_tracer.start_as_current_span(
-                                name=step['name'],
-                                start_time=start,
-                                end_on_exit=False,
-                            ) as step_span:
+                            name=step["name"],
+                            start_time=start,
+                            end_on_exit=False,
+                        ) as step_span:
                             step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
                             step_span.end(end)
 
                         job_last_timestamp = max(end, job_last_timestamp)
 
-                job_end = max(date_str_to_epoch(job["completed_at"], job_last_timestamp), job_last_timestamp)
+                job_end = max(
+                    date_str_to_epoch(job["completed_at"], job_last_timestamp),
+                    job_last_timestamp,
+                )
                 last_timestamp = max(job_end, last_timestamp)
                 job_span.end(job_end)
         root_span.end(last_timestamp)

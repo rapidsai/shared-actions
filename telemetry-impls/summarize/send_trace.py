@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2024, NVIDIA CORPORATION.
+# Copyright (c) 2019-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -81,10 +81,7 @@ def date_str_to_epoch(date_str: str, value_if_not_set: int | None = 0) -> int:
         # that it doesn't "help" us by adjusting our string value, which is
         # already in UTC
         timestamp_ns = int(
-            datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
-            .replace(tzinfo=timezone.utc)
-            .timestamp()
-            * 1e9
+            datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() * 1e9
         )
     else:
         timestamp_ns = value_if_not_set or 0
@@ -182,9 +179,7 @@ def process_job_blob(  # noqa: PLR0913
         id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=job["name"]),
     )
     job_provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
-    job_tracer = trace.get_tracer(
-        "GitHub Actions parser", "0.0.1", tracer_provider=job_provider
-    )
+    job_tracer = trace.get_tracer("GitHub Actions parser", "0.0.1", tracer_provider=job_provider)
 
     with job_tracer.start_as_current_span(
         name=matrix_part or job["name"],
@@ -195,9 +190,7 @@ def process_job_blob(  # noqa: PLR0913
         job_span.set_status(map_conclusion_to_status_code(job["conclusion"]))
 
         job_provider.id_generator.update_step_name("Start delay time")
-        delay_span = job_tracer.start_span(
-            name="Start delay time", start_time=job_create
-        )
+        delay_span = job_tracer.start_span(name="Start delay time", start_time=job_create)
         delay_span.end(job_start)
 
         for step in job["steps"]:
@@ -255,14 +248,10 @@ def main() -> None:
 
     provider = TracerProvider(
         resource=Resource(global_attrs),
-        id_generator=RapidsSpanIdGenerator(
-            trace_id=trace_id, job_name=env_vars["OTEL_SERVICE_NAME"]
-        ),
+        id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=env_vars["OTEL_SERVICE_NAME"]),
     )
     provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
-    tracer = trace.get_tracer(
-        "GitHub Actions parser", "0.0.1", tracer_provider=provider
-    )
+    tracer = trace.get_tracer("GitHub Actions parser", "0.0.1", tracer_provider=provider)
 
     with tracer.start_as_current_span(
         name="Top-level workflow root", start_time=first_timestamp, end_on_exit=False

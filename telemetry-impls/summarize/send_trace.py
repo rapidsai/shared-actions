@@ -209,14 +209,9 @@ def process_job_blob(  # noqa: PLR0913
                 step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
                 step_span.end(end)
 
-                job_last_timestamp = max(end, job_last_timestamp)
-
-            job_end = max(
-                date_str_to_epoch(job["completed_at"], job_last_timestamp),
-                job_last_timestamp,
-            )
-            last_timestamp = max(job_end, last_timestamp)
-        job_span.end(job_end)
+            job_last_timestamp = max(end, job_last_timestamp)
+        last_timestamp = max(job_last_timestamp, last_timestamp)
+        job_span.end(job_last_timestamp)
     return last_timestamp
 
 

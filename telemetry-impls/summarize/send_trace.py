@@ -196,6 +196,7 @@ def process_job_blob(  # noqa: PLR0913
         for step in job["steps"]:
             start = date_str_to_epoch(step["started_at"], job_last_timestamp)
             end = date_str_to_epoch(step["completed_at"], start)
+            job_last_timestamp = max(end, job_last_timestamp)
             job_provider.id_generator.update_step_name(step["name"])
 
             if (end - start) / 1e9 > 1:
@@ -208,8 +209,6 @@ def process_job_blob(  # noqa: PLR0913
                 )
                 step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
                 step_span.end(end)
-
-            job_last_timestamp = max(end, job_last_timestamp)
         last_timestamp = max(job_last_timestamp, last_timestamp)
         job_span.end(job_last_timestamp)
     return last_timestamp

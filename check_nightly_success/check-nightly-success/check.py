@@ -67,8 +67,8 @@ def main(
     # unifies the groups so it's more like a SQL groupby and there is no chance
     # of overwriting.
     branch_dict = defaultdict(list)
-    for branch, branch_runs in itertools.groupby(runs, key=lambda r: r["head_branch"]):
-        branch_dict[branch] = itertools.chain(branch_dict[branch], list(branch_runs))
+    for run in runs:
+        branch_dict[run["head_branch"]].append(run)
 
     for branch, branch_runs in branch_dict.items():
         # only consider RAPIDS release branches, which have versions like

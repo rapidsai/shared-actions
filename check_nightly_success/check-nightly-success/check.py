@@ -53,7 +53,8 @@ def main(
     now = datetime.now(tz=tz)
 
     latest_success = {}
-    # Rather frustratingly, the workflow runs returned from the GitHub API can have alternating ordering of `head_branch`
+    # Rather frustratingly, the workflow runs returned from the GitHub API can
+    # have alternating ordering of `head_branch`
     # e.g.
     #   run[0]['head_branch'] == "branch-25.02"
     #   run[1]['head_branch'] == "branch-25.04"
@@ -67,7 +68,7 @@ def main(
     # of overwriting.
     branch_dict = defaultdict(list)
     for branch, branch_runs in itertools.groupby(runs, key=lambda r: r["head_branch"]):
-        branch_dict[branch] = itertools.chain(branch_dict[branch], runs)
+        branch_dict[branch] = itertools.chain(branch_dict[branch], list(branch_runs))
 
     for branch, branch_runs in branch_dict.items():
         # only consider RAPIDS release branches, which have versions like

@@ -8,6 +8,7 @@ import itertools
 import os
 import re
 import sys
+from collections import defaultdict
 from datetime import datetime
 
 import requests
@@ -52,7 +53,23 @@ def main(
     now = datetime.now(tz=tz)
 
     latest_success = {}
+    # Rather frustratingly, the workflow runs returned from the GitHub API can have alternating ordering of `head_branch`
+    # e.g.
+    #   run[0]['head_branch'] == "branch-25.02"
+    #   run[1]['head_branch'] == "branch-25.04"
+    #   run[2]['head_branch'] == "branch-25.02"
+    #
+    # In this situation, the behavior of `itertools.groupby` is to only group
+    # _consecutive_ runs, so the results of the subsequent branch match (i.e.
+    # the second group of `branch-25.02` runs) will overwrite the results of the
+    # first one, potentially overwriting a previous success. The snippet below
+    # unifies the groups so it's more like a SQL groupby and there is no chance
+    # of overwriting.
+    branch_dict = defaultdict(list)
     for branch, branch_runs in itertools.groupby(runs, key=lambda r: r["head_branch"]):
+        branch_dict[branch] = itertools.chain(branch_dict[branch], runs)
+
+    for branch, branch_runs in branch_dict.items():
         # only consider RAPIDS release branches, which have versions like
         # '25.02' (RAPIDS) or '0.42' (ucxx, ucx-py)
         if not re.match("branch-[0-9]{1,2}.[0-9]{2}", branch):

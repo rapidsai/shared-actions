@@ -4,7 +4,6 @@
 # ruff: noqa: INP001
 
 import argparse
-import itertools
 import os
 import re
 import sys
@@ -60,12 +59,12 @@ def main(
     #   run[1]['head_branch'] == "branch-25.04"
     #   run[2]['head_branch'] == "branch-25.02"
     #
-    # In this situation, the behavior of `itertools.groupby` is to only group
-    # _consecutive_ runs, so the results of the subsequent branch match (i.e.
-    # the second group of `branch-25.02` runs) will overwrite the results of the
-    # first one, potentially overwriting a previous success. The snippet below
-    # unifies the groups so it's more like a SQL groupby and there is no chance
-    # of overwriting.
+    # In this situation, the behavior of `itertools.groupby` (previously used
+    # here) is to only group _consecutive_ runs, so the results of the
+    # subsequent branch match (i.e.  the second group of `branch-25.02` runs)
+    # will overwrite the results of the first one, potentially overwriting a
+    # previous success. The snippet below unifies the groups so it's more like a
+    # SQL groupby and there is no chance of overwriting.
     branch_dict = defaultdict(list)
     for run in runs:
         branch_dict[run["head_branch"]].append(run)

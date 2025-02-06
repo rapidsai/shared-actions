@@ -18,12 +18,25 @@ runs:
   using: 'composite'
   steps:
     - name: Download base environment variables file
-      uses: actions/download-artifact@v4
-      with:
-        name: telemetry-tools-env-vars
+      shell: bash
+      run: |
+        curl -L \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/repos/${{github.repository}}/actions/artifacts/telemetry-tools-env-vars/zip
+        if [ $? -ne 0 ]; then
+          echo "TELEMETRY_ENABLED=false" >> ${GITHUB_ENV}
+        else
+          echo "TELEMETRY_ENABLED=true" >> ${GITHUB_ENV}
+          unzip telemetry-tools-env-vars.zip
+          rm telemetry-tools-env-vars.zip
+        fi
+        exit 0
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       shell: bash
       # Only set the env var if it is not already set
       # the ${!VARIABLE} syntax is called "indirect expansion" and it is kind of equivalent to ${${env_var_name}}
@@ -41,6 +54,7 @@ runs:
         done <telemetry-env-vars
     - name: Clone shared-actions repo with loaded env vars
       uses: actions/checkout@v4
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO }}
         ref: ${{ env.SHARED_ACTIONS_REF }}

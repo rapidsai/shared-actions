@@ -12,9 +12,8 @@ runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
-      if: ${{ github.run_attempt == '1' }}
     - uses: ./shared-actions/telemetry-impls/summarize
-      if: ${{ github.run_attempt == '1' }}
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
     - shell: bash
-      run: echo "Skipping telemetry summary on rerun jobs."
-      if: ${{ github.run_attempt != '1' }}
+      run: echo "Skipping telemetry summary because base env var file is unavailable."
+      if: ${{ env.TELEMETRY_ENABLED != 'true' }}

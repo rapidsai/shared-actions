@@ -15,6 +15,7 @@ runs:
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
     - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       uses: ./shared-actions/telemetry-impls/stash-job-attributes
       with:
         extra_attributes: ${{ inputs.extra_attributes }}

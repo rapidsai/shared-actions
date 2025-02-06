@@ -1,0 +1,15 @@
+name: dispatch-stash-job-artifacts
+description: |
+  Clones a particular branch/ref of a shared-actions repo, then
+  call the stash-artifacts implementation script, which writes
+  some environment variables so that downstream jobs can refer to them.
+
+  Inputs here are all assumed to be env vars set outside of this script.
+  Set them in your main repo's workflows (export to ${GITHUB_ENV}!!)
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
+      uses: ./shared-actions/telemetry-impls/stash-job-artifacts

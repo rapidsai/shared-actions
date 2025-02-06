@@ -11,9 +11,9 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@better-download-error-handling
     - uses: ./shared-actions/telemetry-impls/summarize
       if: ${{ env.TELEMETRY_ENABLED == 'true' }}
     - shell: bash
-      run: echo "Skipping telemetry summary because base env var file is unavailable."
+      run: echo "Skipping telemetry summary. TELEMETRY_ENABLED is ${{ env.TELEMETRY_ENABLED }}."
       if: ${{ env.TELEMETRY_ENABLED != 'true' }}

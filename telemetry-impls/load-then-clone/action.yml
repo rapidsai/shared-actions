@@ -27,6 +27,7 @@ runs:
           https://api.github.com/repos/${{github.repository}}/actions/artifacts/telemetry-tools-env-vars/zip
         if [ $? -ne 0 ]; then
           echo "TELEMETRY_ENABLED=false" >> ${GITHUB_ENV}
+          echo "Download of base env vars file failed. Telemetry is disabled."
         else
           echo "TELEMETRY_ENABLED=true" >> ${GITHUB_ENV}
           unzip telemetry-tools-env-vars.zip
@@ -54,7 +55,6 @@ runs:
         done <telemetry-env-vars
     - name: Clone shared-actions repo with loaded env vars
       uses: actions/checkout@v4
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO }}
         ref: ${{ env.SHARED_ACTIONS_REF }}

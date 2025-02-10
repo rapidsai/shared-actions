@@ -23,23 +23,41 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Download base environment variables file
+    # Installing the download-artifact action with pnpm is definitely a hack.
+    # The download-artifact action ALWAYS shows an error when a file is not found.
+    # There is no way to fail silently. Re-runs won't run the initial telemetry-setup,
+    # so the env vars file will be missing, and these downloads would fail. This
+    # was noisy and confusing to developers. This hack gives us better error handling.
+    - name: Set up node to run download script
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: 'npm'
+    - name: Install dependencies
       shell: bash
+      run: npm install actions/download-artifact@v4 actions/github-script@v7
+    - name: Download base environment variables file
+      shell: node
       run: |
-        curl -L \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${{inputs.GH_TOKEN}}" \
-          -H "X-GitHub-Api-Version: 2022-11-28" \
-          https://api.github.com/repos/${{github.repository}}/actions/artifacts/telemetry-tools-env-vars/zip
-        if [ $? -ne 0 ] || [ ! -f telemetry-tools-env-vars.zip ]; then
-          echo "TELEMETRY_ENABLED=false" >> ${GITHUB_ENV}
-          echo "Download of base env vars file failed. Telemetry is disabled."
-        else
-          echo "TELEMETRY_ENABLED=true" >> ${GITHUB_ENV}
-          unzip telemetry-tools-env-vars.zip
-          rm telemetry-tools-env-vars.zip
-        fi
-        exit 0
+        const { downloadArtifact } = require('actions/download-artifact');
+        const { exportVariable } = require('actions/github-script');
+        try {
+          downloadArtifact({
+            repo: '${{ github.repository }}',
+            ref: '${{ github.ref }}',
+            workflow: 'telemetry-dispatch-setup',
+            artifact: 'telemetry-tools-env-vars',
+            token: '${{ inputs.GH_TOKEN }}'
+          });
+          exportVariable('TELEMETRY_ENABLED', 'true');
+        } catch (error) {
+          console.log('Download of base env vars file failed. Telemetry is disabled.');
+          exportVariable('TELEMETRY_ENABLED', 'false');
+        }
+    - name: Download base environment variables file
+      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
+      shell: bash
+      run: unzip telemetry-tools-env-vars.zip
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV

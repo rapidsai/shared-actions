@@ -175,6 +175,10 @@ def process_job_blob(  # noqa: PLR0913
     else:
         logging.debug("No attribute metadata found for job: %s", job_id)
 
+    # TODO: add attributes for sccache hit rate here
+    sccache_stats = (Path.cwd() / "telemetry-artifacts/").glob("sccache-stats-*.txt")
+    print(sccache_stats)
+
     attributes["service.name"] = job_name
     job_provider = TracerProvider(
         resource=Resource(attributes),

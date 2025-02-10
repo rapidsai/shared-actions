@@ -31,29 +31,27 @@ runs:
     - name: Set up node to run download script
       uses: actions/setup-node@v4
       with:
-        node-version: 22
+        node-version: 20
     - name: Install dependencies
       shell: bash
-      run: |
-        npm install 'actions/download-artifact#v4.1.8' 'actions/github-script#v7.0.1'
-    - name: Download base environment variables file
-      shell: node
-      run: |
-        const { downloadArtifact } = require('actions/download-artifact');
-        const { exportVariable } = require('actions/github-script');
-        try {
-          downloadArtifact({
-            repo: '${{ github.repository }}',
-            ref: '${{ github.ref }}',
-            workflow: 'telemetry-dispatch-setup',
-            artifact: 'telemetry-tools-env-vars',
-            token: '${{ inputs.GH_TOKEN }}'
-          });
-          exportVariable('TELEMETRY_ENABLED', 'true');
-        } catch (error) {
-          console.log('Download of base env vars file failed. Telemetry is disabled.');
-          exportVariable('TELEMETRY_ENABLED', 'false');
-        }
+      run: npm install 'actions/download-artifact#v4.1.8'
+    - uses: actions/github-script@v7
+      with:
+        script: |
+          const { downloadArtifact } = require('actions/download-artifact');
+          try {
+            downloadArtifact({
+              repo: '${{ github.repository }}',
+              ref: '${{ github.ref }}',
+              workflow: 'telemetry-dispatch-setup',
+              artifact: 'telemetry-tools-env-vars',
+              token: '${{ inputs.GH_TOKEN }}'
+            });
+            core.exportVariable('TELEMETRY_ENABLED', 'true');
+          } catch (error) {
+            console.log('Download of base env vars file failed. Telemetry is disabled.');
+            core.exportVariable('TELEMETRY_ENABLED', 'false');
+          }
     - name: Download base environment variables file
       if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       shell: bash

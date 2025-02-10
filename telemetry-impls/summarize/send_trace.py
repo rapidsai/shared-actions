@@ -149,6 +149,8 @@ def process_job_blob(  # noqa: PLR0913
     # these by name
     if "/" in job["name"]:
         job_name, matrix_part = job["name"].split("/", 1)
+        job_name = job_name.strip()
+        matrix_part = matrix_part.strip()
     else:
         job_name, matrix_part = job["name"], None
 
@@ -172,6 +174,10 @@ def process_job_blob(  # noqa: PLR0913
         attributes = parse_attributes(attribute_file.as_posix())
     else:
         logging.debug("No attribute metadata found for job: %s", job_id)
+
+    # TODO: add attributes for sccache hit rate here
+    sccache_stats = (Path.cwd() / "telemetry-artifacts/").glob("sccache-stats-*.txt")
+    print(sccache_stats)
 
     attributes["service.name"] = job_name
     job_provider = TracerProvider(
@@ -205,7 +211,6 @@ def process_job_blob(  # noqa: PLR0913
                 step_span = job_tracer.start_span(
                     name=step["name"],
                     start_time=start,
-                    attributes=attributes,
                 )
                 step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
                 step_span.end(end)

@@ -8,20 +8,8 @@ description: |
   with the timing and label metadata, and sends it to the configured Tempo
   endpoint (or forwarder).
 
-inputs:
-  GH_TOKEN:
-    required: true
-    description: |
-      The GitHub token to use to download the base environment variables file.
-
 runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@better-download-error-handling
-      with:
-        GH_TOKEN: ${{ inputs.GH_TOKEN }}
     - uses: ./shared-actions/telemetry-impls/summarize
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
-    - shell: bash
-      run: echo "Skipping telemetry summary. TELEMETRY_ENABLED is ${{ env.TELEMETRY_ENABLED }}."
-      if: ${{ env.TELEMETRY_ENABLED != 'true' }}

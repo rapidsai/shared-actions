@@ -14,12 +14,6 @@ description: |
   As a result, we clone the code twice: first to learn how to load the variables,
   then another time when the variables are actually set.
 
-inputs:
-  GH_TOKEN:
-    required: true
-    description: |
-      The GitHub token to use to download the base environment variables file.
-
 runs:
   using: 'composite'
   steps:

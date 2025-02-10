@@ -27,7 +27,6 @@ runs:
     # overrides loaded value
     - name: Set OTEL_SERVICE_NAME from job
       uses: ./shared-actions/telemetry-impls/set-otel-service-name
-    - name: Store attributes to use as metadata when creating spans
     - name: Creating folder for job-created telemetry artifacts
       shell: bash
       run: mkdir -p telemetry-artifacts

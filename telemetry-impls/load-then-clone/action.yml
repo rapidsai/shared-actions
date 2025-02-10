@@ -28,14 +28,17 @@ runs:
     # There is no way to fail silently. Re-runs won't run the initial telemetry-setup,
     # so the env vars file will be missing, and these downloads would fail. This
     # was noisy and confusing to developers. This hack gives us better error handling.
+    - uses: pnpm/action-setup
+      with:
+        version: 6
     - name: Set up node to run download script
       uses: actions/setup-node@v4
       with:
         node-version: 22
-        cache: 'npm'
+        cache: 'pnpm'
     - name: Install dependencies
       shell: bash
-      run: npm install actions/download-artifact@v4 actions/github-script@v7
+      run: pnpm install actions/download-artifact@v4 actions/github-script@v7
     - name: Download base environment variables file
       shell: node
       run: |

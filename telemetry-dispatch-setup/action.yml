@@ -22,25 +22,24 @@ runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@better-download-error-handling
+      if: ${{ github.run_attempt == '1' }}
       with:
         GH_TOKEN: ${{ inputs.GH_TOKEN }}
     - name: Creating folder for job-created telemetry artifacts
       shell: bash
       run: mkdir -p telemetry-artifacts
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
-      id: github-job-info
+      if: ${{ github.run_attempt == '1' }}
     - shell: bash
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
-      id: get-job-id
+      if: ${{ github.run_attempt == '1' }}
       run:
         echo JOB_ID="$(cat job_info.json | jq -r '.id')" >> ${GITHUB_ENV};
     # overrides loaded value.
     - name: Set OTEL_SERVICE_NAME from job
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
+      if: ${{ github.run_attempt == '1' }}
       uses: ./shared-actions/telemetry-impls/set-otel-service-name
     - name: Add attribute metadata beyond the stashed basic stuff
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
+      if: ${{ github.run_attempt == '1' }}
       shell: bash
       run:
         attributes="${OTEL_RESOURCE_ATTRIBUTES}";

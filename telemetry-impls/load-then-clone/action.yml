@@ -24,29 +24,21 @@ runs:
   using: 'composite'
   steps:
     - name: Download base environment variables file
-      id: download-base-env-vars
-      if: ${{ github.run_attempt == 1 }}
+      if: ${{ github.run_attempt == '1' }}
       uses: actions/download-artifact@v4
       with:
         name: telemetry-tools-env-vars
         path: telemetry-artifacts
-    - name: Disable telemetry if run attempt is not 1
-      shell: bash
-      if: ${{ github.run_attempt > 1 }}
-      run: |
-        echo "TELEMETRY_ENABLED=false" >> ${GITHUB_ENV}
-        echo "Disabling telemetry because this is not the first run attempt."
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
-      if: ${{ steps.download-base-env-vars.outcome == 'success' }}
+      if: ${{ github.run_attempt == '1' }}
       shell: bash
       # Only set the env var if it is not already set
       # the ${!VARIABLE} syntax is called "indirect expansion" and it is kind of equivalent to ${${env_var_name}}
       #      in other words, expand to find the variable name, then dereference that variable name
       # The goofy env_var_value filtering through tr is to ensure that the strings don't include quotes.
       run: |
-        echo "TELEMETRY_ENABLED=true" >> ${GITHUB_ENV}
         while read LINE; do
           env_var_name="$( cut -d '=' -f 1 <<< "$LINE" )";
           if [ "${!env_var_name}" = "" ]; then

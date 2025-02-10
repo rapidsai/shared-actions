@@ -28,10 +28,8 @@ runs:
       if: ${{ github.run_attempt == 1 }}
       uses: actions/download-artifact@v4
       with:
-        repo: ${{ github.repository }}
-        ref: ${{ github.ref }}
-        workflow: telemetry-dispatch-setup
-        artifact: telemetry-tools-env-vars
+        name: telemetry-tools-env-vars
+        path: telemetry-artifacts
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV

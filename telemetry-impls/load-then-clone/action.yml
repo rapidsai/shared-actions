@@ -18,7 +18,6 @@ runs:
   using: 'composite'
   steps:
     - name: Download base environment variables file
-      if: ${{ github.run_attempt == '1' }}
       uses: actions/download-artifact@v4
       with:
         name: telemetry-tools-env-vars
@@ -26,7 +25,6 @@ runs:
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
-      if: ${{ github.run_attempt == '1' }}
       shell: bash
       # Only set the env var if it is not already set
       # the ${!VARIABLE} syntax is called "indirect expansion" and it is kind of equivalent to ${${env_var_name}}

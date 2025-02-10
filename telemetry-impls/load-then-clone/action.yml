@@ -23,42 +23,19 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # Installing the download-artifact action with pnpm is definitely a hack.
-    # The download-artifact action ALWAYS shows an error when a file is not found.
-    # There is no way to fail silently. Re-runs won't run the initial telemetry-setup,
-    # so the env vars file will be missing, and these downloads would fail. This
-    # was noisy and confusing to developers. This hack gives us better error handling.
-    - name: Set up node to run download script
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
-    - name: Install dependencies
-      shell: bash
-      run: npm install 'actions/download-artifact#v4.1.8'
-    - uses: actions/github-script@v7
-      with:
-        script: |
-          const { getArtifact } = require('@actions/download-artifact');
-          try {
-            await getArtifact(artifactName: 'telemetry-tools-env-vars', options:{
-              workflowRunId: '${{ github.run_id }}',
-              repositoryOwner: '${{ github.repository_owner }}',
-              repositoryName: '${{ github.repository }}',
-              token: '${{ inputs.GH_TOKEN }}'
-            });
-            core.exportVariable('TELEMETRY_ENABLED', 'true');
-          } catch (error) {
-            console.log('Download of base env vars file failed. Telemetry is disabled.');
-            core.exportVariable('TELEMETRY_ENABLED', 'false');
-          }
     - name: Download base environment variables file
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
-      shell: bash
-      run: unzip telemetry-tools-env-vars.zip
+      id: download-base-env-vars
+      if: ${{ github.run_attempt == 1 }}
+      uses: actions/download-artifact@v4
+      with:
+        repo: ${{ github.repository }}
+        ref: ${{ github.ref }}
+        workflow: telemetry-dispatch-setup
+        artifact: telemetry-tools-env-vars
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
-      if: ${{ env.TELEMETRY_ENABLED == 'true' }}
+      if: ${{ steps.download-base-env-vars.outcome == 'success' }}
       shell: bash
       # Only set the env var if it is not already set
       # the ${!VARIABLE} syntax is called "indirect expansion" and it is kind of equivalent to ${${env_var_name}}
@@ -77,6 +54,6 @@ runs:
     - name: Clone shared-actions repo with loaded env vars
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO }}
-        ref: ${{ env.SHARED_ACTIONS_REF }}
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions

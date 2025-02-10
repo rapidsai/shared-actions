@@ -21,7 +21,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@better-download-error-handling
       with:
         GH_TOKEN: ${{ inputs.GH_TOKEN }}
     # overrides loaded value

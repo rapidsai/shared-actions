@@ -12,5 +12,4 @@ runs:
   steps:
     # Stash current job's OTEL_RESOURCE_ATTRIBUTES and any files in the telemetry-artifacts directory
     - name: Stash job artifacts
-      if: ${{ vars.TELEMETRY_ENABLED == 'true' && github.run_attempt == '1' }}
       uses: ./shared-actions/telemetry-impls/stash-job-artifacts

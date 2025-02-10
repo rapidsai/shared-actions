@@ -24,9 +24,6 @@ runs:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@better-download-error-handling
       with:
         GH_TOKEN: ${{ inputs.GH_TOKEN }}
-    # overrides loaded value
-    - name: Set OTEL_SERVICE_NAME from job
-      uses: ./shared-actions/telemetry-impls/set-otel-service-name
     - name: Creating folder for job-created telemetry artifacts
       shell: bash
       run: mkdir -p telemetry-artifacts
@@ -36,6 +33,9 @@ runs:
       id: get-job-id
       run:
         echo JOB_ID="$(cat job_info.json | jq -r '.id')" >> ${GITHUB_ENV};
+    # overrides loaded value.
+    - name: Set OTEL_SERVICE_NAME from job
+      uses: ./shared-actions/telemetry-impls/set-otel-service-name
     - name: Add attribute metadata beyond the stashed basic stuff
       shell: bash
       run:

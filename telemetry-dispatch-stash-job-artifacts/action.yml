@@ -10,6 +10,7 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - name: Stash current job's OTEL_RESOURCE_ATTRIBUTES
+    # Stash current job's OTEL_RESOURCE_ATTRIBUTES and any files in the telemetry-artifacts directory
+    - name: Stash job artifacts
       if: ${{ env.TELEMETRY_ENABLED == 'true' }}
       uses: ./shared-actions/telemetry-impls/stash-job-artifacts

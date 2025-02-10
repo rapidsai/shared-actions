@@ -29,6 +29,7 @@ runs:
       uses: ./shared-actions/telemetry-impls/set-otel-service-name
     - name: Store attributes to use as metadata when creating spans
     - name: Creating folder for job-created telemetry artifacts
+      shell: bash
       run: mkdir -p telemetry-artifacts
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info
       id: github-job-info

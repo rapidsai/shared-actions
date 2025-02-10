@@ -38,13 +38,12 @@ runs:
     - uses: actions/github-script@v7
       with:
         script: |
-          const { downloadArtifact } = require('actions/download-artifact');
+          const { getArtifact } = require('@actions/download-artifact');
           try {
-            downloadArtifact({
-              repo: '${{ github.repository }}',
-              ref: '${{ github.ref }}',
-              workflow: 'telemetry-dispatch-setup',
-              artifact: 'telemetry-tools-env-vars',
+            await getArtifact(artifactName: 'telemetry-tools-env-vars', options:{
+              workflowRunId: '${{ github.run_id }}',
+              repositoryOwner: '${{ github.repository_owner }}',
+              repositoryName: '${{ github.repository }}',
               token: '${{ inputs.GH_TOKEN }}'
             });
             core.exportVariable('TELEMETRY_ENABLED', 'true');

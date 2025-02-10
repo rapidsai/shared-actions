@@ -48,7 +48,7 @@ runs:
           else
             echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
           fi
-        done <telemetry-env-vars
+        done <telemetry-artifacts/telemetry-env-vars
     - name: Clone shared-actions repo with loaded env vars
       uses: actions/checkout@v4
       with:

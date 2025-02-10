@@ -31,6 +31,7 @@ runs:
         name: telemetry-tools-env-vars
         path: telemetry-artifacts
     - name: Disable telemetry if run attempt is not 1
+      shell: bash
       if: ${{ github.run_attempt > 1 }}
       run: |
         echo "TELEMETRY_ENABLED=false" >> ${GITHUB_ENV}

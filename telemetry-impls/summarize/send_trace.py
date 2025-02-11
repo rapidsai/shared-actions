@@ -19,6 +19,8 @@ import hashlib
 import json
 import logging
 import os
+import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -132,6 +134,91 @@ class RapidsSpanIdGenerator(IdGenerator):
         return self.trace_id
 
 
+@dataclass
+class Compiler:
+    hits: int = 0
+    misses: int = 0
+    errors: int = 0
+
+    @property
+    def requests(self) -> int:
+        """Calculate the total requests."""
+        return self.hits + self.misses + self.errors
+
+    @property
+    def hit_rate(self) -> float:
+        """Calculate the cache hit rate."""
+        return self.hits / self.requests
+
+    @property
+    def miss_rate(self) -> float:
+        """Calculate the cache miss rate."""
+        return self.misses / self.requests
+
+    @property
+    def error_rate(self) -> float:
+        """Calculate the cache error rate."""
+        return self.errors / self.requests
+
+
+class SccacheStats:
+    requests: int = 0
+    compilers: dict[str, Compiler]
+
+    @property
+    def hits(self) -> int:
+        """Calculate the total cache hits."""
+        return sum(v.hits for v in self.compilers.values())
+
+    @property
+    def misses(self) -> int:
+        """Calculate the total cache misses."""
+        return sum(v.misses for v in self.compilers.values())
+
+    @property
+    def errors(self) -> int:
+        """Calculate the total cache errors."""
+        return sum(v.errors for v in self.compilers.values())
+
+    @property
+    def hit_rate(self) -> float:
+        """Calculate the total cache hit rate."""
+        return self.hits / self.requests
+
+    @property
+    def miss_rate(self) -> float:
+        """Calculate the total cache miss rate."""
+        return self.misses / self.requests
+
+    @property
+    def error_rate(self) -> float:
+        """Calculate the total cache error rate."""
+        return self.errors / self.requests
+
+
+def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
+    """Get sccache stats from the artifact folder."""
+    stats_files = artifact_folder.glob("sccache-stats*.txt")
+    parsed_stats = {}
+    lang_line_match = re.compile(r"Cache (?P<result>\w+) \((?P<lang>\w+)[^)]*\)\s*(?P<count>\d+)")
+    for file in stats_files:
+        with file.open() as f:
+            stats = SccacheStats(compilers={"c": Compiler(), "cpp": Compiler(), "cuda": Compiler()})
+            for line in f:
+                if line.startswith("Compiler requests:"):
+                    stats.requests = int(line.split(":")[1].strip())
+                elif match := lang_line_match.match(line):
+                    compiler = stats.compilers[match.group("lang")]
+                    setattr(compiler, match.group("result"), int(match.group("count")))
+        stats_file_name = re.findall(r"sccache-stats[-]?(?P<name>\w+).txt", file.name)
+        if stats_file_name:
+            stats_file_name = stats_file_name[0]
+        else:
+            stats_file_name = "main_process"
+        parsed_stats[stats_file_name] = stats
+    return parsed_stats
+
+
 def process_job_blob(  # noqa: PLR0913
     trace_id: int,
     ctx: Context,
@@ -167,17 +254,15 @@ def process_job_blob(  # noqa: PLR0913
         logging.info("Job is empty (no start time) - bypassing")
         return last_timestamp
 
-    attribute_file = Path.cwd() / f"telemetry-artifacts/attrs-{job_id}"
+    artifact_folder = Path.cwd() / f"telemetry-artifacts/telemetry-tools-artifacts-{job_id}"
     attributes = {}
-    if attribute_file.exists():
+    if (artifact_folder / "attrs").exists():
         logging.debug("Found attribute file for job: %s", job_id)
-        attributes = parse_attributes(attribute_file.as_posix())
+        attributes = parse_attributes(artifact_folder / "attrs")
     else:
         logging.debug("No attribute metadata found for job: %s", job_id)
 
-    # TODO: add attributes for sccache hit rate here
-    sccache_stats = (Path.cwd() / "telemetry-artifacts/").glob("sccache-stats-*.txt")
-    print(sccache_stats)
+    sccache_stats = get_sccache_stats(artifact_folder)
 
     attributes["service.name"] = job_name
     job_provider = TracerProvider(
@@ -207,9 +292,23 @@ def process_job_blob(  # noqa: PLR0913
             if (end - start) / 1e9 > 1:
                 logging.info("processing step: %s", step["name"])
                 job_provider.id_generator.update_step_name(step["name"])
+                # Only add sccache attributes if this is a build step
+                if re.match(r"(?:[\w+]+\sbuild$)|(?:Build\sand\srepair.*)", step["name"], re.IGNORECASE):
+                    for file_name, stats in sccache_stats.items():
+                        attributes[f"sccache.{file_name}.hit_rate"] = stats.hit_rate
+                        attributes[f"sccache.{file_name}.miss_rate"] = stats.miss_rate
+                        attributes[f"sccache.{file_name}.error_rate"] = stats.error_rate
+                        attributes[f"sccache.{file_name}.requests"] = stats.requests
+                        for lang, lang_stats in stats.compilers.items():
+                            attributes[f"sccache.{file_name}.{lang}.hit_rate"] = lang_stats.hit_rate
+                            attributes[f"sccache.{file_name}.{lang}.miss_rate"] = lang_stats.miss_rate
+                            attributes[f"sccache.{file_name}.{lang}.error_rate"] = lang_stats.error_rate
+                            attributes[f"sccache.{file_name}.{lang}.requests"] = lang_stats.requests
+
                 step_span = job_tracer.start_span(
                     name=step["name"],
                     start_time=start,
+                    attributes=attributes,
                 )
                 step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
                 step_span.end(end)
@@ -230,16 +329,15 @@ def main() -> None:
     with Path("all_jobs.json").open() as f:
         jobs = json.loads(f.read())
 
-    env_vars = parse_attributes("telemetry-artifacts/telemetry-env-vars")
-
     first_timestamp = date_str_to_epoch(jobs[0]["created_at"])
     # track the latest timestamp observed and use it for any unavailable times.
     last_timestamp = date_str_to_epoch(jobs[0]["completed_at"], 0)
 
-    attribute_files = list(Path.cwd().glob("telemetry-artifacts/attrs-*"))
-    if attribute_files:
-        attribute_file = attribute_files[0]
+    attribute_folders = list(Path.cwd().glob("telemetry-artifacts/telemetry-tools-attrs-*"))
+    if attribute_folders:
+        attribute_file = attribute_folders[0] / "attrs"
         attributes = parse_attributes(attribute_file.as_posix())
+        env_vars = parse_attributes(attribute_folders[0] / "telemetry-env-vars")
     else:
         attributes = {}
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}

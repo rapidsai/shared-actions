@@ -258,7 +258,7 @@ def process_job_blob(  # noqa: PLR0913
         logging.info("Job is empty (no start time) - bypassing")
         return last_timestamp
 
-    artifact_folder = Path.cwd() / f"telemetry-artifacts/telemetry-tools-attrs-{job_id}"
+    artifact_folder = Path.cwd() / f"telemetry-artifacts/telemetry-tools-artifacts-{job_id}"
     attributes = {}
     if (artifact_folder / "attrs").exists():
         logging.debug("Found attribute file for job: %s", job_id)
@@ -329,7 +329,7 @@ def main() -> None:
     # track the latest timestamp observed and use it for any unavailable times.
     last_timestamp = date_str_to_epoch(jobs[0]["completed_at"], 0)
 
-    attribute_folders = list(Path.cwd().glob("telemetry-artifacts/telemetry-tools-attrs-*"))
+    attribute_folders = list(Path.cwd().glob("telemetry-artifacts/telemetry-tools-artifacts-*"))
     if attribute_folders:
         attribute_file = attribute_folders[0] / "attrs"
         attributes = parse_attributes(attribute_file.as_posix())

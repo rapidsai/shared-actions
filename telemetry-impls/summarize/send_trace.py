@@ -148,22 +148,26 @@ class Compiler:
     @property
     def hit_rate(self) -> float:
         """Calculate the cache hit rate."""
-        return self.hits / self.requests
+        return self.hits / self.requests if self.requests > 0 else 0
 
     @property
     def miss_rate(self) -> float:
         """Calculate the cache miss rate."""
-        return self.misses / self.requests
+        return self.misses / self.requests if self.requests > 0 else 0
 
     @property
     def error_rate(self) -> float:
         """Calculate the cache error rate."""
-        return self.errors / self.requests
+        return self.errors / self.requests if self.requests > 0 else 0
 
 
 class SccacheStats:
     requests: int = 0
     compilers: dict[str, Compiler]
+
+    def __init__(self, requests: int, compilers: dict[str, Compiler]) -> None:
+        self.requests = requests
+        self.compilers = compilers
 
     @property
     def hits(self) -> int:
@@ -183,17 +187,17 @@ class SccacheStats:
     @property
     def hit_rate(self) -> float:
         """Calculate the total cache hit rate."""
-        return self.hits / self.requests
+        return self.hits / self.requests if self.requests > 0 else 0
 
     @property
     def miss_rate(self) -> float:
         """Calculate the total cache miss rate."""
-        return self.misses / self.requests
+        return self.misses / self.requests if self.requests > 0 else 0
 
     @property
     def error_rate(self) -> float:
         """Calculate the total cache error rate."""
-        return self.errors / self.requests
+        return self.errors / self.requests if self.requests > 0 else 0
 
 
 def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
@@ -203,10 +207,10 @@ def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     lang_line_match = re.compile(r"Cache (?P<result>\w+) \((?P<lang>\w+)[^)]*\)\s*(?P<count>\d+)")
     for file in stats_files:
         with file.open() as f:
-            stats = SccacheStats(compilers={"c": Compiler(), "cpp": Compiler(), "cuda": Compiler()})
+            stats = SccacheStats(requests=0, compilers={"c": Compiler(), "cpp": Compiler(), "cuda": Compiler()})
             for line in f:
-                if line.startswith("Compiler requests:"):
-                    stats.requests = int(line.split(":")[1].strip())
+                if match := re.match(r"^Compile\srequests\s+(\d+).*", line, re.IGNORECASE):
+                    stats.requests = int(match.group(1))
                 elif match := lang_line_match.match(line):
                     compiler = stats.compilers[match.group("lang")]
                     setattr(compiler, match.group("result"), int(match.group("count")))
@@ -254,7 +258,7 @@ def process_job_blob(  # noqa: PLR0913
         logging.info("Job is empty (no start time) - bypassing")
         return last_timestamp
 
-    artifact_folder = Path.cwd() / f"telemetry-artifacts/telemetry-tools-artifacts-{job_id}"
+    artifact_folder = Path.cwd() / f"telemetry-artifacts/telemetry-tools-attrs-{job_id}"
     attributes = {}
     if (artifact_folder / "attrs").exists():
         logging.debug("Found attribute file for job: %s", job_id)
@@ -264,7 +268,6 @@ def process_job_blob(  # noqa: PLR0913
 
     sccache_stats = get_sccache_stats(artifact_folder)
 
-    attributes["service.name"] = job_name
     job_provider = TracerProvider(
         resource=Resource(attributes),
         id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=job["name"]),
@@ -285,11 +288,12 @@ def process_job_blob(  # noqa: PLR0913
         delay_span.end(job_start)
 
         for step in job["steps"]:
-            start = date_str_to_epoch(step["started_at"], job_last_timestamp)
-            end = date_str_to_epoch(step["completed_at"], start)
+            step_start = date_str_to_epoch(step["started_at"], job_last_timestamp)
+            step_end = date_str_to_epoch(step["completed_at"], step_start)
+            job_last_timestamp = max(step_end, job_last_timestamp)
             job_provider.id_generator.update_step_name(step["name"])
 
-            if (end - start) / 1e9 > 1:
+            if (step_end - step_start) / 1e9 > 1:
                 logging.info("processing step: %s", step["name"])
                 job_provider.id_generator.update_step_name(step["name"])
                 # Only add sccache attributes if this is a build step
@@ -307,20 +311,12 @@ def process_job_blob(  # noqa: PLR0913
 
                 step_span = job_tracer.start_span(
                     name=step["name"],
-                    start_time=start,
+                    start_time=step_start,
                     attributes=attributes,
                 )
                 step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
-                step_span.end(end)
-
-                job_last_timestamp = max(end, job_last_timestamp)
-
-            job_end = max(
-                date_str_to_epoch(job["completed_at"], job_last_timestamp),
-                job_last_timestamp,
-            )
-            last_timestamp = max(job_end, last_timestamp)
-        job_span.end(job_end)
+                step_span.end(step_end)
+        job_span.end(job_last_timestamp)
     return last_timestamp
 
 

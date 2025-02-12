@@ -25,19 +25,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from opentelemetry import context, trace
+from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from opentelemetry.trace.status import StatusCode
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from typing import Any
-
-    from opentelemetry.context import Context
 
 match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
     case "http/protobuf":
@@ -229,7 +226,6 @@ def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
 
 def process_job_blob(  # noqa: PLR0913
     trace_id: int,
-    ctx: Context,
     job: Mapping[str, Any],
     env_vars: Mapping[str, str],
     first_timestamp: int,
@@ -271,6 +267,8 @@ def process_job_blob(  # noqa: PLR0913
     else:
         logging.debug("No attribute metadata found for job: %s", job_id)
 
+    attributes["service.name"] = job_name
+
     sccache_stats = get_sccache_stats(artifact_folder)
 
     job_provider = TracerProvider(
@@ -283,7 +281,6 @@ def process_job_blob(  # noqa: PLR0913
     with job_tracer.start_as_current_span(
         name=matrix_part or job["name"],
         start_time=job_create,
-        context=ctx,
         end_on_exit=False,
     ) as job_span:
         logging.debug("Job span created: %s", job_span)
@@ -299,11 +296,12 @@ def process_job_blob(  # noqa: PLR0913
             step_end = date_str_to_epoch(step["completed_at"], step_start)
             job_last_timestamp = max(step_end, job_last_timestamp)
             job_provider.id_generator.update_step_name(step["name"])
+            # Reset attributes for each step
+            span_attributes = {}
 
             if (step_end - step_start) / 1e9 > 1:
                 logging.debug("processing step: %s", step["name"])
                 job_provider.id_generator.update_step_name(step["name"])
-                span_attributes = {}
                 # Only add sccache attributes if this is a build step
                 if re.match(r"(?:[\w+]+\sbuild$)|(?:Build\sand\srepair.*)", step["name"], re.IGNORECASE):
                     logging.debug("Adding sccache attributes for step: %s", step["name"])
@@ -358,10 +356,6 @@ def main() -> None:
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
     global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
 
-    ctx = TraceContextTextMapPropagator().extract(
-        carrier={"traceparent": env_vars["TRACEPARENT"]},
-    )
-    context.attach(ctx)
     trace_id = int(env_vars["TRACEPARENT"].split("-")[1], 16)
 
     provider = TracerProvider(
@@ -378,7 +372,6 @@ def main() -> None:
         for job in jobs:
             last_timestamp = process_job_blob(
                 trace_id=trace_id,
-                ctx=ctx,
                 job=job,
                 env_vars=env_vars,
                 first_timestamp=first_timestamp,

@@ -54,7 +54,7 @@ match os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"):
         )
 
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.DEBUG)
 
 SpanProcessor = BatchSpanProcessor
 
@@ -73,6 +73,7 @@ def parse_attributes(attrs: os.PathLike | str | None) -> dict[str, str]:
     for attr in attrs_list:
         key, value = attr.split("=", 1)
         attributes[key] = value.strip().strip('"')
+        logging.debug("Attribute parsed: Key: %s, Value: %s", key, value)
     return attributes
 
 
@@ -111,10 +112,12 @@ class RapidsSpanIdGenerator(IdGenerator):
     def update_job_name(self, job_name: str) -> None:
         """Update the job name, which feeds into computing the span name."""
         self.job_name = job_name
+        logging.debug("Job name updated: %s", self.job_name)
 
     def update_step_name(self, step_name: str) -> None:
         """Update the step name, which feeds into computing the span name."""
         self.step_name = step_name
+        logging.debug("Step name updated: %s", self.step_name)
 
     def generate_span_id(self) -> int:
         """Get a new span ID.
@@ -203,6 +206,7 @@ class SccacheStats:
 def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     """Get sccache stats from the artifact folder."""
     stats_files = artifact_folder.glob("sccache-stats*.txt")
+    logging.debug("SCCache stats files: %s", stats_files)
     parsed_stats = {}
     lang_line_match = re.compile(r"Cache (?P<result>\w+) \((?P<lang>\w+)[^)]*\)\s*(?P<count>\d+)")
     for file in stats_files:
@@ -235,6 +239,7 @@ def process_job_blob(  # noqa: PLR0913
     # This is the top-level workflow, which we account for with the root
     # trace above
     if job["name"] == env_vars["OTEL_SERVICE_NAME"]:
+        logging.debug("Job name is the same as the service name: %s", job["name"])
         return last_timestamp
     # this cuts off matrix info from the job name, such that grafana can group
     # these by name
@@ -281,11 +286,13 @@ def process_job_blob(  # noqa: PLR0913
         context=ctx,
         end_on_exit=False,
     ) as job_span:
+        logging.debug("Job span created: %s", job_span)
         job_span.set_status(map_conclusion_to_status_code(job["conclusion"]))
 
         job_provider.id_generator.update_step_name("Start delay time")
         delay_span = job_tracer.start_span(name="Start delay time", start_time=job_create)
         delay_span.end(job_start)
+        logging.debug("Delay span created: %s", delay_span)
 
         for step in job["steps"]:
             step_start = date_str_to_epoch(step["started_at"], job_last_timestamp)
@@ -294,29 +301,39 @@ def process_job_blob(  # noqa: PLR0913
             job_provider.id_generator.update_step_name(step["name"])
 
             if (step_end - step_start) / 1e9 > 1:
-                logging.info("processing step: %s", step["name"])
+                logging.debug("processing step: %s", step["name"])
                 job_provider.id_generator.update_step_name(step["name"])
+                span_attributes = {}
                 # Only add sccache attributes if this is a build step
                 if re.match(r"(?:[\w+]+\sbuild$)|(?:Build\sand\srepair.*)", step["name"], re.IGNORECASE):
+                    logging.debug("Adding sccache attributes for step: %s", step["name"])
                     for file_name, stats in sccache_stats.items():
-                        attributes[f"sccache.{file_name}.hit_rate"] = stats.hit_rate
-                        attributes[f"sccache.{file_name}.miss_rate"] = stats.miss_rate
-                        attributes[f"sccache.{file_name}.error_rate"] = stats.error_rate
-                        attributes[f"sccache.{file_name}.requests"] = stats.requests
+                        span_attributes[f"sccache.{file_name}.hit_rate"] = stats.hit_rate
+                        span_attributes[f"sccache.{file_name}.miss_rate"] = stats.miss_rate
+                        span_attributes[f"sccache.{file_name}.error_rate"] = stats.error_rate
+                        span_attributes[f"sccache.{file_name}.requests"] = stats.requests
                         for lang, lang_stats in stats.compilers.items():
-                            attributes[f"sccache.{file_name}.{lang}.hit_rate"] = lang_stats.hit_rate
-                            attributes[f"sccache.{file_name}.{lang}.miss_rate"] = lang_stats.miss_rate
-                            attributes[f"sccache.{file_name}.{lang}.error_rate"] = lang_stats.error_rate
-                            attributes[f"sccache.{file_name}.{lang}.requests"] = lang_stats.requests
+                            span_attributes[f"sccache.{file_name}.{lang}.hit_rate"] = lang_stats.hit_rate
+                            span_attributes[f"sccache.{file_name}.{lang}.miss_rate"] = lang_stats.miss_rate
+                            span_attributes[f"sccache.{file_name}.{lang}.error_rate"] = lang_stats.error_rate
+                            span_attributes[f"sccache.{file_name}.{lang}.requests"] = lang_stats.requests
+
+                # TODO: Ninja log files?
+                # TODO: file sizes of packages or their contents
 
                 step_span = job_tracer.start_span(
                     name=step["name"],
                     start_time=step_start,
-                    attributes=attributes,
+                    attributes=span_attributes,
                 )
+                logging.debug("Step span created: %s", step_span)
                 step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
                 step_span.end(step_end)
+                logging.debug("Step span ended: %s", step_span)
+            else:
+                logging.debug("Skipping step: %s, because its duration is < 1s", step["name"])
         job_span.end(job_last_timestamp)
+        logging.debug("Job span ended: %s", job_span)
     return last_timestamp
 
 
@@ -330,10 +347,12 @@ def main() -> None:
     last_timestamp = date_str_to_epoch(jobs[0]["completed_at"], 0)
 
     attribute_folders = list(Path.cwd().glob("telemetry-artifacts/telemetry-tools-artifacts-*"))
+    logging.debug("Attribute folders: %s", attribute_folders)
     if attribute_folders:
         attribute_file = attribute_folders[0] / "attrs"
         attributes = parse_attributes(attribute_file.as_posix())
         env_vars = parse_attributes(attribute_folders[0] / "telemetry-env-vars")
+        logging.debug("Env vars parsed from first attribute folder: %s", env_vars)
     else:
         attributes = {}
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
@@ -355,6 +374,7 @@ def main() -> None:
     with tracer.start_as_current_span(
         name="Top-level workflow root", start_time=first_timestamp, end_on_exit=False
     ) as root_span:
+        logging.debug("Root span created: %s", root_span)
         for job in jobs:
             last_timestamp = process_job_blob(
                 trace_id=trace_id,
@@ -365,6 +385,7 @@ def main() -> None:
                 last_timestamp=last_timestamp,
             )
         root_span.end(last_timestamp)
+        logging.debug("Root span ended: %s", root_span)
 
 
 if __name__ == "__main__":

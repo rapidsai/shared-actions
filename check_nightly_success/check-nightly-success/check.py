@@ -52,7 +52,7 @@ def main(
     now = datetime.now(tz=tz)
 
     latest_success = {}
-    oldest_run_valid = {}
+    workflow_active_for_max_days = {}
     # Rather frustratingly, the workflow runs returned from the GitHub API can
     # have alternating ordering of `head_branch`
     # e.g.
@@ -86,19 +86,19 @@ def main(
                 latest_success[branch] = run
                 break
 
-        oldest_run_valid[branch] = False
+        workflow_active_for_max_days[branch] = False
         if len(runs) > 0:
             run = runs[-1]
             days_since_run = (now - datetime.fromisoformat(run["run_started_at"])).days
             if days_since_run > max_days_without_success:
-                oldest_run_valid[branch] = True
+                workflow_active_for_max_days[branch] = True
 
     latest_branch = max(latest_success)
     has_latest_success = latest_success[latest_branch] is not None
-    success = False
 
+    # We are producing Unix return codes so success/failure is inverted from the
+    # expected Python boolean values.
     if has_latest_success:
-        success = True
         print(  # noqa: T201
             f"The most recent successful run of the {workflow_id} workflow on "
             f"{latest_branch} was "
@@ -106,21 +106,19 @@ def main(
             f"which is within the last {max_days_without_success} days. View logs:"
             f"\n  - {latest_success[latest_branch]['html_url']}"
         )
-    elif not oldest_run_valid[latest_branch]:
-        success = True
-        print(
+        return 0
+    elif not workflow_active_for_max_days[latest_branch]:
+        print(  # noqa: T201
             f"The oldest run of the {workflow_id} workflow on {latest_branch} was less "
             f"than {max_days_without_success} days ago. This exempts the workflow from "
             "check-nightly-success, because the workflow has not been running for very long."
         )
-    else:
-        print(  # noqa: T201
-            f"{latest_branch} has no successful runs of {workflow_id} in the last {max_days_without_success} days"
-        )
+        return 0
 
-    # We are producing Unix return codes so success/failure is inverted from the
-    # expected Python boolean values.
-    return not success
+    print(  # noqa: T201
+        f"{latest_branch} has no successful runs of {workflow_id} in the last {max_days_without_success} days"
+    )
+    return 1
 
 
 if __name__ == "__main__":

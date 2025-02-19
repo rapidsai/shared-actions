@@ -52,6 +52,7 @@ def main(
     now = datetime.now(tz=tz)
 
     latest_success = {}
+    oldest_run_valid = {}
     # Rather frustratingly, the workflow runs returned from the GitHub API can
     # have alternating ordering of `head_branch`
     # e.g.
@@ -76,7 +77,8 @@ def main(
             continue
 
         latest_success[branch] = None
-        for run in sorted(branch_runs, key=lambda r: r["run_started_at"], reverse=True):
+        runs = sorted(branch_runs, key=lambda r: r["run_started_at"], reverse=True)
+        for run in runs:
             days_since_run = (now - datetime.fromisoformat(run["run_started_at"])).days
             if days_since_run > max_days_without_success:
                 break
@@ -84,16 +86,32 @@ def main(
                 latest_success[branch] = run
                 break
 
-    latest_branch = max(latest_success)
-    success = latest_success[latest_branch] is not None
+        oldest_run_valid[branch] = False
+        if len(runs) > 0:
+            run = runs[-1]
+            days_since_run = (now - datetime.fromisoformat(run["run_started_at"])).days
+            if days_since_run > max_days_without_success:
+                oldest_run_valid[branch] = True
 
-    if success:
+    latest_branch = max(latest_success)
+    has_latest_success = latest_success[latest_branch] is not None
+    success = False
+
+    if has_latest_success:
+        success = True
         print(  # noqa: T201
             f"The most recent successful run of the {workflow_id} workflow on "
             f"{latest_branch} was "
             f"{datetime.fromisoformat(latest_success[latest_branch]['run_started_at'])}, "
             f"which is within the last {max_days_without_success} days. View logs:"
             f"\n  - {latest_success[latest_branch]['html_url']}"
+        )
+    elif not oldest_run_valid[latest_branch]:
+        success = True
+        print(
+            f"The oldest run of the {workflow_id} workflow on {latest_branch} was less "
+            f"than {max_days_without_success} days ago. This exempts the workflow from "
+            "check-nightly-success, because the workflow has not been running for very long."
         )
     else:
         print(  # noqa: T201

@@ -111,7 +111,7 @@ def main(
         print(  # noqa: T201
             f"The oldest run of the {workflow_id} workflow on {latest_branch} was less "
             f"than {max_days_without_success} days ago. This exempts the workflow from "
-            "check-nightly-success, because the workflow has not been running for very long."
+            "check-nightly-success because the workflow has not been running for very long."
         )
         return 0
 

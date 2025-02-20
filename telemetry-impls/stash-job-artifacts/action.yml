@@ -1,0 +1,23 @@
+
+name: stash-job-artifacts
+description: |
+    Saves and uploads a file with telemetry attributes that should be attached to spans from this run.
+
+    We stash only the attributes here because we retrieve the rest of the timing
+    info later. We get info for all jobs at once, so we wait to retrieve that info
+    at the very end of the top-level job.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Write attributes to file, one per line
+      shell: bash
+      run:
+        IFS=, read -ra values <<< "$OTEL_RESOURCE_ATTRIBUTES";
+        printf "%s\n" "${values[@]}" > telemetry-artifacts/attrs;
+
+    - name: Upload attr file and any other files
+      uses: actions/upload-artifact@v4
+      with:
+        name: telemetry-tools-artifacts-${{ env.JOB_ID }}
+        path: telemetry-artifacts

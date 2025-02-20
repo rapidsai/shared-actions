@@ -21,6 +21,7 @@ runs:
       uses: actions/download-artifact@v4
       with:
         name: telemetry-tools-env-vars
+        path: telemetry-artifacts
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
@@ -38,10 +39,10 @@ runs:
           else
             echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
           fi
-        done <telemetry-env-vars
+        done <telemetry-artifacts/telemetry-env-vars
     - name: Clone shared-actions repo with loaded env vars
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO }}
-        ref: ${{ env.SHARED_ACTIONS_REF }}
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions

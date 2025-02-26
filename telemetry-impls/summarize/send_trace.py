@@ -234,7 +234,7 @@ def process_job_blob(  # noqa: PLR0913
     """Transform job JSON into an OTel span."""
     # This is the top-level workflow, which we account for with the root
     # trace above
-    if job["name"] == env_vars["OTEL_SERVICE_NAME"]:
+    if job["name"] == env_vars.get("OTEL_SERVICE_NAME"):
         logging.debug("Job name is the same as the service name: %s", job["name"])
         return last_timestamp
     # this cuts off matrix info from the job name, such that grafana can group
@@ -355,6 +355,10 @@ def main() -> None:
         logging.debug("Env vars parsed from first attribute folder: %s", env_vars)
     else:
         attributes = {}
+        try:
+            env_vars = parse_attributes(Path.cwd() / "telemetry-env-vars")
+        except FileNotFoundError:
+            env_vars = os.environ
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
     global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
 

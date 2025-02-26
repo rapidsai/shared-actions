@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -360,13 +361,16 @@ def main() -> None:
     else:
         attributes = {}
         try:
-            env_vars = parse_attributes(Path.cwd() / "telemetry-env-vars")
+            env_vars = parse_attributes(Path.cwd() / "telemetry-artifacts/telemetry-env-vars")
         except FileNotFoundError:
             env_vars = os.environ
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
-    global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
-
-    trace_id = int(env_vars["TRACEPARENT"].split("-")[1], 16)
+    try:
+        global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
+        trace_id = int(env_vars["TRACEPARENT"].split("-")[1], 16)
+    except KeyError:
+        logging.error("OTEL_SERVICE_NAME and/or TRACEPARENT not found in env vars: %s", env_vars)
+        sys.exit(1)
 
     provider = TracerProvider(
         resource=Resource(global_attrs),

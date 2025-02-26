@@ -68,7 +68,11 @@ def parse_attributes(attrs: os.PathLike | str | None) -> dict[str, str]:
         attrs_list = str(attrs).split(",")
     attributes = {}
     for attr in attrs_list:
-        key, value = attr.split("=", 1)
+        try:
+            key, value = attr.split("=", 1)
+        except ValueError:
+            logging.warning("Invalid attribute: %s", attr)
+            continue
         attributes[key] = value.strip().strip('"')
         logging.debug("Attribute parsed: Key: %s, Value: %s", key, value)
     return attributes

@@ -47,7 +47,7 @@ runs:
         stamp=$(date +%s)
         day=$((60*60*24))
         TRACE_URL="https://grafana.arc-nvks.gha-runners.nvidia.com/explore?schemaVersion=1&panes=%7B%22hes%22:%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22${TRACE_ID}%22,%22queryType%22:%22traceql%22,%22refId%22:%22A%22,%22limit%22:20,%22tableType%22:%22traces%22,%22datasource%22:%7B%22type%22:%22tempo%22,%22uid%22:%22tempo%22%7D%7D%5D,%22range%22:%7B%22from%22:%22$((${stamp} - 2*$day))%22,%22to%22:%22${stamp}%22%7D,%22panelsState%22:%7B%22trace%22:%7D%7D%7D%7D&orgId=1"
-        echo "**[View Run Trace in (NVIDIA Internal) Grafana](${TELEMETRY_TRACE_URL})**" >> "${GITHUB_STEP_SUMMARY}"
+        echo "**[View Run Trace in (NVIDIA Internal) Grafana](${TRACE_URL})**" >> "${GITHUB_STEP_SUMMARY}"
     # Telemetry jobs should never affect the pass/fail status of the overall CI
     - name: Exit success
       if: always()

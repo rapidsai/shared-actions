@@ -208,7 +208,7 @@ class SccacheStats:
 def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     """Get sccache stats from the artifact folder."""
     stats_files = artifact_folder.glob("sccache-stats*.txt")
-    logging.debug("SCCache stats files: %s", stats_files)
+    logging.debug("SCCache stats files: %s", list(stats_files))
     parsed_stats = {}
     lang_line_match = re.compile(r"Cache (?P<result>\w+) \((?P<lang>\w+)[^)]*\)\s*(?P<count>\d+)")
     for file in stats_files:
@@ -275,6 +275,7 @@ def process_job_blob(  # noqa: PLR0913
     attributes["service.name"] = job_name
 
     sccache_stats = get_sccache_stats(artifact_folder)
+    logging.debug("SCCache stats: %s", sccache_stats)
 
     job_provider = TracerProvider(
         resource=Resource(attributes),
@@ -330,6 +331,8 @@ def process_job_blob(  # noqa: PLR0913
                     attributes=span_attributes,
                 )
                 logging.debug("Step span created: %s", step_span)
+                if span_attributes:
+                    logging.debug("    Step span attributes: %s", span_attributes)
                 # TODO: use step_span.record_exception(exc) to capture errors. exc is an exception object,
                 # so if we are reading from a log file, we need to read the log file into an exception object.
                 step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))

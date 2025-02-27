@@ -214,7 +214,9 @@ def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     for file in stats_files:
         with file.open() as f:
             stats = SccacheStats(requests=0, compilers={"c": Compiler(), "cpp": Compiler(), "cuda": Compiler()})
+            print("SCCache stats file: %s", file)
             for line in f:
+                print("Line: %s", line)
                 if match := re.match(r"^Compile\srequests\s+(\d+).*", line, re.IGNORECASE):
                     stats.requests = int(match.group(1))
                 elif match := lang_line_match.match(line):

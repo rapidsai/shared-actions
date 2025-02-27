@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,7 +69,11 @@ def parse_attributes(attrs: os.PathLike | str | None) -> dict[str, str]:
         attrs_list = str(attrs).split(",")
     attributes = {}
     for attr in attrs_list:
-        key, value = attr.split("=", 1)
+        try:
+            key, value = attr.split("=", 1)
+        except ValueError:
+            logging.warning("Invalid attribute: %s", attr)
+            continue
         attributes[key] = value.strip().strip('"')
         logging.debug("Attribute parsed: Key: %s, Value: %s", key, value)
     return attributes
@@ -202,14 +207,16 @@ class SccacheStats:
 
 def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     """Get sccache stats from the artifact folder."""
-    stats_files = artifact_folder.glob("sccache-stats*.txt")
+    stats_files = list(artifact_folder.glob("sccache-stats*.txt"))
     logging.debug("SCCache stats files: %s", stats_files)
     parsed_stats = {}
     lang_line_match = re.compile(r"Cache (?P<result>\w+) \((?P<lang>\w+)[^)]*\)\s*(?P<count>\d+)")
     for file in stats_files:
         with file.open() as f:
             stats = SccacheStats(requests=0, compilers={"c": Compiler(), "cpp": Compiler(), "cuda": Compiler()})
+            print("SCCache stats file: %s", file)
             for line in f:
+                print("Line: %s", line)
                 if match := re.match(r"^Compile\srequests\s+(\d+).*", line, re.IGNORECASE):
                     stats.requests = int(match.group(1))
                 elif match := lang_line_match.match(line):
@@ -234,7 +241,7 @@ def process_job_blob(  # noqa: PLR0913
     """Transform job JSON into an OTel span."""
     # This is the top-level workflow, which we account for with the root
     # trace above
-    if job["name"] == env_vars["OTEL_SERVICE_NAME"]:
+    if job["name"] == env_vars.get("OTEL_SERVICE_NAME"):
         logging.debug("Job name is the same as the service name: %s", job["name"])
         return last_timestamp
     # this cuts off matrix info from the job name, such that grafana can group
@@ -270,6 +277,7 @@ def process_job_blob(  # noqa: PLR0913
     attributes["service.name"] = job_name
 
     sccache_stats = get_sccache_stats(artifact_folder)
+    logging.debug("SCCache stats: %s", sccache_stats)
 
     job_provider = TracerProvider(
         resource=Resource(attributes),
@@ -325,6 +333,8 @@ def process_job_blob(  # noqa: PLR0913
                     attributes=span_attributes,
                 )
                 logging.debug("Step span created: %s", step_span)
+                if span_attributes:
+                    logging.debug("    Step span attributes: %s", span_attributes)
                 # TODO: use step_span.record_exception(exc) to capture errors. exc is an exception object,
                 # so if we are reading from a log file, we need to read the log file into an exception object.
                 step_span.set_status(map_conclusion_to_status_code(step["conclusion"]))
@@ -355,10 +365,17 @@ def main() -> None:
         logging.debug("Env vars parsed from first attribute folder: %s", env_vars)
     else:
         attributes = {}
+        try:
+            env_vars = parse_attributes(Path.cwd() / "telemetry-artifacts/telemetry-env-vars")
+        except FileNotFoundError:
+            env_vars = os.environ
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
-    global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
-
-    trace_id = int(env_vars["TRACEPARENT"].split("-")[1], 16)
+    try:
+        global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
+        trace_id = int(env_vars["TRACEPARENT"].split("-")[1], 16)
+    except KeyError:
+        logging.error("OTEL_SERVICE_NAME and/or TRACEPARENT not found in env vars: %s", env_vars)
+        sys.exit(1)
 
     provider = TracerProvider(
         resource=Resource(global_attrs),

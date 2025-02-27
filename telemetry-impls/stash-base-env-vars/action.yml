@@ -33,7 +33,6 @@ runs:
         SHARED_ACTIONS_REF=${SHARED_ACTIONS_REF:-main}
         START_TIME="${START_TIME:-$(date +'%s')}"
         TRACEPARENT="${TRACEPARENT}"
-        TELEMETRY_ENABLED="${TELEMETRY_ENABLED}"
         EOF
     - name: Upload env vars file
       uses: actions/upload-artifact@v4

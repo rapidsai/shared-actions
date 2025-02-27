@@ -39,6 +39,13 @@ runs:
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
     - name: Clean up attributes artifacts from all jobs
       uses: ./shared-actions/telemetry-impls/clean-up-artifacts
+
+    - name: Add link in step summary
+      shell: bash
+      run: |
+        TRACE_ID="$(cut -d'-' -f2 <<<${TRACEPARENT})"
+        TRACE_URL="https://grafana.arc-nvks.gha-runners.nvidia.com/explore?schemaVersion=1&panes=%7B%22qqy%22:%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22datasource%22:%7B%22type%22:%22tempo%22,%22uid%22:%22tempo%22%7D,%22queryType%22:%22traceql%22,%22limit%22:20,%22tableType%22:%22traces%22,%22query%22:%22${TRACE_ID}%22%7D%5D,%22range%22:%7B%22from%22:%22now-15m%22,%22to%22:%22now%22%7D%7D%7D&orgId=1"
+        echo "**View Run Trace [in (NVIDIA Internal) Grafana](${TRACE_URL})**" >> "${GITHUB_STEP_SUMMARY}"
     # Telemetry jobs should never affect the pass/fail status of the overall CI
     - name: Exit success
       if: always()

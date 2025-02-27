@@ -207,8 +207,8 @@ class SccacheStats:
 
 def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     """Get sccache stats from the artifact folder."""
-    stats_files = artifact_folder.glob("sccache-stats*.txt")
-    logging.debug("SCCache stats files: %s", list(stats_files))
+    stats_files = list(artifact_folder.glob("sccache-stats*.txt"))
+    logging.debug("SCCache stats files: %s", stats_files)
     parsed_stats = {}
     lang_line_match = re.compile(r"Cache (?P<result>\w+) \((?P<lang>\w+)[^)]*\)\s*(?P<count>\d+)")
     for file in stats_files:

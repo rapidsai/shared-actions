@@ -11,7 +11,7 @@ inputs:
   nightly_build_repo:
     description: 'Custom workflow file name (other than build.yaml) to download artifacts from for nightly tests'
     required: false
-    default: ''
+    type: string
 outputs:
   rapids_repository:
     value: ${{ steps.standardize-repo-info.outputs.RAPIDS_REPOSITORY }}

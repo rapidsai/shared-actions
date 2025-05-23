@@ -8,6 +8,10 @@ inputs:
     type: string
   sha:
     type: string
+  build_workflow_name:
+    description: 'Custom workflow file name (defaults to build.yaml) to download artifacts from for tests'
+    required: false
+    type: string
 outputs:
   rapids_repository:
     value: ${{ steps.standardize-repo-info.outputs.RAPIDS_REPOSITORY }}
@@ -33,3 +37,6 @@ runs:
         echo "RAPIDS_SHA=${sha}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
         echo "RAPIDS_REF_NAME=${{ inputs.branch || github.ref_name }}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
         echo "RAPIDS_NIGHTLY_DATE=${{ inputs.date }}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
+        if [[ -n "${{ inputs.build_workflow_name }}" ]]; then
+          echo "RAPIDS_BUILD_WORKFLOW_NAME=${{ inputs.build_workflow_name }}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
+        fi

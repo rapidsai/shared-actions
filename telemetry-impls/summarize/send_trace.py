@@ -361,28 +361,22 @@ def main() -> None:
     if attribute_folders:
         attribute_file = attribute_folders[0] / "attrs"
         attributes = parse_attributes(attribute_file.as_posix())
-        env_vars = parse_attributes(attribute_folders[0] / "telemetry-env-vars")
-        logging.debug("Env vars parsed from first attribute folder: %s", env_vars)
     else:
         attributes = {}
-        try:
-            env_vars = parse_attributes(Path.cwd() / "telemetry-artifacts/telemetry-env-vars")
-        except FileNotFoundError:
-            env_vars = os.environ
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
     try:
-        global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
-        trace_id = int(env_vars["TRACEPARENT"].split("-")[1], 16)
+        global_attrs["service.name"] = os.environ["OTEL_SERVICE_NAME"]
+        trace_id = int(os.environ["TRACEPARENT"].split("-")[1], 16)
     except KeyError:
-        logging.error("OTEL_SERVICE_NAME and/or TRACEPARENT not found in env vars: %s", env_vars)
+        logging.error("OTEL_SERVICE_NAME and/or TRACEPARENT not found in env vars: %s", os.environ)
         sys.exit(1)
 
     provider = TracerProvider(
         resource=Resource(global_attrs),
-        id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=env_vars["OTEL_SERVICE_NAME"]),
+        id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=os.environ["OTEL_SERVICE_NAME"]),
     )
     provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
-    tracer = trace.get_tracer("GitHub Actions parser", "0.0.1", tracer_provider=provider)
+    tracer = trace.get_tracer("GitHub Actions parser", "0.0.2", tracer_provider=provider)
 
     with tracer.start_as_current_span(
         name="Top-level workflow root", start_time=first_timestamp, end_on_exit=False
@@ -392,7 +386,7 @@ def main() -> None:
             last_timestamp = process_job_blob(
                 trace_id=trace_id,
                 job=job,
-                env_vars=env_vars,
+                env_vars=os.environ,
                 first_timestamp=first_timestamp,
                 last_timestamp=last_timestamp,
             )

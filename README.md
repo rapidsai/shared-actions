@@ -151,6 +151,4 @@ jobs:
 
 Behind the scenes, the implementation actions are:
 * ./telemetry-impls/stash-base-env-vars: storing base environment variables (including setting default values):
-* ./telemetry-impls/load-then-clone: Downloads base env var file, loads it, then
-  clones shared-actions according to env vars that were just loaded
 * ./telemetry-impls/summarize: Runs Python script to parse GitHub logs and send OpenTelemetry spans to endpoint

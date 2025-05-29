@@ -11,13 +11,23 @@ description: |
   step in any job other than computing the matrix.
 
 inputs:
+  shared_actions_repo:
+    default: rapidsai/shared-actions
+    description: "repository to clone for shared actions"
+  shared_actions_ref:
+    default: main
+    description: "branch to clone for shared actions"
   extra_attributes:
     description: "comma-separated key=value attributes to associate with the current job"
 
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.shared_actions_repo }}
+        ref: ${{ inputs.shared_actions_ref }}
+        path: ./shared-actions
     - name: Creating folder for job-created telemetry artifacts
       shell: bash
       run: mkdir -p telemetry-artifacts
@@ -25,12 +35,14 @@ runs:
     - shell: bash
       run:
         echo JOB_ID="$(cat job_info.json | jq -r '.id')" >> ${GITHUB_ENV};
-    # overrides loaded value.
     - name: Set OTEL_SERVICE_NAME from job
       uses: ./shared-actions/telemetry-impls/set-otel-service-name
-    - name: Add attribute metadata beyond the stashed basic stuff
+    - name: Set OTEL_RESOURCE_ATTRIBUTES and env vars so that child processes can use them
       shell: bash
       run:
+        TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${OTEL_SERVICE_NAME}")
+        OTEL_RESOURCE_ATTRIBUTES="git.repository=${GITHUB_REPOSITORY},git.ref=${GITHUB_REF},git.sha=${GITHUB_SHA},git.job_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        echo OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES}" >> ${GITHUB_ENV};
         attributes="${OTEL_RESOURCE_ATTRIBUTES}";
         labels="$(jq -r '.labels | join(" ")' job_info.json)";
         if [ "${labels}" != "" ]; then

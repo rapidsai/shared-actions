@@ -9,16 +9,22 @@ description: |
   to have only the checks and devcontainers jobs explicitly depend on
   it and have everything else be downstream of them.
 
+inputs:
+  shared_actions_repo:
+    default: rapidsai/shared-actions
+    description: "repository to clone for shared actions"
+  shared_actions_ref:
+    default: main
+    description: "branch to clone for shared actions"
+
 runs:
   using: 'composite'
   steps:
-    # We can't use the load-then-clone action because the env vars file
-    # that it needs is something that we create here.
     - name: Clone shared-actions repo
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
-        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
+        repository: ${{ inputs.shared_actions_repo }}
+        ref: ${{ inputs.shared_actions_ref }}
         path: ./shared-actions
     - name: Stash base env vars
       uses: ./shared-actions/telemetry-impls/stash-base-env-vars

@@ -35,8 +35,10 @@ runs:
     - name: Run parse and send trace/spans to endpoint
       shell: bash
       run: |
+        TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${OTEL_SERVICE_NAME}")
         ls -lR telemetry-artifacts
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
+
     - name: Clean up attributes artifacts from all jobs
       uses: ./shared-actions/telemetry-impls/clean-up-artifacts
 

@@ -4,13 +4,22 @@ description: |
   call the stash-artifacts implementation script, which writes
   some environment variables so that downstream jobs can refer to them.
 
-  Inputs here are all assumed to be env vars set outside of this script.
-  Set them in your main repo's workflows (export to ${GITHUB_ENV}!!)
+inputs:
+  shared_actions_repo:
+    default: rapidsai/shared-actions
+    description: "repository to clone for shared actions"
+  shared_actions_ref:
+    default: main
+    description: "branch to clone for shared actions"
 
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.shared_actions_repo }}
+        ref: ${{ inputs.shared_actions_ref }}
+        path: ./shared-actions
     # Stash current job's OTEL_RESOURCE_ATTRIBUTES and any files in the telemetry-artifacts directory
     - name: Stash job artifacts
       uses: ./shared-actions/telemetry-impls/stash-job-artifacts

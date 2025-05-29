@@ -7,12 +7,19 @@ description: |
   effectively label metadata. Finally, this action creates OpenTelemetry spans
   with the timing and label metadata, and sends it to the configured Tempo
   endpoint (or forwarder).
-
+inputs:
+  shared_actions_repo:
+    description: "Repository to download the telemetry-impls from"
+  shared_actions_ref:
+    description: "Reference to download the telemetry-impls from"
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
-      if: ${{ github.run_attempt == '1' }}
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.shared_actions_repo }}
+        ref: ${{ inputs.shared_actions_ref }}
+        path: shared-actions
     - uses: ./shared-actions/telemetry-impls/summarize
       if: ${{ github.run_attempt == '1' }}
     - if: ${{ github.run_attempt != '1' }}

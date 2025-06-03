@@ -8,10 +8,23 @@ description: |
   with the timing and label metadata, and sends it to the configured Tempo
   endpoint (or forwarder).
 inputs:
+  OTEL_SERVICE_NAME:
+    description: "Name of the top-level workflow"
   shared_actions_repo:
     description: "Repository to download the telemetry-impls from"
+    default: "rapidsai/shared-actions"
   shared_actions_ref:
     description: "Reference to download the telemetry-impls from"
+    default: "main"
+  OTEL_EXPORTER_OTLP_ENDPOINT:
+    description: "OTLP endpoint to send traces to"
+    default: "https://alloy.local.gha-runners.nvidia.com:4317"
+  OTEL_TRACES_EXPORTER:
+    description: "OTLP exporter to use"
+    default: "otlp"
+  OTEL_EXPORTER_OTLP_PROTOCOL:
+    description: "OTLP protocol to use"
+    default: "grpc"
 runs:
   using: 'composite'
   steps:
@@ -21,7 +34,8 @@ runs:
         ref: ${{ inputs.shared_actions_ref }}
         path: shared-actions
     - uses: ./shared-actions/telemetry-impls/summarize
-      if: ${{ github.run_attempt == '1' }}
-    - if: ${{ github.run_attempt != '1' }}
-      shell: bash
-      run: echo "Skipping telemetry-summarize for run attempt > 1"
+      with:
+        OTEL_SERVICE_NAME: ${{ inputs.OTEL_SERVICE_NAME }}
+        OTEL_EXPORTER_OTLP_ENDPOINT: ${{ inputs.OTEL_EXPORTER_OTLP_ENDPOINT }}
+        OTEL_TRACES_EXPORTER: ${{ inputs.OTEL_TRACES_EXPORTER }}
+        OTEL_EXPORTER_OTLP_PROTOCOL: ${{ inputs.OTEL_EXPORTER_OTLP_PROTOCOL }}

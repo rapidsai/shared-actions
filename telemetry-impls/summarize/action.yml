@@ -1,7 +1,15 @@
 name: 'Telemetry summarize'
 description: |
   Consumes job info, parses into spans, and pushes spans.
-
+inputs:
+  OTEL_SERVICE_NAME:
+    description: "Name of the top-level workflow"
+  OTEL_EXPORTER_OTLP_ENDPOINT:
+    description: "OTLP endpoint to send traces to"
+  OTEL_TRACES_EXPORTER:
+    description: "OTLP exporter to use"
+  OTEL_EXPORTER_OTLP_PROTOCOL:
+    description: "OTLP protocol to use"
 runs:
   using: 'composite'
   steps:
@@ -35,7 +43,18 @@ runs:
     - name: Run parse and send trace/spans to endpoint
       shell: bash
       run: |
-        TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${OTEL_SERVICE_NAME}")
+        TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${{inputs.OTEL_SERVICE_NAME}}")
+        GIT_ATTRIBUTES="git.repository=${GITHUB_REPOSITORY},git.ref=${GITHUB_REF},git.sha=${GITHUB_SHA},git.job_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        OTEL_EXPORTER_OTLP_ENDPOINT=${{inputs.OTEL_EXPORTER_OTLP_ENDPOINT}}
+        OTEL_TRACES_EXPORTER=${{inputs.OTEL_TRACES_EXPORTER}}
+        OTEL_EXPORTER_OTLP_PROTOCOL=${{inputs.OTEL_EXPORTER_OTLP_PROTOCOL}}
+
+        export TRACEPARENT
+        export GIT_ATTRIBUTES
+        export OTEL_EXPORTER_OTLP_ENDPOINT
+        export OTEL_TRACES_EXPORTER
+        export OTEL_EXPORTER_OTLP_PROTOCOL
+
         ls -lR telemetry-artifacts
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
 

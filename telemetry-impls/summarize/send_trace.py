@@ -356,14 +356,7 @@ def main() -> None:
     # track the latest timestamp observed and use it for any unavailable times.
     last_timestamp = date_str_to_epoch(jobs[0]["completed_at"], 0)
 
-    attribute_folders = list(Path.cwd().glob("telemetry-artifacts/telemetry-tools-artifacts-*"))
-    logging.debug("Attribute folders: %s", attribute_folders)
-    if attribute_folders:
-        attribute_file = attribute_folders[0] / "attrs"
-        attributes = parse_attributes(attribute_file.as_posix())
-    else:
-        attributes = {}
-    global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
+    global_attrs = parse_attributes(os.environ["GIT_ATTRIBUTES"])
     try:
         global_attrs["service.name"] = os.environ["OTEL_SERVICE_NAME"]
         trace_id = int(os.environ["TRACEPARENT"].split("-")[1], 16)

@@ -28,10 +28,16 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Handle empty inputs
+      id: handle-empty-inputs
+      shell: bash
+      run: |
+        echo "shared_actions_repo=${{ inputs.shared_actions_repo || 'rapidsai/shared-actions' }}" >> $GITHUB_OUTPUT
+        echo "shared_actions_ref=${{ inputs.shared_actions_ref || 'main' }}" >> $GITHUB_OUTPUT
     - uses: actions/checkout@v4
       with:
-        repository: ${{ inputs.shared_actions_repo }}
-        ref: ${{ inputs.shared_actions_ref }}
+        repository: ${{ steps.handle-empty-inputs.outputs.shared_actions_repo }}
+        ref: ${{ steps.handle-empty-inputs.outputs.shared_actions_ref }}
         path: shared-actions
     - uses: ./shared-actions/telemetry-impls/summarize
       with:

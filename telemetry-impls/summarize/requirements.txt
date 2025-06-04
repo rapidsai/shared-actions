@@ -1,4 +1,4 @@
-opentelemetry-api==1.30.*
-opentelemetry-sdk==1.30.*
-opentelemetry-exporter-otlp-proto-grpc==1.30.*
+opentelemetry-api==1.34.*
+opentelemetry-sdk==1.34.*
+opentelemetry-exporter-otlp-proto-grpc==1.34.*
 googleapis-common-protos<2.0.dev0,>=1.56.2

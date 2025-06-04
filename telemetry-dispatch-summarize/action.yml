@@ -8,23 +8,11 @@ description: |
   with the timing and label metadata, and sends it to the configured Tempo
   endpoint (or forwarder).
 inputs:
-  OTEL_SERVICE_NAME:
-    description: "Name of the top-level workflow"
-  shared_actions_repo:
-    description: "Repository to download the telemetry-impls from"
-    default: "rapidsai/shared-actions"
-  shared_actions_ref:
-    description: "Reference to download the telemetry-impls from"
-    default: "main"
-  OTEL_EXPORTER_OTLP_ENDPOINT:
-    description: "OTLP endpoint to send traces to"
-    default: "https://alloy.local.gha-runners.nvidia.com:4317"
-  OTEL_TRACES_EXPORTER:
-    description: "OTLP exporter to use"
-    default: "otlp"
-  OTEL_EXPORTER_OTLP_PROTOCOL:
-    description: "OTLP protocol to use"
-    default: "grpc"
+  json_params:
+    type: string
+    default: "{}"
+    description: "JSON string of parameters. Used to avoid 10-param limit on workflow inputs."
+
 runs:
   using: 'composite'
   steps:
@@ -32,8 +20,12 @@ runs:
       id: handle-empty-inputs
       shell: bash
       run: |
-        echo "shared_actions_repo=${{ inputs.shared_actions_repo || 'rapidsai/shared-actions' }}" >> $GITHUB_OUTPUT
-        echo "shared_actions_ref=${{ inputs.shared_actions_ref || 'main' }}" >> $GITHUB_OUTPUT
+        echo "shared_actions_repo=${{ fromJson(inputs.json_params).shared_actions_repo || 'rapidsai/shared-actions' }}" >> $GITHUB_OUTPUT
+        echo "shared_actions_ref=${{ fromJson(inputs.json_params).shared_actions_ref || 'main' }}" >> $GITHUB_OUTPUT
+        echo "OTEL_SERVICE_NAME=${{ fromJson(inputs.json_params).OTEL_SERVICE_NAME || 'OTEL_SERVICE_NAME not set' }}" >> $GITHUB_OUTPUT
+        echo "OTEL_EXPORTER_OTLP_ENDPOINT=${{ fromJson(inputs.json_params).OTEL_EXPORTER_OTLP_ENDPOINT || 'https://alloy.local.gha-runners.nvidia.com:4317' }}" >> $GITHUB_OUTPUT
+        echo "OTEL_TRACES_EXPORTER=${{ fromJson(inputs.json_params).OTEL_TRACES_EXPORTER || 'otlp' }}" >> $GITHUB_OUTPUT
+        echo "OTEL_EXPORTER_OTLP_PROTOCOL=${{ fromJson(inputs.json_params).OTEL_EXPORTER_OTLP_PROTOCOL || 'grpc' }}" >> $GITHUB_OUTPUT
     - uses: actions/checkout@v4
       with:
         repository: ${{ steps.handle-empty-inputs.outputs.shared_actions_repo }}
@@ -41,7 +33,7 @@ runs:
         path: shared-actions
     - uses: ./shared-actions/telemetry-impls/summarize
       with:
-        OTEL_SERVICE_NAME: ${{ inputs.OTEL_SERVICE_NAME }}
-        OTEL_EXPORTER_OTLP_ENDPOINT: ${{ inputs.OTEL_EXPORTER_OTLP_ENDPOINT }}
-        OTEL_TRACES_EXPORTER: ${{ inputs.OTEL_TRACES_EXPORTER }}
-        OTEL_EXPORTER_OTLP_PROTOCOL: ${{ inputs.OTEL_EXPORTER_OTLP_PROTOCOL }}
+        OTEL_SERVICE_NAME: ${{ steps.handle-empty-inputs.outputs.OTEL_SERVICE_NAME }}
+        OTEL_EXPORTER_OTLP_ENDPOINT: ${{ steps.handle-empty-inputs.outputs.OTEL_EXPORTER_OTLP_ENDPOINT }}
+        OTEL_TRACES_EXPORTER: ${{ steps.handle-empty-inputs.outputs.OTEL_TRACES_EXPORTER }}
+        OTEL_EXPORTER_OTLP_PROTOCOL: ${{ steps.handle-empty-inputs.outputs.OTEL_EXPORTER_OTLP_PROTOCOL }}

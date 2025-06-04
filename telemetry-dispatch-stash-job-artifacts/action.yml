@@ -5,12 +5,10 @@ description: |
   some environment variables so that downstream jobs can refer to them.
 
 inputs:
-  shared_actions_repo:
-    default: rapidsai/shared-actions
-    description: "repository to clone for shared actions"
-  shared_actions_ref:
-    default: main
-    description: "branch to clone for shared actions"
+  json_params:
+    type: string
+    default: "{}"
+    description: "JSON string of parameters. Used to avoid 10-param limit on workflow inputs."
 
 runs:
   using: 'composite'
@@ -19,8 +17,8 @@ runs:
       id: handle-empty-inputs
       shell: bash
       run: |
-        echo "shared_actions_repo=${{ inputs.shared_actions_repo || 'rapidsai/shared-actions' }}" >> $GITHUB_OUTPUT
-        echo "shared_actions_ref=${{ inputs.shared_actions_ref || 'main' }}" >> $GITHUB_OUTPUT
+        echo "shared_actions_repo=${{ fromJson(inputs.json_params).shared_actions_repo || 'rapidsai/shared-actions' }}" >> $GITHUB_OUTPUT
+        echo "shared_actions_ref=${{ fromJson(inputs.json_params).shared_actions_ref || 'main' }}" >> $GITHUB_OUTPUT
     - uses: actions/checkout@v4
       with:
         repository: ${{ steps.handle-empty-inputs.outputs.shared_actions_repo }}

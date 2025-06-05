@@ -16,8 +16,10 @@ runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@check-base-env-var-artifact
+      id: has_base_env_var_artifact
       with:
         GH_TOKEN: ${{ inputs.GH_TOKEN }}
     # Stash current job's OTEL_RESOURCE_ATTRIBUTES and any files in the telemetry-artifacts directory
     - name: Stash job artifacts
       uses: ./shared-actions/telemetry-impls/stash-job-artifacts
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'

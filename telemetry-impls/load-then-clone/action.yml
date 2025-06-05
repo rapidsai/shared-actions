@@ -19,6 +19,10 @@ inputs:
     required: true
     description: "GitHub token to use to check for artifact"
 
+outputs:
+  artifact_found:
+    description: "Whether the artifact was found"
+    value: ${{ steps.check-artifact-exists.outputs.artifact_found }}
 runs:
   using: 'composite'
   steps:

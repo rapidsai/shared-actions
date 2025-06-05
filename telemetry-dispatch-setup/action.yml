@@ -21,19 +21,25 @@ runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@check-base-env-var-artifact
+      id: has_base_env_var_artifact
       with:
         GH_TOKEN: ${{ inputs.GH_TOKEN }}
     - name: Creating folder for job-created telemetry artifacts
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
       shell: bash
       run: mkdir -p telemetry-artifacts
     - uses: ./shared-actions/telemetry-impls/github-actions-job-info
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
     - shell: bash
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
       run:
         echo JOB_ID="$(cat job_info.json | jq -r '.id')" >> ${GITHUB_ENV};
     # overrides loaded value.
     - name: Set OTEL_SERVICE_NAME from job
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
       uses: ./shared-actions/telemetry-impls/set-otel-service-name
     - name: Add attribute metadata beyond the stashed basic stuff
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
       shell: bash
       run:
         attributes="${OTEL_RESOURCE_ATTRIBUTES}";

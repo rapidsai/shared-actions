@@ -28,7 +28,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.GH_TOKEN }}
       run: |
-        gh api repos/rapidsai/cuml/actions/runs/${GITHUB_RUN_ID}/artifacts --jq '.artifacts[] | select(.name=="telemetry-tools-env-vars")' | grep -q .;
+        gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts --jq '.artifacts[] | select(.name=="telemetry-tools-env-vars")' | grep -q .;
         echo "artifact_not_found=$?" >> $GITHUB_OUTPUT
     - name: Download base environment variables file
       uses: actions/download-artifact@v4

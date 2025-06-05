@@ -23,3 +23,7 @@ runs:
     - name: Stash job artifacts
       uses: ./shared-actions/telemetry-impls/stash-job-artifacts
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
+    - name: Output that setup was skipped if the base env var artifact was not found
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'false'
+      shell: bash
+      run: echo "Skipping telemetry-stash-job-artifacts because base env var artifact was not found"

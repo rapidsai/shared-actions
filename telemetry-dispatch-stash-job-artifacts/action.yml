@@ -7,10 +7,17 @@ description: |
   Inputs here are all assumed to be env vars set outside of this script.
   Set them in your main repo's workflows (export to ${GITHUB_ENV}!!)
 
+inputs:
+  GH_TOKEN:
+    required: true
+    description: "GitHub token to use to check for artifact"
+
 runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@check-base-env-var-artifact
+      with:
+        GH_TOKEN: ${{ inputs.GH_TOKEN }}
     # Stash current job's OTEL_RESOURCE_ATTRIBUTES and any files in the telemetry-artifacts directory
     - name: Stash job artifacts
       uses: ./shared-actions/telemetry-impls/stash-job-artifacts

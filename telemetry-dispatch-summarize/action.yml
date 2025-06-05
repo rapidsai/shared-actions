@@ -8,11 +8,18 @@ description: |
   with the timing and label metadata, and sends it to the configured Tempo
   endpoint (or forwarder).
 
+inputs:
+  GH_TOKEN:
+    required: true
+    description: "GitHub token to use to check for artifact"
+
 runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@check-base-env-var-artifact
       if: ${{ github.run_attempt == '1' }}
+      with:
+        GH_TOKEN: ${{ inputs.GH_TOKEN }}
     - uses: ./shared-actions/telemetry-impls/summarize
       if: ${{ github.run_attempt == '1' }}
     - if: ${{ github.run_attempt != '1' }}

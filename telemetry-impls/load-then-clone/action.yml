@@ -14,12 +14,19 @@ description: |
   As a result, we clone the code twice: first to learn how to load the variables,
   then another time when the variables are actually set.
 
+inputs:
+  GH_TOKEN:
+    required: true
+    description: "GitHub token to use to check for artifact"
+
 runs:
   using: 'composite'
   steps:
     - name: Check if artifact exists
       id: check-artifact-exists
       shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.GH_TOKEN }}
       run: |
         gh api repos/rapidsai/cuml/actions/runs/${GITHUB_RUN_ID}/artifacts --jq '.artifacts[] | select(.name=="telemetry-tools-env-vars")' | grep -q .;
         echo "artifact_not_found=$?" >> $GITHUB_OUTPUT

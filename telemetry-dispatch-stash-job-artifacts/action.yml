@@ -10,7 +10,7 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@check-base-env-var-artifact
     # Stash current job's OTEL_RESOURCE_ATTRIBUTES and any files in the telemetry-artifacts directory
     - name: Stash job artifacts
       uses: ./shared-actions/telemetry-impls/stash-job-artifacts

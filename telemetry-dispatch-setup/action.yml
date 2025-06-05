@@ -17,7 +17,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@check-base-env-var-artifact
     - name: Creating folder for job-created telemetry artifacts
       shell: bash
       run: mkdir -p telemetry-artifacts

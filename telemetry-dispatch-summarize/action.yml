@@ -11,7 +11,7 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@check-base-env-var-artifact
       if: ${{ github.run_attempt == '1' }}
     - uses: ./shared-actions/telemetry-impls/summarize
       if: ${{ github.run_attempt == '1' }}

@@ -28,19 +28,18 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.GH_TOKEN }}
       run: |
-        artifact_not_found=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts --jq '.artifacts[] | select(.name=="telemetry-tools-env-vars")' | grep -q . && echo '0' || echo '1');
-        echo "artifact_not_found=${artifact_not_found}" >> $GITHUB_OUTPUT;
-        echo "artifact_not_found=${artifact_not_found}"
+        artifact_found=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts --jq '.artifacts[] | select(.name=="telemetry-tools-env-vars")' | grep -q . && echo 'true' || echo 'false');
+        echo "artifact_found=${artifact_found}" | tee -a $GITHUB_OUTPUT;
     - name: Download base environment variables file
       uses: actions/download-artifact@v4
-      if: steps.check-artifact-exists.outputs.artifact_not_found == '1'
+      if: steps.check-artifact-exists.outputs.artifact_found == 'true'
       with:
         name: telemetry-tools-env-vars
         path: telemetry-artifacts
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
-      if: steps.check-artifact-exists.outputs.artifact_not_found == '1'
+      if: steps.check-artifact-exists.outputs.artifact_found == 'true'
       shell: bash
       # Only set the env var if it is not already set
       # the ${!VARIABLE} syntax is called "indirect expansion" and it is kind of equivalent to ${${env_var_name}}

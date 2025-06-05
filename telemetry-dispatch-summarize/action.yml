@@ -16,7 +16,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@check-base-env-var-artifact
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
       id: has_base_env_var_artifact
       with:
         GH_TOKEN: ${{ inputs.GH_TOKEN }}

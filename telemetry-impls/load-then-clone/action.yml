@@ -17,34 +17,36 @@ description: |
 runs:
   using: 'composite'
   steps:
+    - name: Check if artifact exists
+      id: check-artifact-exists
+      run: |
+        gh api repos/rapidsai/cuml/actions/runs/${GITHUB_RUN_ID}/artifacts --jq '.artifacts[] | select(.name=="telemetry-tools-env-vars")' | grep -q .;
+        echo "artifact_not_found=$?" >> $GITHUB_OUTPUT
     - name: Download base environment variables file
       uses: actions/download-artifact@v4
+      if: steps.check-artifact-exists.outputs.artifact_not_found == '1'
       with:
         name: telemetry-tools-env-vars
         path: telemetry-artifacts
     # We can't use ./telemetry-implementation/load-base-env-vars here
     # because at this point we have not cloned the repo.
     - name: Set environment variables from file into GITHUB_ENV
+      if: steps.check-artifact-exists.outputs.artifact_not_found == '1'
       shell: bash
       # Only set the env var if it is not already set
       # the ${!VARIABLE} syntax is called "indirect expansion" and it is kind of equivalent to ${${env_var_name}}
       #      in other words, expand to find the variable name, then dereference that variable name
       # The goofy env_var_value filtering through tr is to ensure that the strings don't include quotes.
       run: |
-        gh api repos/rapidsai/cuml/actions/runs/${GITHUB_RUN_ID}/artifacts --jq '.artifacts[] | select(.name=="telemetry-tools-env-vars")' | grep -q .;
-        if [ $? -eq 0 ]; then
-          while read LINE; do
-            env_var_name="$( cut -d '=' -f 1 <<< "$LINE" )";
-            if [ "${!env_var_name}" = "" ]; then
-              env_var_value="$(echo ${LINE#*=} | tr -d '"')"
-              echo "${env_var_name}=$(echo "${env_var_value}" | sed 's/^,//')" >> ${GITHUB_ENV};
-            else
-              echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
-            fi
-          done <telemetry-artifacts/telemetry-env-vars
-        else
-          echo "Load base env info: no telemetry-tools-env-vars artifact found - using default values" >&2;
-        fi
+        while read LINE; do
+          env_var_name="$( cut -d '=' -f 1 <<< "$LINE" )";
+          if [ "${!env_var_name}" = "" ]; then
+            env_var_value="$(echo ${LINE#*=} | tr -d '"')"
+            echo "${env_var_name}=$(echo "${env_var_value}" | sed 's/^,//')" >> ${GITHUB_ENV};
+          else
+            echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
+          fi
+        done <telemetry-artifacts/telemetry-env-vars
     - name: Clone shared-actions repo with loaded env vars
       uses: actions/checkout@v4
       with:

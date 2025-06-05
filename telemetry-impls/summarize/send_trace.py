@@ -371,15 +371,15 @@ def main() -> None:
             env_vars = os.environ
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
     try:
-        global_attrs["service.name"] = env_vars["OTEL_SERVICE_NAME"]
-        trace_id = int(env_vars["TRACEPARENT"].split("-")[1], 16)
+        global_attrs["service.name"] = os.getenv("OTEL_SERVICE_NAME", env_vars.get("OTEL_SERVICE_NAME"))
+        trace_id = int(os.getenv("TRACEPARENT", env_vars.get("TRACEPARENT")).split("-")[1], 16)
     except KeyError:
-        logging.error("OTEL_SERVICE_NAME and/or TRACEPARENT not found in env vars: %s", env_vars)
+        logging.error("OTEL_SERVICE_NAME and/or TRACEPARENT not found in environment or attribute files")
         sys.exit(1)
 
     provider = TracerProvider(
         resource=Resource(global_attrs),
-        id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=env_vars["OTEL_SERVICE_NAME"]),
+        id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=os.environ["OTEL_SERVICE_NAME"]),
     )
     provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
     tracer = trace.get_tracer("GitHub Actions parser", "0.0.1", tracer_provider=provider)

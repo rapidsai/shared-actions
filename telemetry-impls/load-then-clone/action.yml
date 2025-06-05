@@ -31,15 +31,20 @@ runs:
       #      in other words, expand to find the variable name, then dereference that variable name
       # The goofy env_var_value filtering through tr is to ensure that the strings don't include quotes.
       run: |
-        while read LINE; do
-          env_var_name="$( cut -d '=' -f 1 <<< "$LINE" )";
-          if [ "${!env_var_name}" = "" ]; then
-            env_var_value="$(echo ${LINE#*=} | tr -d '"')"
-            echo "${env_var_name}=$(echo "${env_var_value}" | sed 's/^,//')" >> ${GITHUB_ENV};
-          else
-            echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
-          fi
-        done <telemetry-artifacts/telemetry-env-vars
+        gh api repos/rapidsai/cuml/actions/runs/${GITHUB_RUN_ID}/artifacts --jq '.artifacts[] | select(.name=="telemetry-tools-env-vars")' | grep -q .;
+        if [ $? -eq 0 ]; then
+          while read LINE; do
+            env_var_name="$( cut -d '=' -f 1 <<< "$LINE" )";
+            if [ "${!env_var_name}" = "" ]; then
+              env_var_value="$(echo ${LINE#*=} | tr -d '"')"
+              echo "${env_var_name}=$(echo "${env_var_value}" | sed 's/^,//')" >> ${GITHUB_ENV};
+            else
+              echo "Load base env info: ignoring new value for "${env_var_name}" in loading base env vars. It is already set to "${!env_var_name}"." >&2;
+            fi
+          done <telemetry-artifacts/telemetry-env-vars
+        else
+          echo "Load base env info: no telemetry-tools-env-vars artifact found - using default values" >&2;
+        fi
     - name: Clone shared-actions repo with loaded env vars
       uses: actions/checkout@v4
       with:

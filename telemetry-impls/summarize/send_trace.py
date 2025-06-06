@@ -379,7 +379,7 @@ def main() -> None:
 
     provider = TracerProvider(
         resource=Resource(global_attrs),
-        id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=os.environ["OTEL_SERVICE_NAME"]),
+        id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=global_attrs["service.name"]),
     )
     provider.add_span_processor(span_processor=SpanProcessor(OTLPSpanExporter()))
     tracer = trace.get_tracer("GitHub Actions parser", "0.0.1", tracer_provider=provider)

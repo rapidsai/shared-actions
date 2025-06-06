@@ -12,9 +12,9 @@ runs:
   using: 'composite'
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main
-      if: ${{ github.run_attempt == '1' }}
+      id: has_base_env_var_artifact
     - uses: ./shared-actions/telemetry-impls/summarize
-      if: ${{ github.run_attempt == '1' }}
-    - if: ${{ github.run_attempt != '1' }}
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
+    - if: steps.has_base_env_var_artifact.outputs.artifact_found == 'false'
       shell: bash
-      run: echo "Skipping telemetry-summarize for run attempt > 1"
+      run: echo "Skipping telemetry-summarize because base env var artifact was not found"

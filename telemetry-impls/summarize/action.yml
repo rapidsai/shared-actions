@@ -35,6 +35,13 @@ runs:
     - name: Run parse and send trace/spans to endpoint
       shell: bash
       run: |
+        OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-${GITHUB_WORKFLOW}-${GITHUB_REPOSITORY#*/}}
+        export OTEL_SERVICE_NAME
+        echo "OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME}" >> $GITHUB_ENV
+        TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${OTEL_SERVICE_NAME}")
+        export TRACEPARENT
+        echo "TRACEPARENT=${TRACEPARENT}" >> $GITHUB_ENV
+
         ls -lR telemetry-artifacts
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
     - name: Clean up attributes artifacts from all jobs

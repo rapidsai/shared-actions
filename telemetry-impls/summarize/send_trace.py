@@ -371,8 +371,8 @@ def main() -> None:
             env_vars = os.environ
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
     try:
-        global_attrs["service.name"] = os.getenv("OTEL_SERVICE_NAME", env_vars.get("OTEL_SERVICE_NAME"))
-        trace_id = int(os.getenv("TRACEPARENT", env_vars.get("TRACEPARENT")).split("-")[1], 16)
+        global_attrs["service.name"] = os.getenv("OTEL_SERVICE_NAME", env_vars["OTEL_SERVICE_NAME"])
+        trace_id = int(os.getenv("TRACEPARENT", env_vars["TRACEPARENT"]).split("-")[1], 16)
     except KeyError:
         logging.error("OTEL_SERVICE_NAME and/or TRACEPARENT not found in environment or attribute files")
         sys.exit(1)

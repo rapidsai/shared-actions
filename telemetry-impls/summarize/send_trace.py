@@ -370,12 +370,17 @@ def main() -> None:
         except FileNotFoundError:
             env_vars = os.environ
     global_attrs = {k: v for k, v in attributes.items() if k.startswith("git.")}
-    try:
-        global_attrs["service.name"] = os.getenv("OTEL_SERVICE_NAME", env_vars["OTEL_SERVICE_NAME"])
-        trace_id = int(os.getenv("TRACEPARENT", env_vars["TRACEPARENT"]).split("-")[1], 16)
-    except KeyError:
-        logging.error("OTEL_SERVICE_NAME and/or TRACEPARENT not found in environment or attribute files")
+    if not (service_name := os.getenv("OTEL_SERVICE_NAME", env_vars.get("OTEL_SERVICE_NAME"))):
+        logging.error("OTEL_SERVICE_NAME not found in environment or attribute files")
         sys.exit(1)
+    if not (trace_id := os.getenv("TRACEPARENT", env_vars.get("TRACEPARENT"))):
+        logging.error("TRACEPARENT not found in environment or attribute files")
+        sys.exit(1)
+    global_attrs["service.name"] = service_name
+    trace_id = int(trace_id.split("-")[1], 16)
+
+    logging.debug("Service name: %s", global_attrs["service.name"])
+    logging.debug("Trace ID: %s", trace_id)
 
     provider = TracerProvider(
         resource=Resource(global_attrs),

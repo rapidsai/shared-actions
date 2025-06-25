@@ -73,7 +73,7 @@ def main(
     for branch, branch_runs in branch_dict.items():
         # Only consider RAPIDS development branches, which are named 'main' or
         # have versions like '25.02' (RAPIDS CalVer) or '0.42' (ucxx, ucx-py)
-        if branch != "main" or re.match("branch-[0-9]{1,2}.[0-9]{2}", branch):
+        if branch != "main" and not re.match("branch-[0-9]{1,2}.[0-9]{2}", branch):
             continue
 
         latest_success[branch] = None

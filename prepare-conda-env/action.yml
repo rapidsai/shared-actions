@@ -1,0 +1,78 @@
+name: Create Locked Conda Environment
+inputs:
+  dependency-key:
+    required: true
+    type: string
+    description: |
+      The key of the dependency to generate, such as cpp, python, etc.
+  arch:
+    required: true
+    type: string
+    description: |
+      The architecture to build for, such as x86_64, aarch64, etc.
+  cuda-version:
+    required: true
+    type: string
+    description: |
+      The CUDA version to build for, such as 11.7, 12.1, etc.
+  relock:
+    type: boolean
+    default: false
+    description: |
+      Whether to force a relock of the environment.
+outputs:
+  env-path:
+    description: |
+      The path to the conda environment.
+    value: ${{ steps.create-env.outputs.env-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: compute lockfile filename
+      id: lockfile-filename
+      shell: bash
+      run: |
+        echo "filename=.conda-lock-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}.yml" >> $GITHUB_OUTPUT
+
+    - name: Retrieve any existing lockfile
+      uses: actions/cache@v4
+      with:
+        key: conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ github.event.pull_request.number }}
+        path: ${{ steps.lockfile-filename.outputs.filename }}
+        restore-keys: |
+          conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ github.event.pull_request.number }}
+
+    - name: Run conda-lock if needed
+      shell: bash
+      if: ${{ !isfile(steps.lockfile-filename.outputs.filename) || inputs.relock == true }}
+      run: |
+        CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
+
+        rapids-logger "Generate ${inputs.dependency-key} testing dependencies"
+
+        ENV_YAML_DIR="$(mktemp -d)"
+
+        rapids-dependency-file-generator \
+          --output conda \
+          --file-key test_${{ inputs.dependency-key }} \
+          --prepend-channel "${CPP_CHANNEL}" \
+          --matrix "cuda=${${{ inputs.cuda-version }}%.*};arch=${inputs.arch}" | tee "${ENV_YAML_DIR}/env.yaml"
+
+        mamba env create --file "${ENV_YAML_DIR}/env.yaml" --dry-run --quiet | tee ${{ steps.lockfile-filename.outputs.filename }}
+
+    - name: Create environment
+      shell: bash
+      run: |
+        rapids-mamba-retry env create --yes -f ${{ steps.lockfile-filename.outputs.filename }} -n test
+
+        RESULTS_DIR=${RAPIDS_TESTS_DIR:-"$(mktemp -d)"}
+        RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR:-"${RESULTS_DIR}/test-results"}/
+        mkdir -p "${RAPIDS_TESTS_DIR}"
+        echo "RESULTS_DIR=${RESULTS_DIR}" >> $GITHUB_ENV
+        echo "RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR}" >> $GITHUB_ENV
+
+        rapids-print-env
+
+        rapids-logger "Check GPU usage"
+        nvidia-smi

@@ -46,7 +46,7 @@ runs:
     - name: Run conda-lock if needed
       shell: bash
       run: |
-        if [ -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
+        if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
           CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
 
           rapids-logger "Generate ${inputs.dependency-key} testing dependencies"

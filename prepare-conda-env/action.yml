@@ -69,6 +69,12 @@ runs:
           rapids-logger "Skipping conda-lock as it already exists and relock is not true"
         fi
 
+    - name: archive lockfile for reference
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.lockfile-filename.outputs.filename }}
+        path: ${{ steps.lockfile-filename.outputs.filename }}
+
     - name: Create environment
       shell: bash
       run: |

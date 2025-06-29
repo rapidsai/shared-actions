@@ -20,6 +20,10 @@ inputs:
     default: false
     description: |
       Whether to force a relock of the environment.
+  pr-number:
+    type: string
+    description: |
+      The pull request number to use for the cache key.
 outputs:
   env-path:
     description: |
@@ -38,10 +42,10 @@ runs:
     - name: Retrieve any existing lockfile
       uses: actions/cache@v4
       with:
-        key: conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ github.event.pull_request.number }}
+        key: conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.pr-number }}
         path: ${{ steps.lockfile-filename.outputs.filename }}
         restore-keys: |
-          conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ github.event.pull_request.number }}
+          conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.pr-number }}
 
     - name: Run conda-lock if needed
       shell: bash

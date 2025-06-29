@@ -45,21 +45,22 @@ runs:
 
     - name: Run conda-lock if needed
       shell: bash
-      if: !isfile(steps.lockfile-filename.outputs.filename) || inputs.relock == true
       run: |
-        CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
+        if [ -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
+          CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
 
-        rapids-logger "Generate ${inputs.dependency-key} testing dependencies"
+          rapids-logger "Generate ${inputs.dependency-key} testing dependencies"
 
-        ENV_YAML_DIR="$(mktemp -d)"
+          ENV_YAML_DIR="$(mktemp -d)"
 
-        rapids-dependency-file-generator \
-          --output conda \
-          --file-key test_${{ inputs.dependency-key }} \
-          --prepend-channel "${CPP_CHANNEL}" \
-          --matrix "cuda=${${{ inputs.cuda-version }}%.*};arch=${inputs.arch}" | tee "${ENV_YAML_DIR}/env.yaml"
+          rapids-dependency-file-generator \
+            --output conda \
+            --file-key test_${{ inputs.dependency-key }} \
+            --prepend-channel "${CPP_CHANNEL}" \
+            --matrix "cuda=${${{ inputs.cuda-version }}%.*};arch=${inputs.arch}" | tee "${ENV_YAML_DIR}/env.yaml"
 
-        mamba env create --file "${ENV_YAML_DIR}/env.yaml" --dry-run --quiet | tee ${{ steps.lockfile-filename.outputs.filename }}
+          mamba env create --file "${ENV_YAML_DIR}/env.yaml" --dry-run --quiet | tee ${{ steps.lockfile-filename.outputs.filename }}
+        fi
 
     - name: Create environment
       shell: bash

@@ -51,9 +51,10 @@ runs:
       shell: bash
       run: |
         set -Eeuxo pipefail
-        if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
-          CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
 
+        CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
+
+        if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
           rapids-logger "Generate ${inputs.dependency-key} testing dependencies"
 
           ENV_YAML_DIR="$(mktemp -d)"

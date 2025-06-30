@@ -71,7 +71,8 @@ runs:
 
           CONDA_ARCH="linux-$([ ${{ inputs.arch }} = 'amd64' ] && echo '64' || echo 'aarch64' )"
 
-          conda-lock -f "${ENV_YAML_DIR}/env.yaml" --kind env --lockfile ${{ steps.lockfile-filename.outputs.filename }} -p $CONDA_ARCH
+          conda-lock -f "${ENV_YAML_DIR}/env.yaml" --kind env -p $CONDA_ARCH 
+          mv conda-${CONDA_ARCH}.lock.yml ${{ steps.lockfile-filename.outputs.filename }}
         else
           rapids-logger "Skipping conda-lock as it already exists and relock is not true"
         fi

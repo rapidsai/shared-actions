@@ -21,6 +21,7 @@ inputs:
     description: |
       Whether to force a relock of the environment.
   pr-number:
+    required: true
     type: string
     description: |
       The pull request number to use for the cache key.
@@ -55,7 +56,7 @@ runs:
         CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
 
         if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
-          rapids-logger "Generate ${inputs.dependency-key} testing dependencies"
+          rapids-logger "Generate ${{ inputs.dependency-key }} testing dependencies"
 
           ENV_YAML_DIR="$(mktemp -d)"
 

@@ -54,6 +54,8 @@ runs:
       shell: bash
       run: |
         set -Eeuxo pipefail
+        export RAPIDS_UNZIP_DIR="$(pwd)/downloaded-packages"
+        mkdir -p $RAPIDS_UNZIP_DIR
         CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
 
         if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then

@@ -69,7 +69,9 @@ runs:
             --prepend-channel "${CPP_CHANNEL}" \
             --matrix "cuda=${CUDA_VERSION%.*};arch=${{ inputs.arch }}" | tee "${ENV_YAML_DIR}/env.yaml"
 
-          conda-lock -f "${ENV_YAML_DIR}/env.yaml" --kind env --lockfile ${{ steps.lockfile-filename.outputs.filename }} -p linux-${{ inputs.arch == 'amd64' ? '64' : 'aarch64' }}
+          CONDA_ARCH="linux-$([ ${{ inputs.arch }} = 'amd64' ] && echo '64' || echo 'aarch64' )"
+
+          conda-lock -f "${ENV_YAML_DIR}/env.yaml" --kind env --lockfile ${{ steps.lockfile-filename.outputs.filename }} -p $CONDA_ARCH
         else
           rapids-logger "Skipping conda-lock as it already exists and relock is not true"
         fi

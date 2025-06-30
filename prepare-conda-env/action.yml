@@ -16,7 +16,7 @@ inputs:
     description: |
       The CUDA version to build for, such as 11.7, 12.1, etc.
   relock:
-    type: boolean
+    type: string
     default: false
     description: |
       Whether to force a relock of the environment.
@@ -67,7 +67,7 @@ runs:
             --prepend-channel "${CPP_CHANNEL}" \
             --matrix "cuda=${CUDA_VERSION%.*};arch=${{ inputs.arch }}" | tee "${ENV_YAML_DIR}/env.yaml"
 
-          mamba env create --file "${ENV_YAML_DIR}/env.yaml" --dry-run --quiet | tee ${{ steps.lockfile-filename.outputs.filename }}
+          mamba env create --file "${ENV_YAML_DIR}/env.yaml" --dry-run | tee ${{ steps.lockfile-filename.outputs.filename }}
         else
           rapids-logger "Skipping conda-lock as it already exists and relock is not true"
         fi

@@ -57,6 +57,7 @@ runs:
         export RAPIDS_UNZIP_DIR="$(pwd)/downloaded-packages"
         mkdir -p $RAPIDS_UNZIP_DIR
         CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
+        ls -lRa $RAPIDS_UNZIP_DIR
 
         if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
           mamba install -c conda-forge conda-lock
@@ -73,12 +74,28 @@ runs:
 
           CONDA_ARCH="linux-$([ ${{ inputs.arch }} = 'amd64' ] && echo '64' || echo 'aarch64' )"
 
-          conda-lock -f "${ENV_YAML_DIR}/env.yaml" --kind env -p $CONDA_ARCH 
+          conda-lock -f "${ENV_YAML_DIR}/env.yaml" --kind env -p $CONDA_ARCH
+
           mv conda-${CONDA_ARCH}.lock.yml ${{ steps.lockfile-filename.outputs.filename }}
         else
           rapids-logger "Skipping conda-lock as it already exists and relock is not true"
         fi
 
+    # - name: Unpin local file dependencies in lockfile
+    #   shell: python
+    #   run: |
+    #     import yaml
+    #     with open(${{ steps.lockfile-filename.outputs.filename }}, 'r') as f:
+    #       lockfile = yaml.safe_load(f)
+    #     local_file_pkgs = (pkg.split() for pkg in os.listdir(RAPIDS_UNZIP_DIR))
+    #     edited_dependencies = []
+    #     for pkg in lockfile['dependencies']:
+          
+    #         pkg['file:'] = 'file:*'
+    #         edited_dependencies.append(pkg)
+    #     lockfile['dependencies'] = edited_dependencies
+    #     with open(${{ steps.lockfile-filename.outputs.filename }}, 'w') as f:
+    #       yaml.dump(lockfile, f)
     - name: archive lockfile for reference
       uses: actions/upload-artifact@v4
       with:

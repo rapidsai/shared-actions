@@ -20,11 +20,7 @@ inputs:
     default: false
     description: |
       Whether to force a relock of the environment.
-  pr-number:
-    required: true
-    type: string
-    description: |
-      The pull request number to use for the cache key.
+
 outputs:
   env-path:
     description: |
@@ -40,19 +36,24 @@ runs:
       run: |
         echo "filename=.conda-lock-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}.yml" >> $GITHUB_OUTPUT
 
+    - name: Get PR number
+      id: pr-number
+      shell: bash
+      run: |
+        echo "pr-number=$(echo ${GITHUB_REF_NAME} | sed 's/.*\///')" >> $GITHUB_OUTPUT
+
     - name: Retrieve any existing lockfile
       uses: actions/cache@v4
       with:
-        key: conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.pr-number }}
+        key: conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ steps.pr-number.outputs.pr-number }}
         path: ${{ steps.lockfile-filename.outputs.filename }}
         restore-keys: |
-          conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.pr-number }}
+          conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ steps.pr-number.outputs.pr-number }}
 
     - name: Run conda-lock if needed
       shell: bash
       run: |
         set -Eeuxo pipefail
-
         CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
 
         if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then

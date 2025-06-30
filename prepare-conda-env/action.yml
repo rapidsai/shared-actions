@@ -64,7 +64,7 @@ runs:
             --output conda \
             --file-key test_${{ inputs.dependency-key }} \
             --prepend-channel "${CPP_CHANNEL}" \
-            --matrix "cuda=${${{ inputs.cuda-version }}%.*};arch=${inputs.arch}" | tee "${ENV_YAML_DIR}/env.yaml"
+            --matrix "cuda=${${{ inputs.cuda-version }}%.*};arch=${{ inputs.arch }}" | tee "${ENV_YAML_DIR}/env.yaml"
 
           mamba env create --file "${ENV_YAML_DIR}/env.yaml" --dry-run --quiet | tee ${{ steps.lockfile-filename.outputs.filename }}
         else

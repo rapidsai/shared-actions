@@ -59,12 +59,13 @@ runs:
           rapids-logger "Generate ${{ inputs.dependency-key }} testing dependencies"
 
           ENV_YAML_DIR="$(mktemp -d)"
+          CUDA_VERSION=${{ inputs.cuda-version }}
 
           rapids-dependency-file-generator \
             --output conda \
             --file-key test_${{ inputs.dependency-key }} \
             --prepend-channel "${CPP_CHANNEL}" \
-            --matrix "cuda=${${{ inputs.cuda-version }}%.*};arch=${{ inputs.arch }}" | tee "${ENV_YAML_DIR}/env.yaml"
+            --matrix "cuda=${CUDA_VERSION%.*};arch=${{ inputs.arch }}" | tee "${ENV_YAML_DIR}/env.yaml"
 
           mamba env create --file "${ENV_YAML_DIR}/env.yaml" --dry-run --quiet | tee ${{ steps.lockfile-filename.outputs.filename }}
         else

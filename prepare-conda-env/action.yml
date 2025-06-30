@@ -34,7 +34,7 @@ runs:
       id: lockfile-filename
       shell: bash
       run: |
-        echo "filename=.conda-lock-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}.yml" >> $GITHUB_OUTPUT
+        echo "filename=conda-lock-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}.yml" >> $GITHUB_OUTPUT
 
     - name: Get PR number
       id: pr-number
@@ -57,6 +57,7 @@ runs:
         CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
 
         if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
+          mamba install -c conda-forge conda-lock
           rapids-logger "Generate ${{ inputs.dependency-key }} testing dependencies"
 
           ENV_YAML_DIR="$(mktemp -d)"
@@ -68,7 +69,7 @@ runs:
             --prepend-channel "${CPP_CHANNEL}" \
             --matrix "cuda=${CUDA_VERSION%.*};arch=${{ inputs.arch }}" | tee "${ENV_YAML_DIR}/env.yaml"
 
-          mamba env create --file "${ENV_YAML_DIR}/env.yaml" --dry-run | tee ${{ steps.lockfile-filename.outputs.filename }}
+          conda-lock -f "${ENV_YAML_DIR}/env.yaml" --kind env --lockfile ${{ steps.lockfile-filename.outputs.filename }} -p linux-${{ inputs.arch == 'amd64' ? '64' : 'aarch64' }}
         else
           rapids-logger "Skipping conda-lock as it already exists and relock is not true"
         fi

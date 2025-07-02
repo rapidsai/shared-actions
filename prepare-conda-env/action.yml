@@ -38,10 +38,10 @@ runs:
     - name: Retrieve any existing lockfile
       uses: actions/cache@v4
       with:
-        key: conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}-${{ steps.pr-number.outputs.pr-number }}
+        key: ${{ github.job }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}-${{ steps.pr-number.outputs.pr-number }}
         path: ${{ steps.lockfile-filename.outputs.filename }}
         restore-keys: |
-          conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}-${{ steps.pr-number.outputs.pr-number }}
+          ${{ github.job }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}-${{ steps.pr-number.outputs.pr-number }}
 
     - name: Run conda-lock if needed
       shell: bash

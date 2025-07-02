@@ -86,19 +86,22 @@ runs:
       run: |
         import yaml
         import os
+        from pprint import pprint
         with open("${{ steps.lockfile-filename.outputs.filename }}", 'r') as f:
           lockfile = yaml.safe_load(f)
-        local_file_pkg_names = {pkg.rsplit('-', 2)[0] for _, _, pkg in os.walk("${{ env.RAPIDS_UNZIP_DIR }}") if pkg.endswith('.conda')}
+        local_file_pkg_names = {pkg.rsplit('-', 2)[0] for _, _, pkg in os.walk("downloaded-packages") if pkg.endswith('.conda')}
         print(local_file_pkg_names)
         edited_dependencies = []
         for pkg in lockfile['dependencies']:
+          print(pkg)
           if isinstance(pkg, str):
             pkg_name = pkg.split('=', 1)[0]
             if pkg_name in local_file_pkg_names:
-              edited_dependencies.append(f'{pkg_name}')
+              edited_dependencies.append(pkg_name)
               continue
           edited_dependencies.append(pkg)
         lockfile['dependencies'] = edited_dependencies
+        pprint(lockfile)
         with open("${{ steps.lockfile-filename.outputs.filename }}", 'w') as f:
           yaml.dump(lockfile, f)
     - name: archive lockfile for reference

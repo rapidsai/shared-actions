@@ -27,7 +27,7 @@ runs:
       id: lockfile-filename
       shell: bash
       run: |
-        echo "filename=conda-lock-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}.yml" >> $GITHUB_OUTPUT
+        echo "filename=${{ github.job }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}.yml" >> $GITHUB_OUTPUT
 
     - name: Get PR number
       id: pr-number
@@ -49,12 +49,12 @@ runs:
         set -Eeuxo pipefail
         export RAPIDS_UNZIP_DIR="$(pwd)/downloaded-packages"
         mkdir -p $RAPIDS_UNZIP_DIR
-        CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
+        CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
         ls -lRa $RAPIDS_UNZIP_DIR
 
         if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ]; then
           mamba install -c conda-forge conda-lock
-          rapids-logger "Generate ${{ inputs.dependency-key }} testing dependencies"
+          rapids-logger "Generate testing dependencies"
 
           ENV_YAML_DIR="$(mktemp -d)"
           CUDA_VERSION=${{ inputs.cuda-version }}

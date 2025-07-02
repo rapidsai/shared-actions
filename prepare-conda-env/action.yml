@@ -87,27 +87,27 @@ runs:
         import yaml
         import os
         import re
-        from pprint import pprint
         with open("${{ steps.lockfile-filename.outputs.filename }}", 'r') as f:
           lockfile = yaml.safe_load(f)
         local_file_pkg_names = {pkg.rsplit('-', 2)[0]: pkg.rsplit('-', 2)[1] for _, _, pkg_list in os.walk("downloaded-packages") for pkg in pkg_list if pkg.endswith('.conda')}
-        print(local_file_pkg_names)
         edited_dependencies = []
         alpha_package_regex = re.compile(r'(.+?)a\d+$')
         for pkg in lockfile['dependencies']:
-          print(pkg)
           if isinstance(pkg, str):
             pkg_name, version, build = pkg.split('=')
             if pkg_name in local_file_pkg_names:
+              # For local packages, we need to pick up the current local files. In other words, we need to replace
+              # the pins in the lockfile with pins for the current local files.
               edited_dependencies.append(f'{pkg_name}={local_file_pkg_names[pkg_name]}')
               continue
             elif alpha_package_regex.match(version):
+              # Exact pins to alpha packages will break depending on the contents of the nightly builds.
+              # We need to unpin the alpha package to the version without the alpha, which will allow the current nightly build to be used.
               version = alpha_package_regex.match(version).groups()[0]
               edited_dependencies.append(f'{pkg_name}={version}')
               continue
           edited_dependencies.append(pkg)
         lockfile['dependencies'] = edited_dependencies
-        pprint(lockfile)
         with open("${{ steps.lockfile-filename.outputs.filename }}", 'w') as f:
           yaml.dump(lockfile, f)
     - name: archive lockfile for reference

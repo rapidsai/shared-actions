@@ -92,12 +92,17 @@ runs:
         local_file_pkg_names = {pkg.rsplit('-', 2)[0]: pkg.rsplit('-', 2)[1] for _, _, pkg_list in os.walk("downloaded-packages") for pkg in pkg_list if pkg.endswith('.conda')}
         print(local_file_pkg_names)
         edited_dependencies = []
+        alpha_package_regex = re.compile(r'(.+?)\.a\d+$')
         for pkg in lockfile['dependencies']:
           print(pkg)
           if isinstance(pkg, str):
-            pkg_name = pkg.split('=', 1)[0]
+            pkg_name, version, build = pkg.split('=')
             if pkg_name in local_file_pkg_names:
               edited_dependencies.append(f'{pkg_name}={local_file_pkg_names[pkg_name]}')
+              continue
+            elif alpha_package_regex.match(version):
+              version = alpha_package_regex.match(version).groups()[0]
+              edited_dependencies.append(f'{pkg_name}={version}')
               continue
           edited_dependencies.append(pkg)
         lockfile['dependencies'] = edited_dependencies

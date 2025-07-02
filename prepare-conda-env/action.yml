@@ -85,9 +85,10 @@ runs:
       shell: python
       run: |
         import yaml
-        with open(${{ steps.lockfile-filename.outputs.filename }}, 'r') as f:
+        import os
+        with open("${{ steps.lockfile-filename.outputs.filename }}", 'r') as f:
           lockfile = yaml.safe_load(f)
-        local_file_pkg_names = {pkg.rsplit('-', 2)[0] for _, _, pkg in os.walk(RAPIDS_UNZIP_DIR) if pkg.endswith('.conda')}
+        local_file_pkg_names = {pkg.rsplit('-', 2)[0] for _, _, pkg in os.walk("${{ env.RAPIDS_UNZIP_DIR }}") if pkg.endswith('.conda')}
         print(local_file_pkg_names)
         edited_dependencies = []
         for pkg in lockfile['dependencies']:
@@ -98,7 +99,7 @@ runs:
               continue
           edited_dependencies.append(pkg)
         lockfile['dependencies'] = edited_dependencies
-        with open(${{ steps.lockfile-filename.outputs.filename }}, 'w') as f:
+        with open("${{ steps.lockfile-filename.outputs.filename }}", 'w') as f:
           yaml.dump(lockfile, f)
     - name: archive lockfile for reference
       uses: actions/upload-artifact@v4

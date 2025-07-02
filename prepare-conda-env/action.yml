@@ -1,31 +1,24 @@
 name: Create Locked Conda Environment
+description: |
+  Creates a locked conda environment for the given dependency key, CUDA version, architecture, and Python version.
+  The environment lock is local to this PR.
 inputs:
   dependency-key:
     required: true
-    type: string
     description: |
       The key of the dependency to generate, such as cpp, python, etc.
   arch:
     required: true
-    type: string
     description: |
       The architecture to build for, such as x86_64, aarch64, etc.
   cuda-version:
     required: true
-    type: string
     description: |
       The CUDA version to build for, such as 11.7, 12.1, etc.
-  relock:
-    type: string
-    default: false
+  py-version:
+    default: "none"
     description: |
-      Whether to force a relock of the environment.
-
-outputs:
-  env-path:
-    description: |
-      The path to the conda environment.
-    value: ${{ steps.create-env.outputs.env-path }}
+      The Python version to build for, such as 3.10, 3.11, etc.
 
 runs:
   using: 'composite'
@@ -34,7 +27,7 @@ runs:
       id: lockfile-filename
       shell: bash
       run: |
-        echo "filename=conda-lock-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}.yml" >> $GITHUB_OUTPUT
+        echo "filename=conda-lock-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}.yml" >> $GITHUB_OUTPUT
 
     - name: Get PR number
       id: pr-number
@@ -45,10 +38,10 @@ runs:
     - name: Retrieve any existing lockfile
       uses: actions/cache@v4
       with:
-        key: conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ steps.pr-number.outputs.pr-number }}
+        key: conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}-${{ steps.pr-number.outputs.pr-number }}
         path: ${{ steps.lockfile-filename.outputs.filename }}
         restore-keys: |
-          conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ steps.pr-number.outputs.pr-number }}
+          conda-lockfile-${{ inputs.dependency-key }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}-${{ steps.pr-number.outputs.pr-number }}
 
     - name: Run conda-lock if needed
       shell: bash
@@ -59,18 +52,23 @@ runs:
         CPP_CHANNEL=$(rapids-download-conda-from-github ${{ inputs.dependency-key }})
         ls -lRa $RAPIDS_UNZIP_DIR
 
-        if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ] || [ "${{ inputs.relock }}" == "true" ]; then
+        if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ]; then
           mamba install -c conda-forge conda-lock
           rapids-logger "Generate ${{ inputs.dependency-key }} testing dependencies"
 
           ENV_YAML_DIR="$(mktemp -d)"
           CUDA_VERSION=${{ inputs.cuda-version }}
 
+          MATRIX_STRING="cuda=${CUDA_VERSION%.*};arch=${{ inputs.arch }}"
+          if [ "${{ inputs.py-version }}" != "none" ]; then
+            MATRIX_STRING="${MATRIX_STRING};py=${{ inputs.py-version }}"
+          fi
+
           rapids-dependency-file-generator \
             --output conda \
             --file-key test_${{ inputs.dependency-key }} \
             --prepend-channel "${CPP_CHANNEL}" \
-            --matrix "cuda=${CUDA_VERSION%.*};arch=${{ inputs.arch }}" | tee "${ENV_YAML_DIR}/env.yaml"
+            --matrix "${MATRIX_STRING}" | tee "${ENV_YAML_DIR}/env.yaml"
 
           CONDA_ARCH="linux-$([ ${{ inputs.arch }} = 'amd64' ] && echo '64' || echo 'aarch64' )"
 
@@ -78,7 +76,7 @@ runs:
 
           mv conda-${CONDA_ARCH}.lock.yml ${{ steps.lockfile-filename.outputs.filename }}
         else
-          rapids-logger "Skipping conda-lock as it already exists and relock is not true"
+          rapids-logger "Re-using existing lockfile"
         fi
 
     - name: Unpin local file dependencies in lockfile

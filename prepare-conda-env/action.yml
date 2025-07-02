@@ -23,11 +23,12 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: compute lockfile filename
-      id: lockfile-filename
+    - uses: rapidsai/shared-actions/telemetry-impls/set-otel-service-name@main
+    - name: Get service name as cache key
+      id: cache-key
       shell: bash
       run: |
-        echo "filename=${{ github.job }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}.yml" >> $GITHUB_OUTPUT
+        echo "cache-key=$(echo ${OTEL_SERVICE_NAME} | sed 's/[\/,]/ /g; s/[[:space:]]\+/-/g; s/--*/-/g')" >> $GITHUB_OUTPUT
 
     - name: Get PR number
       id: pr-number
@@ -35,13 +36,19 @@ runs:
       run: |
         echo "pr-number=$(echo ${GITHUB_REF_NAME} | sed 's/.*\///')" >> $GITHUB_OUTPUT
 
+    - name: Get lockfile filename
+      id: lockfile-filename
+      shell: bash
+      run: |
+        echo "filename=${{ steps.cache-key.outputs.cache-key }}-${{ steps.pr-number.outputs.pr-number }}.yml" >> $GITHUB_OUTPUT
+
     - name: Retrieve any existing lockfile
       uses: actions/cache@v4
       with:
-        key: ${{ github.job }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}-${{ steps.pr-number.outputs.pr-number }}
+        key: ${{ steps.cache-key.outputs.cache-key }}-${{ steps.pr-number.outputs.pr-number }}
         path: ${{ steps.lockfile-filename.outputs.filename }}
         restore-keys: |
-          ${{ github.job }}-${{ inputs.cuda-version }}-${{ inputs.arch }}-${{ inputs.py-version }}-${{ steps.pr-number.outputs.pr-number }}
+          ${{ steps.cache-key.outputs.cache-key }}-${{ steps.pr-number.outputs.pr-number }}
 
     - name: Run conda-lock if needed
       shell: bash

@@ -86,6 +86,7 @@ runs:
       run: |
         import yaml
         import os
+        import re
         from pprint import pprint
         with open("${{ steps.lockfile-filename.outputs.filename }}", 'r') as f:
           lockfile = yaml.safe_load(f)

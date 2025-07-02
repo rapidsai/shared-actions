@@ -89,7 +89,7 @@ runs:
         from pprint import pprint
         with open("${{ steps.lockfile-filename.outputs.filename }}", 'r') as f:
           lockfile = yaml.safe_load(f)
-        local_file_pkg_names = {pkg.rsplit('-', 2)[0] for _, _, pkg in os.walk("downloaded-packages") if pkg.endswith('.conda')}
+        local_file_pkg_names = {pkg.rsplit('-', 2)[0] for _, _, pkg_list in os.walk("downloaded-packages") for pkg in pkg_list if pkg.endswith('.conda')}
         print(local_file_pkg_names)
         edited_dependencies = []
         for pkg in lockfile['dependencies']:

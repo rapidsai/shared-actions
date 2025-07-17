@@ -93,6 +93,11 @@ def main(
             if days_since_run > max_days_without_success:
                 workflow_active_for_max_days[branch] = True
 
+        # Edge case where a `main` branch exists but has _no_ runs.
+        # In that scenario, remove the branch from consideration
+        if latest_success[branch] is None:
+            latest_success.pop(branch)
+
     latest_branch = max(latest_success)
     has_latest_success = latest_success[latest_branch] is not None
 

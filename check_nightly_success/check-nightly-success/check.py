@@ -71,8 +71,8 @@ def main(
         branch_dict[run["head_branch"]].append(run)
 
     for branch, branch_runs in branch_dict.items():
-        # only consider RAPIDS release branches, which have versions like
-        # '25.02' (RAPIDS) or '0.42' (ucxx, ucx-py)
+        # Only consider RAPIDS release branches, which have versions like
+        # '25.02' (RAPIDS) or '0.42' (ucxx, ucx-py).
         if not re.match("branch-[0-9]{1,2}.[0-9]{2}", branch):
             continue
 

@@ -30,7 +30,7 @@ runs:
           | grep -q . && echo 'true' || echo 'false');
         echo "artifact_found=${artifact_found}" | tee -a $GITHUB_OUTPUT;
     - name: Download base environment variables file
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       if: steps.check-artifact-exists.outputs.artifact_found == 'true'
       with:
         name: telemetry-tools-env-vars

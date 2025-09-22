@@ -1,0 +1,21 @@
+name: telemetry-dispatch-record-file-sizes
+description: |
+  This script records the sizes of files in a directory.
+
+inputs:
+  directory:
+    description: The directory to record the sizes of.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Output that setup was skipped if the base env var artifact was not found
+      if: steps.has_base_env_var_artifact.outputs.artifact_found == 'false'
+      shell: bash
+      run: echo "Skipping telemetry-setup because base env var artifact was not found"
+    - name: Creating folder for job-created telemetry artifacts
+      shell: bash
+      run: mkdir -p telemetry-artifacts
+    - uses: ./shared-actions/telemetry-impls/record-file-sizes
+      with:
+        directory: ${{ inputs.directory }}

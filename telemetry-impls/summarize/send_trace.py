@@ -205,30 +205,30 @@ class SccacheStats:
         return self.errors / self.requests if self.requests > 0 else 0
 
 
-def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
+def get_sccache_stats(artifact_folder: Path) -> SccacheStats:
     """Get sccache stats from the artifact folder."""
-    stats_files = list(artifact_folder.glob("sccache-stats*.txt"))
-    logging.debug("SCCache stats files: %s", stats_files)
-    parsed_stats = {}
     lang_line_match = re.compile(r"Cache (?P<result>\w+) \((?P<lang>\w+)[^)]*\)\s*(?P<count>\d+)")
-    for file in stats_files:
-        with file.open() as f:
-            stats = SccacheStats(requests=0, compilers={"c": Compiler(), "cpp": Compiler(), "cuda": Compiler()})
-            print("SCCache stats file: %s", file)
-            for line in f:
-                print("Line: %s", line)
-                if match := re.match(r"^Compile\srequests\s+(\d+).*", line, re.IGNORECASE):
-                    stats.requests = int(match.group(1))
-                elif match := lang_line_match.match(line):
-                    compiler = stats.compilers[match.group("lang")]
-                    setattr(compiler, match.group("result"), int(match.group("count")))
-        stats_file_name = re.findall(r"sccache-stats[-]?(?P<name>\w+).txt", file.name)
-        if stats_file_name:
-            stats_file_name = stats_file_name[0]
-        else:
-            stats_file_name = "main_process"
-        parsed_stats[stats_file_name] = stats
-    return parsed_stats
+    stats = SccacheStats(requests=0, compilers={"c": Compiler(), "cpp": Compiler(), "cuda": Compiler()})
+    if not (artifact_folder / "sccache-stats.txt").exists():
+        return stats
+
+    with open(artifact_folder / "sccache-stats.txt") as f:
+        for line in f:
+            if match := re.match(r"^Compile\srequests\s+(\d+).*", line, re.IGNORECASE):
+                stats.requests = int(match.group(1))
+            elif match := lang_line_match.match(line):
+                compiler = stats.compilers[match.group("lang")]
+                setattr(compiler, match.group("result"), int(match.group("count")))
+    return stats
+
+
+def get_file_sizes(artifact_folder: Path) -> dict[str, str | int]:
+    """Get file sizes from the artifact folder."""
+    if not (artifact_folder / "file_size.txt").exists():
+        return {"filename": "", "compressed_size": 0, "extracted_size": 0}
+    with open(artifact_folder / "file_size.txt") as f:
+        name, compressed, extracted = f.readline().split(",")
+        return {"filename": name, "compressed_size": int(compressed), "extracted_size": int(extracted)}
 
 
 def process_job_blob(  # noqa: PLR0913
@@ -279,6 +279,9 @@ def process_job_blob(  # noqa: PLR0913
     sccache_stats = get_sccache_stats(artifact_folder)
     logging.debug("SCCache stats: %s", sccache_stats)
 
+    file_size = get_file_sizes(artifact_folder)
+    logging.debug("File sizes: %s", file_size)
+
     job_provider = TracerProvider(
         resource=Resource(attributes),
         id_generator=RapidsSpanIdGenerator(trace_id=trace_id, job_name=job["name"]),
@@ -313,16 +316,14 @@ def process_job_blob(  # noqa: PLR0913
                 # Only add sccache attributes if this is a build step
                 if re.match(r"(?:[\w+]+\sbuild$)|(?:Build\sand\srepair.*)", step["name"], re.IGNORECASE):
                     logging.debug("Adding sccache attributes for step: %s", step["name"])
-                    for file_name, stats in sccache_stats.items():
-                        span_attributes[f"sccache.{file_name}.hit_rate"] = stats.hit_rate
-                        span_attributes[f"sccache.{file_name}.miss_rate"] = stats.miss_rate
-                        span_attributes[f"sccache.{file_name}.error_rate"] = stats.error_rate
-                        span_attributes[f"sccache.{file_name}.requests"] = stats.requests
-                        for lang, lang_stats in stats.compilers.items():
-                            span_attributes[f"sccache.{file_name}.{lang}.hit_rate"] = lang_stats.hit_rate
-                            span_attributes[f"sccache.{file_name}.{lang}.miss_rate"] = lang_stats.miss_rate
-                            span_attributes[f"sccache.{file_name}.{lang}.error_rate"] = lang_stats.error_rate
-                            span_attributes[f"sccache.{file_name}.{lang}.requests"] = lang_stats.requests
+                    span_attributes["sccache_miss_rate"] = sccache_stats.miss_rate
+                    span_attributes["sccache_error_rate"] = sccache_stats.error_rate
+                    for lang, lang_stats in sccache_stats.compilers.items():
+                        span_attributes[f"sccache_{lang}_miss_rate"] = lang_stats.miss_rate
+                        span_attributes[f"sccache_{lang}_error_rate"] = lang_stats.error_rate
+                    span_attributes["filename"] = file_size["filename"]
+                    span_attributes["file_size_compressed"] = file_size["compressed_size"]
+                    span_attributes["file_size_extracted"] = file_size["extracted_size"]
 
                 # TODO: Ninja log files?
                 # TODO: file sizes of packages or their contents

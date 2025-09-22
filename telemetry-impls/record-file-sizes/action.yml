@@ -1,0 +1,37 @@
+name: 'Telemetry record file sizes'
+description: |
+  Records the sizes of files in a directory.
+inputs:
+  directory:
+    description: The directory to record the sizes of.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Record file sizes
+      shell: bash
+      run: |
+        files=$(find ${{ inputs.directory }} -type f)
+        file_count=$(echo "$files" | wc -l)
+        if [[ $file_count -gt 1 ]]; then
+          echo "Error: More than one file found in ${{ inputs.directory }}. Only one file is allowed."
+          exit 1
+        fi
+        file=$files
+        # Write a text file with compressed and extracted sizes for each file
+        sizes_txt="telemetry-artifacts/file_size.txt"
+        tmpdir=$(mktemp -d)
+        compressed=$(stat -c %s "$file")
+        if [[ "$file" == *.conda ]] || [[ "$file" == *.tar.bz2 ]]; then
+          # Use cph -x to extract .conda and .tar.bz2 files to a temp dir and measure extracted size
+          cph -x "$file" -p "$tmpdir"
+          extracted=$(du -sb "$tmpdir" | cut -f1)
+          rm -rf "$tmpdir"
+        elif [[ "$file" == *.whl ]]; then
+          python -m wheel unpack "$file" -d "$tmpdir"
+          extracted=$(du -sb "$tmpdir" | cut -f1)
+          rm -rf "$tmpdir"
+        else
+          extracted=$compressed
+        fi
+        echo "$file,$compressed,$extracted" > $sizes_txt

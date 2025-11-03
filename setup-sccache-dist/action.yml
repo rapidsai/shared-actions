@@ -57,11 +57,11 @@ runs:
         SCCACHE_DIST_REQUEST_TIMEOUT: "${{inputs.request-timeout}}"
         SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE: "${{inputs.fallback-to-local-compile}}"
       run: |
-        rapids-configure-sccache-dist
+        rapids-configure-sccache
 
         cat <<EOF | tee -a "$GITHUB_ENV"
         PARALLEL_LEVEL=$PARALLEL_LEVEL
-        GHA_CACHE_SLUG=$GHA_CACHE_SLUG
+        GHA_CACHE_SLUG=${{github.run_id}}-${{github.run_attempt}}-$RANDOM
         NVCC_APPEND_FLAGS=$NVCC_APPEND_FLAGS
         SCCACHE_BUCKET=$SCCACHE_BUCKET
         SCCACHE_REGION=$SCCACHE_REGION

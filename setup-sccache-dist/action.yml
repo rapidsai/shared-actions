@@ -53,27 +53,20 @@ runs:
         SCCACHE_ERROR_LOG: "${{inputs.log-file}}"
         SCCACHE_SERVER_LOG: "${{inputs.log-level}}"
         SCCACHE_DIST_AUTH_TOKEN: "${{inputs.auth}}"
+        SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE: "${{inputs.fallback-to-local-compile}}"
         SCCACHE_DIST_MAX_RETRIES: "${{inputs.max-retries}}"
         SCCACHE_DIST_REQUEST_TIMEOUT: "${{inputs.request-timeout}}"
-        SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE: "${{inputs.fallback-to-local-compile}}"
       run: |
-        rapids-configure-sccache
-
         cat <<EOF | tee -a "$GITHUB_ENV"
-        PARALLEL_LEVEL=$PARALLEL_LEVEL
         GHA_CACHE_SLUG=${{github.run_id}}-${{github.run_attempt}}-$RANDOM
-        NVCC_APPEND_FLAGS=$NVCC_APPEND_FLAGS
-        SCCACHE_BUCKET=$SCCACHE_BUCKET
-        SCCACHE_REGION=$SCCACHE_REGION
-        SCCACHE_IDLE_TIMEOUT=$SCCACHE_IDLE_TIMEOUT
+        SCCACHE_REPO=$SCCACHE_REPO
+        SCCACHE_VERSION=$SCCACHE_VERSION
         SCCACHE_ERROR_LOG=$SCCACHE_ERROR_LOG
         SCCACHE_SERVER_LOG=$SCCACHE_SERVER_LOG
         SCCACHE_DIST_AUTH_TOKEN=$SCCACHE_DIST_AUTH_TOKEN
-        SCCACHE_DIST_AUTH_TYPE=$SCCACHE_DIST_AUTH_TYPE
         SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=$SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE
         SCCACHE_DIST_MAX_RETRIES=$SCCACHE_DIST_MAX_RETRIES
         SCCACHE_DIST_REQUEST_TIMEOUT=$SCCACHE_DIST_REQUEST_TIMEOUT
-        SCCACHE_DIST_SCHEDULER_URL=$SCCACHE_DIST_SCHEDULER_URL
         EOF
 
     - id: sccache-preprocessor-cache

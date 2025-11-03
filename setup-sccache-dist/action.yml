@@ -48,69 +48,16 @@ runs:
     - name: Install sccache and configure sccache-dist
       shell: bash
       env:
-        AUTH: "${{inputs.auth}}"
-        REPO: "${{inputs.repo}}"
-        VERSION: "${{inputs.version}}"
-        LOG_FILE: "${{inputs.log-file}}"
-        LOG_LEVEL: "${{inputs.log-level}}"
-        MAX_RETRIES: "${{inputs.max-retries}}"
-        REQUEST_TIMEOUT: "${{inputs.request-timeout}}"
-        FALLBACK_TO_LOCAL_COMPILE: "${{inputs.fallback-to-local-compile}}"
+        SCCACHE_REPO: "${{inputs.repo}}"
+        SCCACHE_VERSION: "${{inputs.version}}"
+        SCCACHE_ERROR_LOG: "${{inputs.log-file}}"
+        SCCACHE_SERVER_LOG: "${{inputs.log-level}}"
+        SCCACHE_DIST_AUTH_TOKEN: "${{inputs.auth}}"
+        SCCACHE_DIST_MAX_RETRIES: "${{inputs.max-retries}}"
+        SCCACHE_DIST_REQUEST_TIMEOUT: "${{inputs.request-timeout}}"
+        SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE: "${{inputs.fallback-to-local-compile}}"
       run: |
-        ARCH="$(uname -m)"
-        case "$ARCH" in
-          x86_64 | amd64)
-            SCHEDULER_URL="https://amd64.linux.sccache.rapids.nvidia.com"
-            ;;
-          aarch64 | arm64)
-            SCHEDULER_URL="https://arm64.linux.sccache.rapids.nvidia.com"
-            ;;
-          *)
-            echo "Unsupported CPU architecture '$ARCH'" >&2
-            exit 1
-            ;;
-        esac
-
-        # Install sccache to /usr/bin
-        while ! tar -C /usr/bin -z --wildcards --strip-components=1 -x '*/sccache' -f <(
-          if [ "${VERSION:-latest}" = latest ]; then
-            # Install latest version
-            wget --no-hsts -q -O- https://api.github.com/repos/${REPO}/releases/latest \
-          | jq -r ".assets[] | select(.name | test(\"^sccache-v.*?-${ARCH}-unknown-linux-musl.tar.gz\$\")) | .browser_download_url" \
-          | wget --no-hsts -q -O- -i-
-          else
-            # Install pinned version
-            wget --no-hsts -q -O- "https://github.com/${REPO}/releases/download/v${VERSION}/sccache-v${VERSION}-${ARCH}-unknown-linux-musl.tar.gz"
-          fi
-        ); do
-          sleep 10;
-        done
-
-        # Verify installation
-        sccache --version
-        mkdir -p "$(dirname "$LOG_FILE")"
-        stat "$(dirname "$LOG_FILE")"
-        ulimit -n "$(ulimit -Hn)"
-        echo "nofile ulimit: $(ulimit -n):$(ulimit -Hn)"
-
-        # Runner configuration
-        export PARALLEL_LEVEL="$(ulimit -Hn)"
-        export GHA_CACHE_SLUG="${{github.run_id}}-${{github.run_attempt}}-$RANDOM"
-        export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100"
-
-        # sccache configuration
-        source rapids-configure-sccache
-        export SCCACHE_IDLE_TIMEOUT="0"
-        export SCCACHE_ERROR_LOG="$LOG_FILE"
-        export SCCACHE_SERVER_LOG="$LOG_LEVEL"
-
-        # sccache-dist configuration
-        export SCCACHE_DIST_AUTH_TOKEN="$AUTH"
-        export SCCACHE_DIST_AUTH_TYPE="token"
-        export SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE="$FALLBACK_TO_LOCAL_COMPILE"
-        export SCCACHE_DIST_MAX_RETRIES="$MAX_RETRIES"
-        export SCCACHE_DIST_REQUEST_TIMEOUT="$REQUEST_TIMEOUT"
-        export SCCACHE_DIST_SCHEDULER_URL="$SCHEDULER_URL"
+        rapids-configure-sccache-dist
 
         cat <<EOF | tee -a "$GITHUB_ENV"
         PARALLEL_LEVEL=$PARALLEL_LEVEL
@@ -128,9 +75,6 @@ runs:
         SCCACHE_DIST_REQUEST_TIMEOUT=$SCCACHE_DIST_REQUEST_TIMEOUT
         SCCACHE_DIST_SCHEDULER_URL=$SCCACHE_DIST_SCHEDULER_URL
         EOF
-
-        # Start the sccache client daemon
-        sccache --start-server
 
     - id: sccache-preprocessor-cache
       name: Setup sccache preprocessor cache

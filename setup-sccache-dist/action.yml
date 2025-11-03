@@ -1,0 +1,86 @@
+name: setup-sccache-dist
+
+inputs:
+  auth:
+    required: true
+    description: |
+      The token used to authenticate with the sccache-dist build cluster.
+  home:
+    default: /github/home
+    description: |
+      The path to the job's $HOME directory.
+  repo:
+    default: rapidsai/sccache
+    description: |
+      The sccache GitHub repository from which to download the sccache binary.
+  cache-slug:
+    default: ""
+    description: |
+      The slug to use for unique actions/cache preprocessor and toolchain caches.
+  log-file:
+    default: /tmp/sccache.log
+    description: |
+      The path where sccache client should write logs.
+  log-level:
+    default: sccache=debug
+    description: |
+      The RUST_LOG-style log level at which the sccache client should emit logs.
+  version:
+    default: latest
+    description: |
+      The sccache GitHub release version to install, or "latest" to install the latest release.
+  max-retries:
+    default: inf
+    description: |
+      The number of times to retry failed distributed compilations, or "inf" to retry infinitely.
+  request-timeout:
+    default: 7140
+    description: |
+      The maximum time (in seconds) the sccache client should wait for a distributed compilation to complete.
+  fallback-to-local-compile:
+    default: false
+    description: |
+      Whether to fallback to compiling locally if the distributed compilation fails and/or max-retries is exceeded.
+
+runs:
+  using: composite
+  steps:
+    - name: Install sccache and configure sccache-dist
+      shell: bash
+      env:
+        SCCACHE_REPO: "${{inputs.repo}}"
+        SCCACHE_VERSION: "${{inputs.version}}"
+        SCCACHE_ERROR_LOG: "${{inputs.log-file}}"
+        SCCACHE_SERVER_LOG: "${{inputs.log-level}}"
+        SCCACHE_DIST_AUTH_TOKEN: "${{inputs.auth}}"
+        SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE: "${{inputs.fallback-to-local-compile}}"
+        SCCACHE_DIST_MAX_RETRIES: "${{inputs.max-retries}}"
+        SCCACHE_DIST_REQUEST_TIMEOUT: "${{inputs.request-timeout}}"
+      run: |
+        cat <<EOF | tee -a "$GITHUB_ENV"
+        GHA_CACHE_SLUG=${{github.run_id}}-${{github.run_attempt}}-$RANDOM
+        SCCACHE_REPO=$SCCACHE_REPO
+        SCCACHE_VERSION=$SCCACHE_VERSION
+        SCCACHE_ERROR_LOG=$SCCACHE_ERROR_LOG
+        SCCACHE_SERVER_LOG=$SCCACHE_SERVER_LOG
+        SCCACHE_DIST_AUTH_TOKEN=$SCCACHE_DIST_AUTH_TOKEN
+        SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=$SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE
+        SCCACHE_DIST_MAX_RETRIES=$SCCACHE_DIST_MAX_RETRIES
+        SCCACHE_DIST_REQUEST_TIMEOUT=$SCCACHE_DIST_REQUEST_TIMEOUT
+        EOF
+
+    - id: sccache-preprocessor-cache
+      name: Setup sccache preprocessor cache
+      uses: actions/cache@v4
+      with:
+        path: ${{inputs.home}}/.cache/sccache/preprocessor
+        restore-keys: sccache-preprocessor-cache-${{ runner.os }}-${{ inputs.cache-slug }}
+        key: sccache-preprocessor-cache-${{ runner.os }}-${{ inputs.cache-slug }}-${{ env.GHA_CACHE_SLUG }}
+
+    - id: sccache-dist-toolchains-cache
+      name: Setup sccache-dist client toolchains cache
+      uses: actions/cache@v4
+      with:
+        path: ${{inputs.home}}/.cache/sccache-dist-client
+        restore-keys: sccache-toolchains-cache-${{ runner.os }}-${{ inputs.cache-slug }}
+        key: sccache-toolchains-cache-${{ runner.os }}-${{ inputs.cache-slug }}-${{ env.GHA_CACHE_SLUG }}

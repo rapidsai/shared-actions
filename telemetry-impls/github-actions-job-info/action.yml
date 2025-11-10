@@ -18,7 +18,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/github-script@v7
+    - uses: actions/github-script@v8
       id: get-job-info
       env:
         ALL_JOBS: "${{ inputs.all_jobs }}"

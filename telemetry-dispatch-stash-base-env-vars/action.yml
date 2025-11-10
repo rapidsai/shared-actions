@@ -15,7 +15,7 @@ runs:
     # We can't use the load-then-clone action because the env vars file
     # that it needs is something that we create here.
     - name: Clone shared-actions repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}

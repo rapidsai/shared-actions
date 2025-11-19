@@ -8,4 +8,9 @@ runs:
       shell: bash
       run: |
         python -m pip install dunamai
-        python shared-actions/check-version-against-tag/check.py
+        expected_version="$(python -m dunamai from git --format '{base}')"
+        if [ "$expected_version" != "$(cat VERSION)" ]; then
+          echo "Expected VERSION file to be \"$expected_version\", got:"
+          cat VERSION
+          exit 1
+        fi

@@ -1,0 +1,11 @@
+name: check-version-against-tag
+description: Check if the `VERSION` file matches the git tag.
+
+runs:
+  using: composite
+  steps:
+    - name: Run the Python script
+      shell: bash
+      run: |
+        python -m pip install dunamai
+        python shared-actions/check-version-against-tag/check.py

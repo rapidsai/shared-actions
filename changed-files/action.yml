@@ -1,6 +1,9 @@
 name: changed-files
 description: Check changed files in a PR
 
+defaults:
+  shell: bash
+
 runs:
   using: composite
   steps:

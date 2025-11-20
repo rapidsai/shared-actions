@@ -1,9 +1,6 @@
 name: changed-files
 description: Check changed files in a PR
 
-defaults:
-  shell: bash
-
 runs:
   using: composite
   steps:
@@ -17,6 +14,7 @@ runs:
         persist-credentials: false
     - name: Calculate merge base
       id: calculate-merge-base
+      shell: bash
       env:
         PR_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).head.sha }}
         BASE_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
@@ -33,6 +31,7 @@ runs:
         json: true
     - name: Transform changed files into output
       id: transform-changed-files
+      shell: bash
       env:
         TRANSFORM_EXPR: ${{ inputs.transform_expr }}
       run: |

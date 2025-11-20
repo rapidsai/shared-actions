@@ -29,7 +29,7 @@ inputs:
       from_entries
 outputs:
   changed_file_groups:
-    value: ${{ jobs.transform-changed-files.outputs.transformed-output }}
+    value: ${{ steps.transform-changed-files.outputs.transformed-output }}
 
 runs:
   using: composite

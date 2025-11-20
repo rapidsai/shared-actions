@@ -68,3 +68,5 @@ runs:
           file_args=("${file_args[@]}" --slurpfile "$key" "$file")
         done
         (echo -n "transformed-output="; jq -c -n "\$ARGS.named | to_entries | map({\"key\": .key, \"value\": .value[]}) | from_entries | $TRANSFORM_EXPR" "${file_args[@]}") | tee --append "${GITHUB_OUTPUT}"
+        echo "Contents of ${GITHUB_OUTPUT}:"
+        cat "${GITHUB_OUTPUT}"

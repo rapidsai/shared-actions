@@ -13,10 +13,6 @@ inputs:
     default: rapidsai/sccache
     description: |
       The sccache GitHub repository from which to download the sccache binary.
-  cache-slug:
-    default: ""
-    description: |
-      The slug to use for unique actions/cache preprocessor and toolchain caches.
   log-file:
     default: /tmp/sccache.log
     description: |
@@ -68,19 +64,3 @@ runs:
         SCCACHE_DIST_MAX_RETRIES=$SCCACHE_DIST_MAX_RETRIES
         SCCACHE_DIST_REQUEST_TIMEOUT=$SCCACHE_DIST_REQUEST_TIMEOUT
         EOF
-
-    - id: sccache-preprocessor-cache
-      name: Setup sccache preprocessor cache
-      uses: actions/cache@v4
-      with:
-        path: ${{inputs.home}}/.cache/sccache/preprocessor
-        restore-keys: sccache-preprocessor-cache-${{ runner.os }}-${{ inputs.cache-slug }}
-        key: sccache-preprocessor-cache-${{ runner.os }}-${{ inputs.cache-slug }}-${{ env.GHA_CACHE_SLUG }}
-
-    - id: sccache-dist-toolchains-cache
-      name: Setup sccache-dist client toolchains cache
-      uses: actions/cache@v4
-      with:
-        path: ${{inputs.home}}/.cache/sccache-dist-client
-        restore-keys: sccache-toolchains-cache-${{ runner.os }}-${{ inputs.cache-slug }}
-        key: sccache-toolchains-cache-${{ runner.os }}-${{ inputs.cache-slug }}-${{ env.GHA_CACHE_SLUG }}

@@ -37,13 +37,13 @@ runs:
     - name: Get PR info
       id: get-pr-info
       uses: nv-gha-runners/get-pr-info@main
-    # - name: Fetch changed files
-    #   shell: bash
-    #   env:
-    #     BASE_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
-    #     REPOSITORY_URL: ${{ github.repositoryUrl }}
-    #   run: |
-    #     git fetch --depth 1 "$REPOSITORY_URL" "$BASE_SHA"
+    - name: Fetch changed files
+      shell: bash
+      env:
+        BASE_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
+        REPOSITORY_URL: ${{ github.repositoryUrl }}
+      run: |
+        git fetch --depth 1 "$REPOSITORY_URL" "$BASE_SHA"
     - name: Get changed files
       id: changed-files
       uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5

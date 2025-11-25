@@ -213,7 +213,23 @@ def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     lang_line_match = re.compile(r"Cache (?P<result>\w+) \((?P<lang>\w+)[^)]*\)\s*(?P<count>\d+)")
     for file in stats_files:
         with file.open() as f:
-            stats = SccacheStats(requests=0, compilers={"c": Compiler(), "cpp": Compiler(), "cuda": Compiler()})
+            stats = SccacheStats(
+                requests=0,
+                compilers={
+                    "c": Compiler(),
+                    "cHeader": Compiler(),
+                    "c++": Compiler(),
+                    "c++Header": Compiler(),
+                    "c/c++": Compiler(),
+                    "objc": Compiler(),
+                    "objc++": Compiler(),
+                    "cuda": Compiler(),
+                    "ptx": Compiler(),
+                    "cubin": Compiler(),
+                    "rust": Compiler(),
+                    "hip": Compiler(),
+                },
+            )
             print("SCCache stats file: %s", file)
             for line in f:
                 print("Line: %s", line)

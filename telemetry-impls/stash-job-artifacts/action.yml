@@ -17,7 +17,7 @@ runs:
         printf "%s\n" "${values[@]}" > telemetry-artifacts/attrs;
 
     - name: Upload attr file and any other files
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: telemetry-tools-artifacts-${{ env.JOB_ID }}
         path: telemetry-artifacts

@@ -30,7 +30,7 @@ runs:
           | grep -q . && echo 'true' || echo 'false');
         echo "artifact_found=${artifact_found}" | tee -a $GITHUB_OUTPUT;
     - name: Download base environment variables file
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v6
       if: steps.check-artifact-exists.outputs.artifact_found == 'true'
       with:
         name: telemetry-tools-env-vars
@@ -55,7 +55,7 @@ runs:
           fi
         done <telemetry-artifacts/telemetry-env-vars
     - name: Clone shared-actions repo with loaded env vars
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}

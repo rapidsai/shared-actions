@@ -20,13 +20,13 @@ runs:
       with:
         all_jobs: true
     - name: Upload job JSON file if debugging
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       if: runner.debug == '1'
       with:
         name: telemetry-tools-all_jobs.json
         path: all_jobs.json
     # This downloads ALL of the files that we have collected from each job.
-    - uses: actions/download-artifact@v6
+    - uses: actions/download-artifact@v7
       with:
         path: telemetry-artifacts
         pattern: telemetry-tools-*

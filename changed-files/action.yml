@@ -41,6 +41,7 @@ runs:
       shell: bash
       env:
         BASE_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         git fetch --depth 1 origin "$BASE_SHA"
     - name: Get changed files

@@ -282,6 +282,10 @@ def process_job_blob(  # noqa: PLR0913
         logging.info("Job is empty (no start time) - bypassing")
         return last_timestamp
 
+    if job_last_timestamp < job_start:
+        logging.info("Job finish is before start - setting zero length job")
+        job_last_timestamp = job_start
+
     artifact_folder = Path.cwd() / f"telemetry-artifacts/telemetry-tools-artifacts-{job_id}"
     attributes = {}
     if (artifact_folder / "attrs").exists():

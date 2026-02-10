@@ -2,7 +2,7 @@ name: setup-sccache-dist
 
 inputs:
   auth:
-    required: true
+    required: false
     description: |
       The token used to authenticate with the sccache-dist build cluster.
   home:
@@ -48,7 +48,6 @@ runs:
         SCCACHE_VERSION: "${{inputs.version}}"
         SCCACHE_ERROR_LOG: "${{inputs.log-file}}"
         SCCACHE_SERVER_LOG: "${{inputs.log-level}}"
-        SCCACHE_DIST_AUTH_TOKEN: "${{inputs.auth}}"
         SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE: "${{inputs.fallback-to-local-compile}}"
         SCCACHE_DIST_MAX_RETRIES: "${{inputs.max-retries}}"
         SCCACHE_DIST_REQUEST_TIMEOUT: "${{inputs.request-timeout}}"
@@ -59,7 +58,13 @@ runs:
         SCCACHE_VERSION=$SCCACHE_VERSION
         SCCACHE_ERROR_LOG=$SCCACHE_ERROR_LOG
         SCCACHE_SERVER_LOG=$SCCACHE_SERVER_LOG
-        SCCACHE_DIST_AUTH_TOKEN=$SCCACHE_DIST_AUTH_TOKEN
+        SCCACHE_DIST_AUTH_TOKEN=$(
+          curl -fsSL -H "Authorization: Bearer $(
+            curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=token.rapids.nvidia.com" \
+          | jq -r '.value'
+          )" https://token.rapids.nvidia.com/gh/token/exchange \
+        | jq -r '.token')
         SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=$SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE
         SCCACHE_DIST_MAX_RETRIES=$SCCACHE_DIST_MAX_RETRIES
         SCCACHE_DIST_REQUEST_TIMEOUT=$SCCACHE_DIST_REQUEST_TIMEOUT

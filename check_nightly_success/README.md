@@ -65,3 +65,15 @@ That'll return exit code `1` and output similar to this:
         404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-05
         404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-05
         404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-05
+
+Set `--request-page-size` to `1` to test that pagination is working.
+
+```shell
+GH_TOKEN=$(gh auth token) \
+python ./check-nightly-success/check.py \
+  --repo 'rapidsai/cudf' \
+  --branch 'main' \
+  --workflow-id 'test.yaml' \
+  --max-days-without-success 30 \
+  --request-page-size 5
+```

@@ -91,7 +91,7 @@ class GitHubClient:
                 )
                 for workflow_run in response.json()["workflow_runs"]
             ],
-            next_url=response.links.get("next", None),
+            next_url=response.links.get("next", dict()).get("url", None),
         )
 
     def get_all_runs(
@@ -106,7 +106,9 @@ class GitHubClient:
         and return all the results.
         """
         data = []
+        page_num = 1
         while True:
+            print(f"requesting page {page_num} of results")
             page = self.__get_next_page(
                 url=url,
                 headers=headers,
@@ -118,6 +120,7 @@ class GitHubClient:
             # just use the pagination URL, not the original query one
             url = page.next_url
             params = None  # type: ignore[assignment]
+            page_num += 1
         return data
 
 
@@ -128,6 +131,7 @@ def main(
     workflow_id: str,
     max_days_without_success: int,
     num_attempts: int,
+    request_page_size: int,
     request_timeout_seconds: float,
     retry_backoff_seconds: float,
 ) -> int:
@@ -163,7 +167,7 @@ def main(
             # only care about successful runs
             "status": "success",
             # pull as many results per page as possible
-            "per_page": 100,
+            "per_page": request_page_size,
             # filter to recent-enough runs
             "created": f">={oldest_date_to_pull.strftime('%Y-%m-%d')}",
         },
@@ -222,6 +226,13 @@ if __name__ == "__main__":
         required=True,
         help="Maximum number of days without a successful run",
     )
+    parser.add_argument(
+        "--request-page-size",
+        type=int,
+        default=100,
+        required=False,
+        help="Number of responses per page of data. Decrease this to reduce memory usage.",
+    )
     args = parser.parse_args()
 
     sys.exit(
@@ -231,6 +242,7 @@ if __name__ == "__main__":
             workflow_id=args.workflow_id,
             max_days_without_success=args.max_days_without_success,
             num_attempts=5,
+            request_page_size=args.request_page_size,
             request_timeout_seconds=10,
             retry_backoff_seconds=0.5,
         ),

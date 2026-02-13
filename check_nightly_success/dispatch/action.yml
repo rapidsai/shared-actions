@@ -5,7 +5,7 @@ inputs:
     description: "Repository name with owner (e.g. 'rapidsai/cudf' not 'cudf')"
     required: true
     type: string
-  target_branch:
+  target-branch:
     description: |
       Branch the pull request this is running on targets.
       Only statuses of nightly runs on that branch will be considered.
@@ -36,6 +36,6 @@ runs:
       uses: ./shared-actions/check_nightly_success/check-nightly-success
       with:
         repo: ${{ inputs.repo }}
-        target_branch: ${{ inputs.target-branch }}
-        workflow_id: ${{ inputs.workflow-id }}
-        max_days_without_success: ${{ inputs.max-days-without-success }}
+        target-branch: ${{ inputs.target-branch }}
+        workflow-id: ${{ inputs.workflow-id }}
+        max-days-without-success: ${{ inputs.max-days-without-success }}

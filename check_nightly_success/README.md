@@ -17,9 +17,9 @@ Add it to any GitHub Actions workflow configuration like this:
         uses: rapidsai/shared-actions/check_nightly_success/dispatch@main
         with:
           repo: ${{ github.repository }}
-          target_branch: ${{ github.base_ref }}
-          workflow_id: 'test.yaml'
-          max_days_without_success: 7
+          target-branch: ${{ github.base_ref }}
+          workflow-id: 'test.yaml'
+          max-days-without-success: 7
 ```
 
 ## Testing

@@ -12,12 +12,12 @@ inputs:
     required: false
     default: "main"
     type: string
-  workflow_id:
+  workflow-id:
     description: "The workflow whose runs to check"
     required: false
     default: "test.yaml"
     type: string
-  max_days_without_success:
+  max-days-without-success:
     description: "The number of consecutive days that may go by without a successful CI run"
     required: false
     default: 7
@@ -36,6 +36,6 @@ runs:
       uses: ./shared-actions/check_nightly_success/check-nightly-success
       with:
         repo: ${{ inputs.repo }}
-        target_branch: ${{ inputs.target_branch }}
-        workflow_id: ${{ inputs.workflow_id }}
-        max_days_without_success: ${{ inputs.max_days_without_success }}
+        target_branch: ${{ inputs.target-branch }}
+        workflow_id: ${{ inputs.workflow-id }}
+        max_days_without_success: ${{ inputs.max-days-without-success }}

@@ -8,17 +8,17 @@ inputs:
     description: "Repository name with owner (e.g. 'rapidsai/cudf' not 'cudf')"
     required: true
     type: string
-  target_branch:
+  target-branch:
     description: |
       Branch the pull request this is running on targets.
       Only statuses of nightly runs on that branch will be considered.
     required: true
     type: string
-  workflow_id:
+  workflow-id:
     description: "The workflow whose runs to check"
     required: true
     type: string
-  max_days_without_success:
+  max-days-without-success:
     description: "The number of consecutive days that may go by without a successful CI run"
     required: true
     type: integer
@@ -30,9 +30,9 @@ runs:
       shell: bash
       env:
         REPO: ${{ inputs.repo }}
-        TARGET_BRANCH: ${{ inputs.target_branch }}
-        WORKFLOW_ID: ${{ inputs.workflow_id }}
-        MAX_DAYS_WITHOUT_SUCCESS: ${{ inputs.max_days_without_success }}
+        TARGET_BRANCH: ${{ inputs.target-branch }}
+        WORKFLOW_ID: ${{ inputs.workflow-id }}
+        MAX_DAYS_WITHOUT_SUCCESS: ${{ inputs.max-days-without-success }}
       run: |
           python -m pip install \
             --prefer-binary \

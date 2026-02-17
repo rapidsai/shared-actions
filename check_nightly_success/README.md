@@ -20,7 +20,7 @@ Add it to any GitHub Actions workflow configuration like this:
         uses: rapidsai/shared-actions/check_nightly_success/dispatch@main
         with:
           repo: ${{ github.repository }}
-          target-branch: ${{ github.base_ref }}
+          target-branch: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.ref }}
           workflow-id: 'test.yaml'
           max-days-without-success: 7
 ```
@@ -45,16 +45,15 @@ python ./check-nightly-success/check.py \
 
 If this succeeds, you'll see a `0` exit code and output text similar to the following:
 
-> Found 4 successful runs of workflow 'test.yaml' on branch 'main' in the previous 7 days.
-The most recent successful run of workflow 'test.yaml' on branch 'main' was '2026-02-13 13:40:18+00:00', which is within the last 7 days. View logs:
- - https://github.com/rapidsai/cudf/actions/runs/21978265026
+> Found 4 successful runs of workflow 'test.yaml' on branch 'main' in the previous 7 days (most recent: '2026-02-16 06:26:04+00:00'). View logs:
+ - https://github.com/rapidsai/cudf/actions/runs/22052428055
 
- To see it fail, try on a repo that doesn't have that workflow.
+To see it fail, try on a repo that doesn't have that workflow.
 
 ```shell
 GH_TOKEN=$(gh auth token) \
 python ./check-nightly-success/check.py \
-  --repo 'rapidsai/build-planniing' \
+  --repo 'rapidsai/build-planning' \
   --branch 'main' \
   --workflow-id 'test.yaml' \
   --max-days-without-success 7
@@ -62,12 +61,12 @@ python ./check-nightly-success/check.py \
 
 That'll return exit code `1` and output similar to this:
 
-> RuntimeError: Failed to fetch https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs after 5 attempts with the following errors:
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-05
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-05
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-05
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-05
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planniing/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-05
+> RuntimeError: Failed to fetch https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs after 5 attempts with the following errors:
+        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
+        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
+        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
+        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
+        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
 
 Set `--request-page-size` to `1` to test that pagination is working.
 

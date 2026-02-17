@@ -9,8 +9,7 @@ inputs:
     description: |
       Branch the pull request this is running on targets.
       Only statuses of nightly runs on that branch will be considered.
-    required: false
-    default: "main"
+    required: true
     type: string
   workflow-id:
     description: "The workflow whose runs to check"

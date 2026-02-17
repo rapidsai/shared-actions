@@ -173,11 +173,12 @@ def main(
         },
     )
 
+    # recent-enough, successful run = exit 0
     if successful_runs:
         most_recent_successful_run = max(successful_runs, key=lambda r: r.run_started_at)
         print(
             f"Found {len(successful_runs)} successful runs of workflow '{workflow_id}' on branch '{target_branch}' "
-            f"in the previous {max_days_without_success} days (most recent: '{most_recent_successful_run.run_started_at}'). "
+            f"in the previous {max_days_without_success} days (most recent: '{most_recent_successful_run.run_started_at}'). "  # noqa: E501
             f"View logs:\n - {most_recent_successful_run.html_url}"
         )
         return ExitCode.SUCCESS
@@ -185,7 +186,11 @@ def main(
     # It's ok for there to be 0 successful runs if the branch is fairly new or the workflow hasn't been running on it
     # very long.
     #
-    # When new release branches are cut, we want to give a couple of days of space for teams to get their nightly tests working
+    # Code below looks for runs in the last `max_days_without_success * 2` days, to get an
+    # approximation of the entire history without having an unbounded "list all runs from all time" type of query
+    # (which could get expensive for very-active branches).
+    lookback_days = max_days_without_success * 2
+    oldest_date_to_pull = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     all_runs = client.get_all_runs(
         url=f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_id}/runs",
         headers={"Authorization": f"token {GITHUB_TOKEN}"},
@@ -199,48 +204,34 @@ def main(
         },
     )
 
-    #
+    # Fail if there have not been any runs at all (to avoid silently skipping this check).
     if not all_runs:
         print(
             f"There were 0 runs (successful or unsuccessful) of workflow '{workflow_id}' on branch "
-            f"'{target_branch}' in the last {max_days_without_success} days."
+            f"'{target_branch}' in the last {lookback_days} days. "
+            "To resolve this, run the workflow at least once or increase 'max-days-without-success'."
         )
         return ExitCode.FAILURE
 
-    if len(all_runs) < max_days_without_success:
+    # If the oldest run on the branch was less than {max_days_without_success} ago, warn but allow the check to pass.
+    oldest_run = min(all_runs, key=lambda r: r.run_started_at)
+    days_since_oldest_run = (datetime.now(tz=timezone.utc) - oldest_run.run_started_at).days
+    if days_since_oldest_run < max_days_without_success:
         print(
-            "There have only been"
-
-            f"The oldest run of the {workflow_id} workflow on {latest_branch} was less "
-            f"than {max_days_without_success} days ago. This exempts the workflow from "
-            "check-nightly-success because the workflow has not been running for very long."
-    else:
-
-
-    # if there were 0 successful runs, immediately exit with 1... by definition that means there
-    # hasn't been a success in the last `max_days_without_success` days
-    if not successful_runs:
-
-        successful_runs = client.get_all_runs(
-            url=f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_id}/runs",
-            headers={"Authorization": f"token {GITHUB_TOKEN}"},
-            params={
-                # only care about runs from one branch (usually, the PR target branch)
-                "branch": target_branch,
-                # only care about successful runs
-                "status": "success",
-                # pull as many results per page as possible
-                "per_page": request_page_size,
-                # filter to recent-enough runs
-                "created": f">={oldest_date_to_pull.strftime('%Y-%m-%d')}",
-            },
+            f"The oldest run of workflow '{workflow_id}' on branch '{target_branch}' was "
+            f"{days_since_oldest_run} days ago ({oldest_run.run_started_at}). Because that is less than "
+            f"'max-days-without-success = {max_days_without_success}' days, this workflow is exempted from "
+            "check-nightly-success. The check will start failing if there is not a successful run in "
+            "the next few days."
         )
+        return ExitCode.SUCCESS
 
-        print(
-            f"There were 0 successful runs of workflow '{workflow_id}' on branch '{target_branch}' in the last "
-            f"{max_days_without_success} days."
-        )
-        return ExitCode.FAILURE
+    # There isn't a recent-enough success and the branch isn't exempted... fail.
+    print(
+        f"There were 0 successful runs of workflow '{workflow_id}' on branch '{target_branch}' in the last "
+        f"{max_days_without_success} days."
+    )
+    return ExitCode.FAILURE
 
 
 if __name__ == "__main__":

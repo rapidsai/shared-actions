@@ -5,11 +5,12 @@
 import argparse
 import os
 import sys
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Constants
 GITHUB_TOKEN = os.environ["GH_TOKEN"]
@@ -45,44 +46,33 @@ class GitHubClient:
         retry_backoff_seconds: float,
         request_timeout_seconds: float,
     ) -> None:
-        self.max_retries = max_retries
         self.request_timeout_seconds = request_timeout_seconds
-        self.retry_backoff_seconds = retry_backoff_seconds
+        retry = Retry(
+            total=max_retries - 1,  # 1 initial attempt + (total) retries = max_retries attempts
+            backoff_factor=retry_backoff_seconds,
+            status_forcelist=(429, 500, 502, 503, 504),
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self._session = requests.Session()
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
     def __get_next_page(
         self,
         *,
         url: str,
         headers: dict[str, str],
-        params: dict[str, int | str],
+        params: dict[str, int | str] | None,
     ) -> _ResponseData:
         """Get one page of results"""
-        exceptions = []
-        for _ in range(self.max_retries):
-            try:
-                response = requests.get(
-                    url,
-                    headers=headers,
-                    params=params,
-                    timeout=self.request_timeout_seconds,
-                )
-                response.raise_for_status()
-                break
-            except requests.RequestException as e:
-                exceptions.append(str(e))
-                # simple backoff, without jitter, exponential backoff, etc., should be fine for this
-                time.sleep(self.retry_backoff_seconds)
-        else:
-            # this needs to be done outside the f-string to avoid:
-            # "Cannot use an escape sequence (backslash) in f-strings on Python 3.10 (syntax was added in Python 3.12)"
-            exception_text = "\n\t".join(exceptions)
-            msg = (
-                f"Failed to fetch {url} after {self.max_retries} attempts with the following "
-                f"errors: \n\t{exception_text}"
-            )
-            raise RuntimeError(msg)
+        response = self._session.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=self.request_timeout_seconds,
+        )
+        response.raise_for_status()
 
-        # if we get here, the request succeeded...return its data, in the format we want
         return _ResponseData(
             data=[
                 _WorkflowRun(

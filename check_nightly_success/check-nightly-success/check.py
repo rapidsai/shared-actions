@@ -50,7 +50,7 @@ class GitHubClient:
         retry = Retry(
             total=max_retries - 1,  # 1 initial attempt + (total) retries = max_retries attempts
             backoff_factor=retry_backoff_seconds,
-            status_forcelist=(429, 500, 502, 503, 504),
+            status_forcelist=(403, 404, 429, 500, 502, 503, 504),
         )
         adapter = HTTPAdapter(max_retries=retry)
         self._session = requests.Session()

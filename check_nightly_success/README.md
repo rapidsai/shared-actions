@@ -66,12 +66,7 @@ python ./check-nightly-success/check.py \
 
 That'll return exit code `1` and output similar to this:
 
-> RuntimeError: Failed to fetch https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs after 5 attempts with the following errors:
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
-        404 Client Error: Not Found for url: https://api.github.com/repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10
+> requests.exceptions.RetryError: HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: /repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10 (Caused by ResponseError('too many 404 error responses'))
 
 ### Case 3: Success on new branches with only very-recent runs
 

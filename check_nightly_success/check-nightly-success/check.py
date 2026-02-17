@@ -199,7 +199,7 @@ def main(
         },
     )
 
-    # 
+    #
     if not all_runs:
         print(
             f"There were 0 runs (successful or unsuccessful) of workflow '{workflow_id}' on branch "
@@ -215,12 +215,12 @@ def main(
             f"than {max_days_without_success} days ago. This exempts the workflow from "
             "check-nightly-success because the workflow has not been running for very long."
     else:
-        
+
 
     # if there were 0 successful runs, immediately exit with 1... by definition that means there
     # hasn't been a success in the last `max_days_without_success` days
     if not successful_runs:
-       
+
         successful_runs = client.get_all_runs(
             url=f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_id}/runs",
             headers={"Authorization": f"token {GITHUB_TOKEN}"},

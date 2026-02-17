@@ -216,13 +216,15 @@ def main(
     # If the oldest run on the branch was less than {max_days_without_success} ago, warn but allow the check to pass.
     oldest_run = min(all_runs, key=lambda r: r.run_started_at)
     days_since_oldest_run = (datetime.now(tz=timezone.utc) - oldest_run.run_started_at).days
+    print(
+        f"The oldest run of workflow '{workflow_id}' on branch '{target_branch}' was "
+        f"{days_since_oldest_run} days ago ({oldest_run.run_started_at})."
+    )
     if days_since_oldest_run < max_days_without_success:
         print(
-            f"The oldest run of workflow '{workflow_id}' on branch '{target_branch}' was "
-            f"{days_since_oldest_run} days ago ({oldest_run.run_started_at}). Because that is less than "
-            f"'max-days-without-success = {max_days_without_success}' days, this workflow is exempted from "
-            "check-nightly-success. The check will start failing if there is not a successful run in "
-            "the next few days."
+            f"Because the latest run was less than 'max-days-without-success = {max_days_without_success}' days ago, "
+            "this workflow is exempted from check-nightly-success. The check will start failing if there is not a "
+            "successful run in the next few days."
         )
         return ExitCode.SUCCESS
 

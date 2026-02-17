@@ -80,7 +80,7 @@ Branches with only very-recent runs should be exempted from the check.
 ```shell
 # NOTE: this example requires write access to 'rapidsai/ucxx'
 git clone -o upstream https://github.com/rapidsai/ucxx
-pushd./ucxx
+pushd ./ucxx
 git checkout -b delete-me
 git push upstream delete-me
 popd
@@ -94,7 +94,7 @@ gh workflow run \
     -f sha="$(git rev-parse HEAD)" \
     -f build_type=nightly
 
-# (MANUAL - go to https://github.com/rapidsai/ucxx/actions/runs/22109183034 and manuall cancel that run)
+# (MANUAL - go to https://github.com/rapidsai/ucxx/actions/runs/22109183034 and manually cancel that run)
 
 # run the check
 GH_TOKEN=$(gh auth token) \

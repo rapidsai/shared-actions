@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2025, NVIDIA CORPORATION.
+# Copyright (c) 2019-2026, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -247,7 +247,7 @@ def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     return parsed_stats
 
 
-def process_job_blob(  # noqa: PLR0913
+def process_job_blob(
     trace_id: int,
     job: Mapping[str, Any],
     env_vars: Mapping[str, str],

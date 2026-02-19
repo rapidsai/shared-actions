@@ -2,20 +2,21 @@ name: dispatch-check-nightly-success
 description: Clone shared-actions and dispatch to the check-nightly-success action.
 inputs:
   repo:
-    description: "The repository to check"
+    description: "Repository name with owner (e.g. 'rapidsai/cudf' not 'cudf')"
     required: true
     type: string
-  repo_owner:
-    description: "The org that owns the repo (default: rapidsai)"
-    required: false
-    default: "rapidsai"
+  target-branch:
+    description: |
+      Branch the pull request this is running on targets.
+      Only statuses of nightly runs on that branch will be considered.
+    required: true
     type: string
-  workflow_id:
+  workflow-id:
     description: "The workflow whose runs to check"
     required: false
     default: "test.yaml"
     type: string
-  max_days_without_success:
+  max-days-without-success:
     description: "The number of consecutive days that may go by without a successful CI run"
     required: false
     default: 7
@@ -34,6 +35,6 @@ runs:
       uses: ./shared-actions/check_nightly_success/check-nightly-success
       with:
         repo: ${{ inputs.repo }}
-        repo_owner: ${{ inputs.repo_owner }}
-        workflow_id: ${{ inputs.workflow_id }}
-        max_days_without_success: ${{ inputs.max_days_without_success }}
+        target-branch: ${{ inputs.target-branch }}
+        workflow-id: ${{ inputs.workflow-id }}
+        max-days-without-success: ${{ inputs.max-days-without-success }}

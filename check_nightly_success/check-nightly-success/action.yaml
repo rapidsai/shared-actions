@@ -1,24 +1,26 @@
 name: check-nightly-success
 description: Check if the nightlies have succeeded recently.
+
+# these inputs should all be 'required: true' without defaults... this action should only
+# ever be invoked by check_nightly_success/dispatch
 inputs:
   repo:
-    description: "The repository to check"
+    description: "Repository name with owner (e.g. 'rapidsai/cudf' not 'cudf')"
     required: true
     type: string
-  repo_owner:
-    description: "The org that owns the repo (default: rapidsai)"
-    required: false
-    default: "rapidsai"
+  target-branch:
+    description: |
+      Branch the pull request this is running on targets.
+      Only statuses of nightly runs on that branch will be considered.
+    required: true
     type: string
-  workflow_id:
+  workflow-id:
     description: "The workflow whose runs to check"
-    required: false
-    default: "test.yaml"
+    required: true
     type: string
-  max_days_without_success:
+  max-days-without-success:
     description: "The number of consecutive days that may go by without a successful CI run"
-    required: false
-    default: 7
+    required: true
     type: integer
 
 runs:
@@ -28,9 +30,15 @@ runs:
       shell: bash
       env:
         REPO: ${{ inputs.repo }}
-        REPO_OWNER: ${{ inputs.repo_owner }}
-        WORKFLOW_ID: ${{ inputs.workflow_id }}
-        MAX_DAYS_WITHOUT_SUCCESS: ${{ inputs.max_days_without_success }}
+        TARGET_BRANCH: ${{ inputs.target-branch }}
+        WORKFLOW_ID: ${{ inputs.workflow-id }}
+        MAX_DAYS_WITHOUT_SUCCESS: ${{ inputs.max-days-without-success }}
       run: |
-          python -m pip install requests
-          python shared-actions/check_nightly_success/check-nightly-success/check.py ${REPO} --repo-owner ${REPO_OWNER} --workflow-id ${WORKFLOW_ID} --max-days-without-success ${MAX_DAYS_WITHOUT_SUCCESS}
+          python -m pip install \
+            --prefer-binary \
+            'requests>=2.32.4'
+          python shared-actions/check_nightly_success/check-nightly-success/check.py \
+            --repo ${REPO} \
+            --branch ${TARGET_BRANCH} \
+            --workflow-id ${WORKFLOW_ID} \
+            --max-days-without-success ${MAX_DAYS_WITHOUT_SUCCESS}

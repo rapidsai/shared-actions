@@ -74,8 +74,9 @@ Branches with only very-recent runs should be exempted from the check.
 
 ```shell
 # NOTE: this example requires write access to 'rapidsai/ucxx'
-git clone -o upstream https://github.com/rapidsai/ucxx
-pushd ./ucxx
+TMP_UCXX=$(mktemp -d)
+git clone -o upstream https://github.com/rapidsai/ucxx "${TMP_UCXX}"
+pushd "${TMP_UCXX}"
 git checkout -b delete-me
 git push upstream delete-me
 popd

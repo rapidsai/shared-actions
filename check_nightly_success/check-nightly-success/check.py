@@ -57,7 +57,7 @@ class GitHubClient:
         self._session.mount("https://", adapter)
         self._session.mount("http://", adapter)
 
-    def __get_next_page(
+    def _get_next_page(
         self,
         *,
         url: str,
@@ -99,7 +99,7 @@ class GitHubClient:
         page_num = 1
         while True:
             print(f"requesting page {page_num} of results")
-            page = self.__get_next_page(
+            page = self._get_next_page(
                 url=url,
                 headers=headers,
                 params=params,

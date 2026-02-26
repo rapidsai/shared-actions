@@ -16,7 +16,7 @@ jobs:
         shell: bash
         run: echo "Dumbo" > file.txt
       - name: Upload dummy file
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: telemetry-tools-attrs-1234
           path: file.txt

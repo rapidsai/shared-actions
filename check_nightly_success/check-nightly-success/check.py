@@ -113,6 +113,37 @@ class GitHubClient:
             page_num += 1
         return data
 
+    def list_workflows(
+        self,
+        *,
+        repo: str,
+        headers: dict[str, str],
+        params: dict[str, int | str],
+    ) -> set[str]:
+        """List all the GitHub actions workflows for a repo"""
+        url = f"https://api.github.com/repos/{repo}/actions/workflows"
+        workflows: set[str] = set()
+        page_num = 1
+        while True:
+            print(f"requesting page {page_num} of workflows")
+            response = self._session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=self.request_timeout_seconds,
+            )
+            response.raise_for_status()
+            data = response.json()
+            for w in data.get("workflows"):
+                workflows.add(os.path.basename(w["path"]))
+            next_url = response.links.get("next", {}).get("url")
+            if next_url is None:
+                break
+            url = next_url
+            params = None  # type: ignore[assignment]
+            page_num += 1
+        return workflows
+
 
 def main(
     *,
@@ -148,6 +179,25 @@ def main(
         request_timeout_seconds=request_timeout_seconds,
         retry_backoff_seconds=retry_backoff_seconds,
     )
+
+    # repo does not even have this workflow - failure
+    workflows = client.list_workflows(
+        repo=repo,
+        headers={"Authorization": f"token {GITHUB_TOKEN}"},
+        params={
+            # pull as many results per page as possible
+            "per_page": request_page_size,
+        },
+    )
+    if workflow_id not in workflows:
+        print(
+            f"Repo '{repo}' either does not have a workflow called '{workflow_id}'. "
+            "or has not ever had a single run of that workflow. "
+            f"Add / run '{workflow_id}', then re-run this check."
+        )
+        return ExitCode.FAILURE
+
+    # recent-enough, successful run = success
     successful_runs = client.get_all_runs(
         url=f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_id}/runs",
         headers={"Authorization": f"token {GITHUB_TOKEN}"},
@@ -162,8 +212,6 @@ def main(
             "created": f">={oldest_date_to_pull.strftime('%Y-%m-%d')}",
         },
     )
-
-    # recent-enough, successful run = exit 0
     if successful_runs:
         most_recent_successful_run = max(successful_runs, key=lambda r: r.run_started_at)
         print(
@@ -173,12 +221,8 @@ def main(
         )
         return ExitCode.SUCCESS
 
-    # It's ok for there to be 0 successful runs if the branch is fairly new or the workflow hasn't been running on it
-    # very long.
-    #
-    # Code below looks for runs in the last `max_days_without_success * 2` days, to get an
-    # approximation of the entire history without having an unbounded "list all runs from all time" type of query
-    # (which could get expensive for very-active branches).
+    # Pull a wider window of runs (`max_days_without_success * 2` days), to enable
+    # checking if we're still within the new-branch grace period.
     lookback_days = max_days_without_success * 2
     oldest_date_to_pull = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     all_runs = client.get_all_runs(
@@ -194,16 +238,16 @@ def main(
         },
     )
 
-    # Fail if there have not been any runs at all (to avoid silently skipping this check).
+    # 0 runs at all in the window = success
+    # This prevent the check from blocking CI when development begins on a new branch.
     if not all_runs:
         print(
             f"There were 0 runs (successful or unsuccessful) of workflow '{workflow_id}' on branch "
-            f"'{target_branch}' in the last {lookback_days} days. "
-            "To resolve this, run the workflow at least once or increase 'max-days-without-success'."
+            f"'{target_branch}' in the previous {lookback_days} days."
         )
-        return ExitCode.FAILURE
+        return ExitCode.SUCCESS
 
-    # If the oldest run on the branch was less than {max_days_without_success} ago, warn but allow the check to pass.
+    # oldest run on the branch was less than {max_days_without_success} ago = success
     oldest_run = min(all_runs, key=lambda r: r.run_started_at)
     days_since_oldest_run = (datetime.now(tz=timezone.utc) - oldest_run.run_started_at).days
     print(
@@ -218,7 +262,7 @@ def main(
         )
         return ExitCode.SUCCESS
 
-    # There isn't a recent-enough success and the branch isn't exempted... fail.
+    # not a recent-enough success and the branch isn't exempted = failure
     print(
         f"There were 0 successful runs of workflow '{workflow_id}' on branch '{target_branch}' in the last "
         f"{max_days_without_success} days."

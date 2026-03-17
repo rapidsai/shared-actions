@@ -48,8 +48,8 @@ python ./check-nightly-success/check.py \
 
 If this succeeds, you'll see a `0` exit code and output text similar to the following:
 
-> Found 4 successful runs of workflow 'test.yaml' on branch 'main' in the previous 7 days (most recent: '2026-02-16 06:26:04+00:00'). View logs:
- - https://github.com/rapidsai/cudf/actions/runs/22052428055
+> Found 4 successful runs of workflow 'test.yaml' on branch 'main' in the previous 7 days (most recent: '2026-03-12 06:29:16+00:00'). View logs:
+ - https://github.com/rapidsai/cudf/actions/runs/22989549020
 
 ### Case 2: Fail when branch has 0 runs (of any status)
 
@@ -66,9 +66,28 @@ python ./check-nightly-success/check.py \
 
 That'll return exit code `1` and output similar to this:
 
-> requests.exceptions.RetryError: HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: /repos/rapidsai/build-planning/actions/workflows/test.yaml/runs?branch=main&status=success&per_page=100&created=%3E%3D2026-02-10 (Caused by ResponseError('too many 404 error responses'))
+> Repo 'rapidsai/build-planning' either does not have a workflow called 'test.yaml'. or has not ever had a single run of that workflow. Add / run 'test.yaml', then re-run this check.
 
-### Case 3: Success on new branches with only very-recent runs
+### Case 3: Succeed branches with 0 runs in the window.
+
+For repos where the workflow exists, a branch have 0 runs in the time window (regardless of status) is treated as a success.
+
+This prevents situations where this check blocks CI at the beginning of development
+on a new branch.
+
+```shell
+# intentionally using an archived repo to test this case
+GH_TOKEN=$(gh auth token) \
+python ./check-nightly-success/check.py \
+  --repo 'rapidsai/cuspatial' \
+  --branch 'release/26.04' \
+  --workflow-id 'test.yaml' \
+  --max-days-without-success 7
+```
+
+> There were 0 runs (successful or unsuccessful) of workflow 'test.yaml' on branch 'release/26.04' in the previous 14 days.
+
+### Case 4: Succeed on new branches with only very-recent runs
 
 Branches with only very-recent runs should be exempted from the check.
 
@@ -90,7 +109,7 @@ gh workflow run \
     -f sha="$(git rev-parse HEAD)" \
     -f build_type=nightly
 
-# (MANUAL - go to https://github.com/rapidsai/ucxx/actions/runs/22109183034 and manually cancel that run)
+# (MANUAL - go to https://github.com/rapidsai/ucxx/actions/workflows/test.yaml and manually cancel that run)
 
 # run the check
 GH_TOKEN=$(gh auth token) \
@@ -103,8 +122,8 @@ python ./check-nightly-success/check.py \
 
 That'll exit with code `0` and print something like this:
 
-> The oldest run of workflow 'test.yaml' on branch 'delete-me' was 0 days ago (2026-02-17 17:42:05+00:00).
-Because the latest run was less than 'max-days-without-success = 7' days ago, this workflow is exempted from check-nightly-success. The check will start failing if there is not a successful run in the next few days.
+> The oldest run of workflow 'test.yaml' on branch 'delete-me' was 0 days ago (2026-03-13 20:22:34+00:00).
+> Because the latest run was less than 'max-days-without-success = 7' days ago, this workflow is exempted from check-nightly-success. The check will start failing if there is not a successful run in the next few days.
 
 ### Other testing: pagination
 

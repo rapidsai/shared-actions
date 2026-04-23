@@ -24,6 +24,7 @@ runs:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
+        persist-credentials: false
     # This is necessary because this action will generally be run in a job separately from
     # where the env vars are set
     - name: Load base environment variables

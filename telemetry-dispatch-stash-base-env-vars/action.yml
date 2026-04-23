@@ -20,5 +20,6 @@ runs:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
+        persist-credentials: false
     - name: Stash base env vars
       uses: ./shared-actions/telemetry-impls/stash-base-env-vars

@@ -31,6 +31,7 @@ runs:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
+        persist-credentials: false
     - name: Run check-nightly-success
       uses: ./shared-actions/check_nightly_success/check-nightly-success
       with:

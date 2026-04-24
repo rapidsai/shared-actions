@@ -27,5 +27,7 @@ runs:
         echo JOB_NAME="$(cat job_info.json | jq -r '.name')" >> ${GITHUB_OUTPUT};
     - shell: bash
       id: set-otel-service-name-env
-      run: |
-        echo OTEL_SERVICE_NAME="${{ steps.get-job-name.outputs.JOB_NAME }}" >> ${GITHUB_ENV};
+      env:
+        JOB_NAME: ${{ steps.get-job-name.outputs.JOB_NAME }}
+      run: | # zizmor: ignore[github-env]
+        printf 'OTEL_SERVICE_NAME=%s\n' "$(printf '%s' "${JOB_NAME}" | tr -d '\n')" >> ${GITHUB_ENV};

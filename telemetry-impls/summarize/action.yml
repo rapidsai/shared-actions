@@ -34,13 +34,13 @@ runs:
 
     - name: Run parse and send trace/spans to endpoint
       shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env]
         OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-${GITHUB_WORKFLOW}-${GITHUB_REPOSITORY#*/}}
         export OTEL_SERVICE_NAME
-        echo "OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME}" >> $GITHUB_ENV
+        printf 'OTEL_SERVICE_NAME=%s\n' "$(printf '%s' "${OTEL_SERVICE_NAME}" | tr -d '\n')" >> $GITHUB_ENV
         TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${OTEL_SERVICE_NAME}")
         export TRACEPARENT
-        echo "TRACEPARENT=${TRACEPARENT}" >> $GITHUB_ENV
+        printf 'TRACEPARENT=%s\n' "$(printf '%s' "${TRACEPARENT}" | tr -d '\n')" >> $GITHUB_ENV
 
         ls -lR telemetry-artifacts
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py

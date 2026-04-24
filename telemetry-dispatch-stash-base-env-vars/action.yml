@@ -15,10 +15,11 @@ runs:
     # We can't use the load-then-clone action because the env vars file
     # that it needs is something that we create here.
     - name: Clone shared-actions repo
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
+        persist-credentials: false
     - name: Stash base env vars
       uses: ./shared-actions/telemetry-impls/stash-base-env-vars

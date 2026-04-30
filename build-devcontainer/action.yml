@@ -1,4 +1,4 @@
-name: "build-devcontainer-image"
+name: "build-devcontainer"
 
 description: "Build devcontainer image"
 
@@ -30,13 +30,13 @@ runs:
   using: composite
   steps:
     - name: Setup Node.js
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
       with:
         node-version: '24'
 
     - if: runner.environment != 'self-hosted'
       name: Set up QEMU
-      uses: docker/setup-qemu-action@v4
+      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
 
     - name: Create docker context
       shell: bash
@@ -44,13 +44,13 @@ runs:
 
     - if: runner.environment != 'self-hosted'
       name: Setup docker buildx on github-hosted runners
-      uses: docker/setup-buildx-action@v4
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       with:
         endpoint: builder
 
     - if: runner.environment == 'self-hosted'
       name: Setup docker buildx on self-hosted runners
-      uses: docker/setup-buildx-action@v4
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       with:
         buildkitd-config: /etc/buildkit/buildkitd.toml
         buildkitd-flags: --config /etc/buildkit/buildkitd.toml
@@ -58,7 +58,7 @@ runs:
 
     - if: runner.environment == 'self-hosted'
       name: Setup proxy cache
-      uses: nv-gha-runners/setup-proxy-cache@main
+      uses: nv-gha-runners/setup-proxy-cache@c5e8f6fd27b493abfd6af230e6a5d4bf43d1d766
       continue-on-error: true
       with:
         enable-apt: true

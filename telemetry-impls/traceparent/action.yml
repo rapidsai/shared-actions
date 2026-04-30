@@ -41,6 +41,7 @@ runs:
 
     - shell: bash
       id: shell
-      run: |
-        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")" >> ${GITHUB_OUTPUT}
-        echo "TRACEPARENT=$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")" >> ${GITHUB_ENV}
+      run: | # zizmor: ignore[github-env]
+        TRACEPARENT="$(rapids-get-telemetry-traceparent "${OTEL_SERVICE_NAME}")"
+        printf 'TRACEPARENT=%s\n' "${TRACEPARENT}" >> ${GITHUB_OUTPUT}
+        printf 'TRACEPARENT=%s\n' "${TRACEPARENT}" >> ${GITHUB_ENV}

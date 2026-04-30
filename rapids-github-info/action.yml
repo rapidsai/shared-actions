@@ -28,15 +28,21 @@ runs:
     - name: Standardize repository information
       id: standardize-repo-info
       shell: bash
-      run: |
-        echo "RAPIDS_REPOSITORY=${{ inputs.repo || github.repository }}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
-        sha="${{ inputs.sha }}"
+      run: | # zizmor: ignore[github-env]
+        printf 'RAPIDS_REPOSITORY=%s\n' "$(printf '%s' "${INPUTS_REPO}" | tr -d '\n')" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
+        sha="${INPUTS_SHA}"
         if [[ "${sha}" == "" ]]; then
           sha=$(git rev-parse HEAD)
         fi
-        echo "RAPIDS_SHA=${sha}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
-        echo "RAPIDS_REF_NAME=${{ inputs.branch || github.ref_name }}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
-        echo "RAPIDS_NIGHTLY_DATE=${{ inputs.date }}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
-        if [[ -n "${{ inputs.build_workflow_name }}" ]]; then
-          echo "RAPIDS_BUILD_WORKFLOW_NAME=${{ inputs.build_workflow_name }}" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
+        printf 'RAPIDS_SHA=%s\n' "$(printf '%s' "${sha}" | tr -d '\n')" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
+        printf 'RAPIDS_REF_NAME=%s\n' "$(printf '%s' "${INPUTS_BRANCH}" | tr -d '\n')" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
+        printf 'RAPIDS_NIGHTLY_DATE=%s\n' "$(printf '%s' "${INPUTS_DATE}" | tr -d '\n')" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
+        if [[ -n "${INPUTS_BUILD_WORKFLOW_NAME}" ]]; then
+          printf 'RAPIDS_BUILD_WORKFLOW_NAME=%s\n' "$(printf '%s' "${INPUTS_BUILD_WORKFLOW_NAME}" | tr -d '\n')" | tee --append "${GITHUB_ENV}" "${GITHUB_OUTPUT}"
         fi
+      env:
+        INPUTS_REPO: ${{ inputs.repo || github.repository }}
+        INPUTS_BRANCH: ${{ inputs.branch || github.ref_name }}
+        INPUTS_SHA: ${{ inputs.sha }}
+        INPUTS_DATE: ${{ inputs.date }}
+        INPUTS_BUILD_WORKFLOW_NAME: ${{ inputs.build_workflow_name }}

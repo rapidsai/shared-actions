@@ -6,7 +6,7 @@ runs:
   using: 'composite'
   steps:
     - name: Setup python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
       with:
         python-version: 3.11
         cache: 'pip'
@@ -20,13 +20,13 @@ runs:
       with:
         all_jobs: true
     - name: Upload job JSON file if debugging
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       if: runner.debug == '1'
       with:
         name: telemetry-tools-all_jobs.json
         path: all_jobs.json
     # This downloads ALL of the files that we have collected from each job.
-    - uses: actions/download-artifact@v8
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
       with:
         path: telemetry-artifacts
         pattern: telemetry-tools-*
@@ -34,13 +34,13 @@ runs:
 
     - name: Run parse and send trace/spans to endpoint
       shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env]
         OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-${GITHUB_WORKFLOW}-${GITHUB_REPOSITORY#*/}}
         export OTEL_SERVICE_NAME
-        echo "OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME}" >> $GITHUB_ENV
+        printf 'OTEL_SERVICE_NAME=%s\n' "$(printf '%s' "${OTEL_SERVICE_NAME}" | tr -d '\n')" >> $GITHUB_ENV
         TRACEPARENT=$(./shared-actions/telemetry-impls/traceparent.sh "${OTEL_SERVICE_NAME}")
         export TRACEPARENT
-        echo "TRACEPARENT=${TRACEPARENT}" >> $GITHUB_ENV
+        printf 'TRACEPARENT=%s\n' "$(printf '%s' "${TRACEPARENT}" | tr -d '\n')" >> $GITHUB_ENV
 
         ls -lR telemetry-artifacts
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py

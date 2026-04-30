@@ -51,9 +51,11 @@ runs:
         SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE: "${{inputs.fallback-to-local-compile}}"
         SCCACHE_DIST_MAX_RETRIES: "${{inputs.max-retries}}"
         SCCACHE_DIST_REQUEST_TIMEOUT: "${{inputs.request-timeout}}"
-      run: |
+        GHA_RUN_ID: "${{github.run_id}}"
+        GHA_RUN_ATTEMPT: "${{github.run_attempt}}"
+      run: | # zizmor: ignore[github-env]
         cat <<EOF | tee -a "$GITHUB_ENV"
-        GHA_CACHE_SLUG=${{github.run_id}}-${{github.run_attempt}}-$RANDOM
+        GHA_CACHE_SLUG=${GHA_RUN_ID}-${GHA_RUN_ATTEMPT}-$RANDOM
         SCCACHE_REPO=$SCCACHE_REPO
         SCCACHE_VERSION=$SCCACHE_VERSION
         SCCACHE_ERROR_LOG=$SCCACHE_ERROR_LOG

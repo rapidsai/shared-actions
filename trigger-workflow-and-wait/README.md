@@ -113,3 +113,9 @@ You can see the example [here](https://github.com/keithconvictional/trigger-work
     echo "For testing failure"
     exit 1
 ```
+
+## History
+
+> [!NOTE]
+> This action contains RAPIDs-specific commits on top of the archived project `convictional/trigger-workflow-and-wait` [link](https://github.com/convictional/trigger-workflow-and-wait).
+> For details, see https://github.com/rapidsai/workflows/issues/118

@@ -1,4 +1,4 @@
-name: 'Github Actions Job info'
+name: 'GitHub Actions Job info'
 description: |
   Obtains job metadata from the GitHub Actions API.
   Provides one of two files on disk:

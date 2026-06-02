@@ -1,24 +1,22 @@
 # Trigger Workflow and Wait
 
-Github Action for trigger a workflow from another workflow. The action then waits for a response.
+GitHub Action for trigger a workflow from another workflow. The action then waits for a response.
 
-## Arguments
+## Inputs
 
-| Argument Name            | Required   | Default     | Description           |
+| Input Name            | Required   | Default     | Description           |
 | ---------------------    | ---------- | ----------- | --------------------- |
 | `owner`                  | True       | N/A         | The owner of the repository where the workflow is contained. |
 | `repo`                   | True       | N/A         | The repository where the workflow is contained. |
-| `github_token`           | True       | N/A         | The Github access token with access to the repository. Its recommended you put it under secrets. |
+| `github_token`           | True       | N/A         | The GitHub access token with access to the repository. Its recommended you put it under secrets. |
 | `workflow_file_name`     | True       | N/A         | The reference point. For example, you could use main.yml. |
-| `github_user`            | False      | N/A         | The name of the github user whose access token is being used to trigger the workflow. |
+| `github_user`            | False      | N/A         | The name of the GitHub user whose access token is being used to trigger the workflow. |
 | `ref`                    | False      | main        | The reference of the workflow run. The reference can be a branch, tag, or a commit SHA. |
 | `wait_interval`          | False      | 10          | The number of seconds delay between checking for result of run. |
 | `client_payload`         | False      | `{}`        | Payload to pass to the workflow, must be a JSON string |
 | `propagate_failure`      | False      | `true`      | Fail current job if downstream job fails. |
 | `trigger_workflow`       | False      | `true`      | Trigger the specified workflow. |
 | `wait_workflow`          | False      | `true`      | Wait for workflow to finish. |
-| `comment_downstream_url` | False      | ``          | A comments API URL to comment the current downstream job URL to. Default: no comment |
-| `comment_github_token`   | False      | `${{github.token}}`          | token used for pull_request comments |
 | `summarize`              | False      | `false`     | Print downstream job URL and ID to workflow job summary |
 
 ## Example
@@ -67,5 +65,5 @@ bash entrypoint.sh
 ## History
 
 > [!NOTE]
-> This action contains RAPIDs-specific commits on top of the archived project `convictional/trigger-workflow-and-wait` [link](https://github.com/convictional/trigger-workflow-and-wait).
+> This action contains NVIDIA-specific commits on top of the archived project `convictional/trigger-workflow-and-wait` [link](https://github.com/convictional/trigger-workflow-and-wait).
 > For details, see https://github.com/rapidsai/workflows/issues/118

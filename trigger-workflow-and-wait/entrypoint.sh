@@ -5,7 +5,8 @@ set -e
 
 usage_docs() {
   echo ""
-  echo "You can use this Github Action with:"
+  echo "Usage:"
+  echo ""
   echo "- uses: rapidsai/shared-actions/trigger-workflow-and-wait"
   echo "  with:"
   echo "    owner: rapidsai"
@@ -49,30 +50,28 @@ validate_args() {
 
   if [ -z "${INPUT_OWNER}" ]
   then
-    echo "Error: Owner is a required argument."
+    echo "Error: 'owner' input is required."
     usage_docs
     exit 1
   fi
 
   if [ -z "${INPUT_REPO}" ]
   then
-    echo "Error: Repo is a required argument."
+    echo "Error: 'repo' input is required."
     usage_docs
     exit 1
   fi
 
   if [ -z "${INPUT_GITHUB_TOKEN}" ]
   then
-    echo "Error: Github token is required. You can head over settings and"
-    echo "under developer, you can create a personal access tokens. The"
-    echo "token requires repo access."
+    echo "Error: 'github_token' input is required."
     usage_docs
     exit 1
   fi
 
   if [ -z "${INPUT_WORKFLOW_FILE_NAME}" ]
   then
-    echo "Error: Workflow File Name is required"
+    echo "Error: 'workflow_file_name' input is required."
     usage_docs
     exit 1
   fi
@@ -90,6 +89,7 @@ validate_args() {
   fi
 }
 
+# shellcheck disable=SC2329
 lets_wait() {
   echo "Sleeping for ${wait_interval} seconds"
   sleep "$wait_interval"
@@ -161,41 +161,25 @@ trigger_workflow() {
   join -v2 <(echo "$OLD_RUNS") <(echo "$NEW_RUNS")
 }
 
-comment_downstream_link() {
-  if response=$(curl --fail-with-body -sSL -X POST \
-      "${INPUT_COMMENT_DOWNSTREAM_URL}" \
-      -H "Authorization: Bearer ${INPUT_COMMENT_GITHUB_TOKEN}" \
-      -H 'Accept: application/vnd.github.v3+json' \
-      -d "{\"body\": \"Running downstream job at $1\"}")
-  then
-    echo "$response"
-  else
-    echo >&2 "failed to comment to ${INPUT_COMMENT_DOWNSTREAM_URL}:"
-  fi
-}
-
 wait_for_workflow_to_finish() {
   last_workflow_id=${1:?}
   last_workflow_url="${GITHUB_SERVER_URL}/${INPUT_OWNER}/${INPUT_REPO}/actions/runs/${last_workflow_id}"
 
   echo "Waiting for workflow to finish:"
-  echo "The workflow id is [${last_workflow_id}]."
-  echo "The workflow logs can be found at ${last_workflow_url}"
-  echo "workflow_id=${last_workflow_id}" >> $GITHUB_OUTPUT
-  echo "workflow_url=${last_workflow_url}" >> $GITHUB_OUTPUT
+  echo "workflow id: [${last_workflow_id}]"
+  echo "workflow logs: ${last_workflow_url}"
+  echo "workflow_id=${last_workflow_id}" >> "${GITHUB_OUTPUT}"
+  echo "workflow_url=${last_workflow_url}" >> "${GITHUB_OUTPUT}"
   echo ""
-
-  if [ -n "${INPUT_COMMENT_DOWNSTREAM_URL}" ]; then
-    comment_downstream_link ${last_workflow_url}
-  fi
 
   if [ "${summarize}" = true ]
   then
-    echo "| | |" >> $GITHUB_STEP_SUMMARY
-    echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
-    echo "| Workflow URL | <${last_workflow_url}> |" >> $GITHUB_STEP_SUMMARY
-    echo "| Workflow ID | ${last_workflow_id} |" >> $GITHUB_STEP_SUMMARY
-    echo "| | |" >> $GITHUB_STEP_SUMMARY
+    # shellcheck disable=SC2129
+    echo "| | |" >> "${GITHUB_STEP_SUMMARY}"
+    echo "| --- | --- |" >> "${GITHUB_STEP_SUMMARY}"
+    echo "| Workflow URL | <${last_workflow_url}> |" >> "${GITHUB_STEP_SUMMARY}"
+    echo "| Workflow ID | ${last_workflow_id} |" >> "${GITHUB_STEP_SUMMARY}"
+    echo "| | |" >> "${GITHUB_STEP_SUMMARY}"
   fi
 
   conclusion=null
@@ -212,15 +196,15 @@ wait_for_workflow_to_finish() {
     echo "Checking conclusion [${conclusion}]"
     echo "Checking status [${status}]"
     echo "Workflow logs: ${last_workflow_url}"
-    echo "conclusion=${conclusion}" >> $GITHUB_OUTPUT
+    echo "conclusion=${conclusion}" >> "${GITHUB_OUTPUT}"
   done
 
   if [[ "${conclusion}" == "success" && "${status}" == "completed" ]]
   then
-    echo "Yes, success"
+    echo "Workflow succeeded."
   else
     # Alternative "failure"
-    echo "Conclusion is not success, it's [${conclusion}]."
+    echo "Conclusion is not 'success', it's [${conclusion}]."
 
     if [ "${propagate_failure}" = true ]
     then

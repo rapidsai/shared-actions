@@ -4,20 +4,20 @@ GitHub Action for trigger a workflow from another workflow. The action then wait
 
 ## Inputs
 
-| Input Name            | Required   | Default     | Description           |
-| ---------------------    | ---------- | ----------- | --------------------- |
-| `owner`                  | True       | N/A         | The owner of the repository where the workflow is contained. |
-| `repo`                   | True       | N/A         | The repository where the workflow is contained. |
-| `github_token`           | True       | N/A         | The GitHub access token with access to the repository. Its recommended you put it under secrets. |
-| `workflow_file_name`     | True       | N/A         | The reference point. For example, you could use main.yml. |
-| `github_user`            | False      | N/A         | The name of the GitHub user whose access token is being used to trigger the workflow. |
-| `ref`                    | False      | main        | The reference of the workflow run. The reference can be a branch, tag, or a commit SHA. |
-| `wait_interval`          | False      | 10          | The number of seconds delay between checking for result of run. |
-| `client_payload`         | False      | `{}`        | Payload to pass to the workflow, must be a JSON string |
-| `propagate_failure`      | False      | `true`      | Fail current job if downstream job fails. |
-| `trigger_workflow`       | False      | `true`      | Trigger the specified workflow. |
-| `wait_workflow`          | False      | `true`      | Wait for workflow to finish. |
-| `summarize`              | False      | `false`     | Print downstream job URL and ID to workflow job summary |
+| Input Name           | Required | Default | Description                                                                                            |
+| -------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `owner`              | True     | N/A     | Owner of the repository where the workflow is contained.                                               |
+| `repo`               | True     | N/A     | Repository where the workflow is contained.                                                            |
+| `github_token`       | True     | N/A     | GitHub access token with access to the repository. It is recommended you put this token under secrets. |
+| `workflow_file_name` | True     | N/A     | File in .github/workflows to run (e.g. 'build.yaml')                                                   |
+| `github_user`        | False    | N/A     | GitHub user whose access token is being used to trigger the workflow.                                  |
+| `ref`                | False    | main    | git reference (e.g. branch, tag, or commit SHA) for the workflow run.                                  |
+| `wait_interval`      | False    | 10      | Delay (in seconds) between checks for result of run.                                                   |
+| `client_payload`     | False    | `{}`    | Payload to pass to the workflow, must be a JSON string                                                 |
+| `propagate_failure`  | False    | `true`  | Fail current job if downstream job fails.                                                              |
+| `trigger_workflow`   | False    | `true`  | Trigger the specified workflow.                                                                        |
+| `wait_workflow`      | False    | `true`  | Wait for workflow to finish.                                                                           |
+| `summarize`          | False    | `false` | Print downstream job URL and ID to workflow job summary.                                               |
 
 ## Example
 

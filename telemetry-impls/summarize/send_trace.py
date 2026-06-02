@@ -80,7 +80,7 @@ def parse_attributes(attrs: os.PathLike | str | None) -> dict[str, str]:
 
 
 def date_str_to_epoch(date_str: str, value_if_not_set: int | None = 0) -> int:
-    """Github logs come in RFC 3339; this converts to nanoseconds since epoch."""
+    """GitHub logs come in RFC 3339; this converts to nanoseconds since epoch."""
     if date_str:
         # replace bit is to attach the UTC timezone to our datetime object, so
         # that it doesn't "help" us by adjusting our string value, which is

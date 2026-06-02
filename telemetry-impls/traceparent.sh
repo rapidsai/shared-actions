@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 # This emits a TRACEPARENT, which follows the w3c trace context standard.
 # https://www.w3.org/TR/trace-context/
 #
@@ -21,8 +23,6 @@ if [ "$JOB_NAME" = "" ]; then
     echo "ERROR: JOB_NAME (first parameter) is empty. This means your trace doesn't identify anything."
     exit 1
 fi
-
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 sha="$(echo "${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}" | sha256sum | cut -f1 -d' ')"
 TRACE_ID="${sha:0:32}"

@@ -2,11 +2,6 @@
 
 Github Action for trigger a workflow from another workflow. The action then waits for a response.
 
-**When would you use it?**
-
-When deploying an app you may need to deploy additional services, this Github Action helps with that.
-
-
 ## Arguments
 
 | Argument Name            | Required   | Default     | Description           |
@@ -26,92 +21,47 @@ When deploying an app you may need to deploy additional services, this Github Ac
 | `comment_github_token`   | False      | `${{github.token}}`          | token used for pull_request comments |
 | `summarize`              | False      | `false`     | Print downstream job URL and ID to workflow job summary |
 
-
 ## Example
 
-### Simple
+From https://github.com/rapidsai/workflows
 
 ```yaml
-- uses: convictional/trigger-workflow-and-wait@v1.6.1
+- uses: rapidsai/shared-actions/trigger-workflow-and-wait@main
   with:
-    owner: keithconvictional
-    repo: myrepo
-    github_token: ${{ secrets.GITHUB_PERSONAL_ACCESS_TOKEN }}
-```
-
-### All Options
-
-```yaml
-- uses: convictional/trigger-workflow-and-wait@v1.6.1
-  with:
-    owner: keithconvictional
-    repo: myrepo
-    github_token: ${{ secrets.GITHUB_PERSONAL_ACCESS_TOKEN }}
-    github_user: github-user
-    workflow_file_name: main.yml
-    ref: release-branch
-    wait_interval: 10
-    client_payload: '{}'
-    propagate_failure: false
+    owner: rapidsai
+    repo: rmm
+    github_token: ${{ secrets.WORKFLOW_TOKEN }}
+    github_user: GPUtester
+    workflow_file_name: build.yaml
+    ref: ${{ fromJSON(needs.get-run-info.outputs.obj).branch }}
+    wait_interval: 120
+    client_payload: ${{ toJSON(fromJSON(needs.get-run-info.outputs.obj).payloads.rmm) }}
+    propagate_failure: true
     trigger_workflow: true
     wait_workflow: true
 ```
 
-### Comment the current running workflow URL for a PR
-
-```yaml
-- uses: convictional/trigger-workflow-and-wait@v1.6.1
-  with:
-    owner: keithconvictional
-    repo: myrepo
-    github_token: ${{ secrets.GITHUB_PERSONAL_ACCESS_TOKEN }}
-    comment_downstream_url: ${{ github.event.pull_request.comments_url }}
-```
-
 ## Testing
 
-You can test out the action locally by cloning the repository to your computer. You can run:
+To test locally:
 
 ```shell
-INPUT_OWNER="keithconvictional" \
-INPUT_REPO="myrepo" \
-INPUT_GITHUB_TOKEN="<REDACTED>" \
-INPUT_GITHUB_USER="github-user" \
-INPUT_WORKFLOW_FILE_NAME="main.yml" \
-INPUT_REF="release-branch" \
+INPUT_OWNER="rapidsai" \
+INPUT_REPO="rmm" \
+INPUT_GITHUB_TOKEN="$(gh auth token)" \
+INPUT_GITHUB_USER="GPUtester" \
+INPUT_WORKFLOW_FILE_NAME="build.yaml" \
+INPUT_REF="main" \
 INPUT_WAIT_INTERVAL=10 \
-INPUT_CLIENT_PAYLOAD='{}' \
-INPUT_PROPAGATE_FAILURE=false \
+INPUT_CLIENT_PAYLOAD="{
+    \"branch\": \"main\",
+    \"date\": \"$(date +%Y-%m-%d)\",
+    \"sha\": \"$(git ls-remote https://github.com/rapidsai/rmm.git refs/heads/main | cut -f1)\"
+}" \
+INPUT_PROPAGATE_FAILURE=true \
 INPUT_TRIGGER_WORKFLOW=true \
 INPUT_WAIT_WORKFLOW=true \
-busybox sh entrypoint.sh
-```
-
-You will have to create a Github Personal access token. You can create a test workflow to be executed. In a repository, add a new `main.yml` to `.github/workflows/`. The workflow will be:
-
-```shell
-name: Main
-on:
-  workflow_dispatch
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@master
-      - name: Pause for 25 seconds
-        run: |
-          sleep 25
-```
-
-You can see the example [here](https://github.com/keithconvictional/trigger-workflow-and-wait-example-repo1/blob/master/.github/workflows/main.yml). For testing a failure case, just add this line after the sleep:
-
-```yaml
-...
-- name: Pause for 25 seconds
-  run: |
-    sleep 25
-    echo "For testing failure"
-    exit 1
+bash entrypoint.sh
 ```
 
 ## History

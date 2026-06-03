@@ -1,4 +1,4 @@
-FROM alpine:3.15.0
+FROM alpine:3.23.4
 
 RUN <<EOF
 apk update

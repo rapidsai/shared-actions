@@ -36,7 +36,7 @@ runs:
   steps:
     - name: Get PR info
       id: get-pr-info
-      uses: nv-gha-runners/get-pr-info@main
+      uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
     - name: Fetch changed files
       shell: bash
       env:
@@ -45,7 +45,7 @@ runs:
         git fetch --depth 1 origin "$BASE_SHA"
     - name: Get changed files
       id: changed-files
-      uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
+      uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
       with:
         base_sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
         sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).head.sha }}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# Copyright (c) 2024-2026, NVIDIA CORPORATION.
 
 # This script is meant to act on an 'all_jobs.json' file that comes from
 # the summarize job when debug info is enabled. Bumping the time makes
@@ -14,12 +14,12 @@ with open("all_jobs.json") as f:
 
 
 def _parse_time(x: str) -> int:
-    return int(datetime.datetime.strptime(x, "%Y-%m-%dT%H:%M:%SZ").timestamp() * 1e9)
+    return int(datetime.datetime.strptime(x, "%Y-%m-%dT%H:%M:%SZ").timestamp() * 1e9)  # noqa: DTZ007
 
 
 start_time = _parse_time(jobs[0]["created_at"])
 needed_time = _parse_time(jobs[-3]["completed_at"]) - _parse_time(jobs[0]["created_at"])
-new_start_time = datetime.datetime.utcnow() - datetime.timedelta(minutes=60)
+new_start_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=60)
 
 for idx, job in enumerate(jobs):
     if job["created_at"]:

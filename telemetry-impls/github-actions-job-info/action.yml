@@ -1,4 +1,4 @@
-name: 'Github Actions Job info'
+name: 'GitHub Actions Job info'
 description: |
   Obtains job metadata from the GitHub Actions API.
   Provides one of two files on disk:
@@ -18,7 +18,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/github-script@v7
+    - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
       id: get-job-info
       env:
         ALL_JOBS: "${{ inputs.all_jobs }}"

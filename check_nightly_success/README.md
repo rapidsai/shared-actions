@@ -1,0 +1,140 @@
+# check_nightly_success
+
+Action that can be used to fail CI if a given GitHub Actions workflow hasn't had at least 1 recent succcessful run.
+
+Add it to any GitHub Actions workflow configuration like this:
+
+```yaml
+  check-nightly-ci:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Get PR Info
+        id: get-pr-info
+        uses: nv-gha-runners/get-pr-info@main
+      - name: Check if nightly CI is passing
+        uses: rapidsai/shared-actions/check_nightly_success/dispatch@main
+        with:
+          repo: ${{ github.repository }}
+          target-branch: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.ref }}
+          workflow-id: 'test.yaml'
+          max-days-without-success: 7
+```
+
+## Testing
+
+The code for the actions is implemented in Python.
+
+### Case 1: Succeed on recent nightly test successes
+
+Try the following locally to test it.
+
+```shell
+python -m venv .venv/
+source .venv/bin/activate
+python -m pip install requests
+
+GH_TOKEN=$(gh auth token) \
+python ./check-nightly-success/check.py \
+  --repo 'rapidsai/cudf' \
+  --branch 'main' \
+  --workflow-id 'test.yaml' \
+  --max-days-without-success 7
+```
+
+If this succeeds, you'll see a `0` exit code and output text similar to the following:
+
+> Found 4 successful runs of workflow 'test.yaml' on branch 'main' in the previous 7 days (most recent: '2026-03-12 06:29:16+00:00'). View logs:
+ - https://github.com/rapidsai/cudf/actions/runs/22989549020
+
+### Case 2: Fail when branch has 0 runs (of any status)
+
+The check should fail on a repo without any runs of this workflow:
+
+```shell
+GH_TOKEN=$(gh auth token) \
+python ./check-nightly-success/check.py \
+  --repo 'rapidsai/build-planning' \
+  --branch 'main' \
+  --workflow-id 'test.yaml' \
+  --max-days-without-success 7
+```
+
+That'll return exit code `1` and output similar to this:
+
+> Repo 'rapidsai/build-planning' either does not have a workflow called 'test.yaml'. or has not ever had a single run of that workflow. Add / run 'test.yaml', then re-run this check.
+
+### Case 3: Succeed branches with 0 runs in the window.
+
+For repos where the workflow exists, a branch have 0 runs in the time window (regardless of status) is treated as a success.
+
+This prevents situations where this check blocks CI at the beginning of development
+on a new branch.
+
+```shell
+# intentionally using an archived repo to test this case
+GH_TOKEN=$(gh auth token) \
+python ./check-nightly-success/check.py \
+  --repo 'rapidsai/cuspatial' \
+  --branch 'release/26.04' \
+  --workflow-id 'test.yaml' \
+  --max-days-without-success 7
+```
+
+> There were 0 runs (successful or unsuccessful) of workflow 'test.yaml' on branch 'release/26.04' in the previous 14 days.
+
+### Case 4: Succeed on new branches with only very-recent runs
+
+Branches with only very-recent runs should be exempted from the check.
+
+```shell
+# NOTE: this example requires write access to 'rapidsai/ucxx'
+TMP_UCXX=$(mktemp -d)
+git clone -o upstream https://github.com/rapidsai/ucxx "${TMP_UCXX}"
+pushd "${TMP_UCXX}"
+git checkout -b delete-me
+git push upstream delete-me
+popd
+
+gh workflow run \
+    --repo rapidsai/ucxx \
+    --ref delete-me \
+    test.yaml \
+    -f branch="delete-me" \
+    -f date="$(date +%Y-%m-%d)" \
+    -f sha="$(git rev-parse HEAD)" \
+    -f build_type=nightly
+
+# (MANUAL - go to https://github.com/rapidsai/ucxx/actions/workflows/test.yaml and manually cancel that run)
+
+# run the check
+GH_TOKEN=$(gh auth token) \
+python ./check-nightly-success/check.py \
+  --repo 'rapidsai/ucxx' \
+  --branch 'delete-me' \
+  --workflow-id 'test.yaml' \
+  --max-days-without-success 7
+```
+
+That'll exit with code `0` and print something like this:
+
+> The oldest run of workflow 'test.yaml' on branch 'delete-me' was 0 days ago (2026-03-13 20:22:34+00:00).
+> Because the latest run was less than 'max-days-without-success = 7' days ago, this workflow is exempted from check-nightly-success. The check will start failing if there is not a successful run in the next few days.
+
+### Other testing: pagination
+
+Set `--request-page-size` to `1` to test that pagination is working.
+
+```shell
+GH_TOKEN=$(gh auth token) \
+python ./check-nightly-success/check.py \
+  --repo 'rapidsai/cudf' \
+  --branch 'main' \
+  --workflow-id 'test.yaml' \
+  --max-days-without-success 30 \
+  --request-page-size 5
+```

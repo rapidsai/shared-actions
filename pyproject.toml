@@ -1,4 +1,4 @@
-# Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# Copyright (c) 2024-2026, NVIDIA CORPORATION.
 
 [tool.ruff]
 line-length = 120
@@ -6,6 +6,10 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = [
+    # flake8-bugbear
+    "B",
+    # flake8-datetimez
+    "DTZ",
     # pycodestyle
     "E",
     # pyflakes
@@ -14,10 +18,18 @@ select = [
     "I",
     # numpy
     "NPY",
+    # perflint
+    "PERF",
+    # flake8-pie
+    "PIE",
+    # flake8-return
+    "RET",
+    # ruff-exclusive checks
+    "RUF",
     # pyupgrade
     "UP",
-    # flake8-bugbear
-    "B"
+    # flake8-bandit
+    "S",
 ]
 ignore = [
     # Incompatible with D211

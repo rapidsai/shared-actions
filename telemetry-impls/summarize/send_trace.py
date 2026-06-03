@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2025, NVIDIA CORPORATION.
+# Copyright (c) 2019-2026, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -80,7 +80,7 @@ def parse_attributes(attrs: os.PathLike | str | None) -> dict[str, str]:
 
 
 def date_str_to_epoch(date_str: str, value_if_not_set: int | None = 0) -> int:
-    """Github logs come in RFC 3339; this converts to nanoseconds since epoch."""
+    """GitHub logs come in RFC 3339; this converts to nanoseconds since epoch."""
     if date_str:
         # replace bit is to attach the UTC timezone to our datetime object, so
         # that it doesn't "help" us by adjusting our string value, which is
@@ -247,7 +247,7 @@ def get_sccache_stats(artifact_folder: Path) -> dict[str, str]:
     return parsed_stats
 
 
-def process_job_blob(  # noqa: PLR0913
+def process_job_blob(
     trace_id: int,
     job: Mapping[str, Any],
     env_vars: Mapping[str, str],
@@ -281,6 +281,10 @@ def process_job_blob(  # noqa: PLR0913
     if job_start == 0:
         logging.info("Job is empty (no start time) - bypassing")
         return last_timestamp
+
+    if job_last_timestamp < job_start:
+        logging.info("Job finish is before start - setting zero length job")
+        job_last_timestamp = job_start
 
     artifact_folder = Path.cwd() / f"telemetry-artifacts/telemetry-tools-artifacts-{job_id}"
     attributes = {}

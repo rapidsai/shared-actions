@@ -1,7 +1,7 @@
 name: dispatch-summarize
 description: |
   Clones a particular branch/ref of a shared-actions repo, then calls its telemetry summarize
-  action. The summarize action downloads and parses Github job metadata, and creates
+  action. The summarize action downloads and parses GitHub job metadata, and creates
   OpenTelemetry spans from the job metadata. These are sent to the configured OTLP receiver/endpoint.
 
   DEPRECATED: this is here to ensure a smooth transition while rolling out https://github.com/rapidsai/shared-actions/pull/28
@@ -19,11 +19,12 @@ runs:
   using: 'composite'
   steps:
     - name: Clone shared-actions repo
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
         ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
+        persist-credentials: false
     # This is necessary because this action will generally be run in a job separately from
     # where the env vars are set
     - name: Load base environment variables

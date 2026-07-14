@@ -1,0 +1,58 @@
+# Publish Docs Action
+
+GitHub Action for publishing documentation to S3 and flushing the Akamai CDN cache.
+
+The action syncs a local docs directory to an S3 bucket, then submits an Akamai ECCU flush request so the updated content is served from `docs.nvidia.com`.
+
+## Inputs
+
+| Input Name | Required | Default | Description |
+| --- | --- | --- | --- |
+| `akamai-access-token` | Yes | N/A | Akamai EdgeGrid access token |
+| `akamai-client-secret` | Yes | N/A | Akamai EdgeGrid client secret |
+| `akamai-client-token` | Yes | N/A | Akamai EdgeGrid client token |
+| `akamai-emails-to-notify` | Yes | N/A | Comma-delimited email addresses to notify for Akamai flush request progress |
+| `akamai-host` | Yes | N/A | Akamai API hostname |
+| `akamai-request-name` | Yes | N/A | Name of the Akamai flush request |
+| `dry-run` | No | `false` | If `true`, run without making any changes |
+| `source-path` | Yes | N/A | Local path to the docs to publish |
+| `target-aws-access-key-id` | Yes | N/A | AWS access key ID |
+| `target-aws-region` | Yes | N/A | AWS region |
+| `target-aws-role-to-assume` | Yes | N/A | AWS role to assume |
+| `target-aws-secret-access-key` | Yes | N/A | AWS secret access key |
+| `target-s3-bucket` | Yes | N/A | The S3 bucket to upload files to |
+| `target-s3-key` | Yes | N/A | The S3 key to upload files to |
+| `target-s3-key-prefix` | No | `developer/docs` | Prefix prepended to `target-s3-key` |
+| `target-s3-key-suffix` | No | `""` | Suffix appended to `target-s3-key` |
+
+### S3 destination path
+
+The final S3 destination is constructed as:
+
+```
+s3://<target-s3-bucket>/<target-s3-key-prefix>/<target-s3-key>/<target-s3-key-suffix>
+```
+
+Leading and trailing slashes are stripped from each component before joining. Prefix and suffix are omitted from the path when empty.
+
+## Example
+
+```yaml
+- uses: rapidsai/shared-actions/publish-docs@main
+  with:
+    akamai-access-token: ${{ secrets.AKAMAI_ACCESS_TOKEN }}
+    akamai-client-secret: ${{ secrets.AKAMAI_CLIENT_SECRET }}
+    akamai-client-token: ${{ secrets.AKAMAI_CLIENT_TOKEN }}
+    akamai-emails-to-notify: docs-notify@example.com
+    akamai-host: ${{ secrets.AKAMAI_HOST }}
+    akamai-request-name: flush-${{ github.event.repository.name }}-${{ github.ref_name }}
+    dry-run: false
+    source-path: docs/_build/html
+    target-aws-access-key-id: ${{ secrets.DOCS_AWS_ACCESS_KEY_ID }}
+    target-aws-region: us-east-1
+    target-aws-role-to-assume: ${{ secrets.DOCS_AWS_ROLE_TO_ASSUME }}
+    target-aws-secret-access-key: ${{ secrets.DOCS_AWS_SECRET_ACCESS_KEY }}
+    target-s3-bucket: ${{ secrets.DOCS_S3_BUCKET }}
+    target-s3-key: ${{ github.event.repository.name }}
+    target-s3-key-suffix: nightly
+```

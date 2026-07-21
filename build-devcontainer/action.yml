@@ -67,7 +67,7 @@ runs:
       shell: bash
       env:
         push: "${{ inputs.push }}"
-      run: |
+      run: | # zizmor: ignore[adhoc-packages]
         sudo apt update;
         sudo apt install -y --no-install-recommends build-essential;
         npm install -g @devcontainers/cli@v0.85.0;

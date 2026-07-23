@@ -6,12 +6,12 @@ inputs:
     description: Akamai EdgeGrid access token
     required: true
     type: string
-  akamai-client-token:
-    description: Akamai EdgeGrid client token
-    required: true
-    type: string
   akamai-client-secret:
     description: Akamai EdgeGrid client secret
+    required: true
+    type: string
+  akamai-client-token:
+    description: Akamai EdgeGrid client token
     required: true
     type: string
   akamai-emails-to-notify:
@@ -122,7 +122,7 @@ runs:
         echo "target-s3-key=${S3_KEY}" >> "$GITHUB_OUTPUT"
       shell: bash
 
-    - name: Publish docs
+    - name: Uploads docs
       env:
         S3_BUCKET: ${{ steps.normalize-s3-location.outputs.target-s3-bucket }}
         S3_KEY: ${{ steps.normalize-s3-location.outputs.target-s3-key }}

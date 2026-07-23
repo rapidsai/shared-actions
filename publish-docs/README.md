@@ -56,3 +56,22 @@ Leading and trailing slashes are stripped from each component before joining. Pr
     target-s3-key: ${{ github.event.repository.name }}
     target-s3-key-suffix: nightly
 ```
+
+
+## Secrets
+
+Use this action with the following secrets:
+
+- `NVIDIA_DOCS_AKAMAI_ACCESS_TOKEN`
+- `NVIDIA_DOCS_AKAMAI_CLIENT_TOKEN`
+- `NVIDIA_DOCS_AKAMAI_CLIENT_SECRET`
+- `NVIDIA_DOCS_AKAMAI_HOST`
+- `NVIDIA_DOCS_AWS_ACCESS_KEY_ID`
+- `NVIDIA_DOCS_AWS_REGION`
+- `NVIDIA_DOCS_AWS_ROLE_TO_ASSUME`
+- `NVIDIA_DOCS_AWS_SECRET_ACCESS_KEY`
+- `NVIDIA_DOCS_S3_BUCKET`
+
+The `AKAMAI` secrets are for a service account associated with NVIDIA's Akamai CDN. The service account must be able to request a flush of the docs.nvidia.com property.
+
+The `AWS` and `S3` secrets are for the NVIDIA docs team's production account.

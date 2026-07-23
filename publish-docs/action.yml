@@ -70,7 +70,7 @@ inputs:
     required: false
     type: string
 
-outputs:
+outputs: {}
 
 runs:
   using: composite

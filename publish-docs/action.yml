@@ -119,11 +119,15 @@ runs:
 
     - name: Uploads docs
       env:
+        DRY_RUN: ${{ inputs.dry-run }}
         S3_BUCKET: ${{ steps.normalize-s3-location.outputs.target-s3-bucket }}
         S3_KEY: ${{ steps.normalize-s3-location.outputs.target-s3-key }}
-      if: ${{ inputs.dry-run == 'false' }}
       run: |
-        aws s3 sync . "s3://$S3_BUCKET/$S3_KEY" --delete
+        DRY_RUN_FLAG=""
+        if [[ "$DRY_RUN" == "true" ]]; then
+          DRY_RUN_FLAG="--dryrun"
+        fi
+        aws s3 sync --delete $DRY_RUN_FLAG . "s3://$S3_BUCKET/$S3_KEY"
       shell: bash
       working-directory: ${{ inputs.source-path }}
 

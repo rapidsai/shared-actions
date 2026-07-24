@@ -75,15 +75,10 @@ outputs: {}
 runs:
   using: composite
   steps:
-    - name: Download gha-tools with git clone
-      run: |
-        git clone https://github.com/rapidsai/gha-tools.git -b main /tmp/gha-tools
-        echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
-      shell: bash
-
     - name: Install dependencies
       run: |
-        sudo rapids-retry apt-get install -y --no-install-recommends jq xsltproc
+        apt-get update
+        apt-get install -y --no-install-recommends jq xsltproc
         rapids-pip-retry install --upgrade pip
         rapids-pip-retry install -q httpie-edgegrid  # for Akamai CDN
       shell: bash

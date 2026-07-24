@@ -75,15 +75,10 @@ outputs: {}
 runs:
   using: composite
   steps:
-    - name: Download gha-tools with git clone
-      run: |
-        git clone https://github.com/rapidsai/gha-tools.git -b main /tmp/gha-tools
-        echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
-      shell: bash
-
     - name: Install dependencies
       run: |
-        sudo rapids-retry apt-get install -y --no-install-recommends jq xsltproc
+        apt-get update
+        apt-get install -y --no-install-recommends jq xsltproc
         rapids-pip-retry install --upgrade pip
         rapids-pip-retry install -q httpie-edgegrid  # for Akamai CDN
       shell: bash
@@ -95,6 +90,7 @@ runs:
         aws-secret-access-key: ${{ inputs.target-aws-secret-access-key }}
         aws-region: ${{ inputs.target-aws-region }}
         role-to-assume: ${{ inputs.target-aws-role-to-assume }}
+        unset-current-credentials: true
 
     - name: Normalize S3 location
       env:
@@ -124,11 +120,15 @@ runs:
 
     - name: Uploads docs
       env:
+        DRY_RUN: ${{ inputs.dry-run }}
         S3_BUCKET: ${{ steps.normalize-s3-location.outputs.target-s3-bucket }}
         S3_KEY: ${{ steps.normalize-s3-location.outputs.target-s3-key }}
-      if: ${{ inputs.dry-run == 'false' }}
       run: |
-        aws s3 sync . "s3://$S3_BUCKET/$S3_KEY" --delete
+        DRY_RUN_FLAG=""
+        if [[ "$DRY_RUN" == "true" ]]; then
+          DRY_RUN_FLAG="--dryrun"
+        fi
+        aws s3 sync --delete $DRY_RUN_FLAG . "s3://$S3_BUCKET/$S3_KEY"
       shell: bash
       working-directory: ${{ inputs.source-path }}
 

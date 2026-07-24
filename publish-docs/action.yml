@@ -90,6 +90,7 @@ runs:
         aws-secret-access-key: ${{ inputs.target-aws-secret-access-key }}
         aws-region: ${{ inputs.target-aws-region }}
         role-to-assume: ${{ inputs.target-aws-role-to-assume }}
+        unset-current-credentials: true
 
     - name: Normalize S3 location
       env:

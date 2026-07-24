@@ -4,6 +4,8 @@ GitHub Action for publishing documentation to S3 and flushing the Akamai CDN cac
 
 The action syncs a local docs directory to an S3 bucket, then submits an Akamai ECCU flush request so the updated content is served from `docs.nvidia.com`.
 
+N.B. This action assumes it is being run inside a RAPIDS CI image.
+
 ## Inputs
 
 | Input Name | Required | Default | Description |

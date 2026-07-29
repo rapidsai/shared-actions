@@ -26,7 +26,7 @@ runs:
 
     - shell: bash
       id: output-inputs
-      if:  runner.debug == '1'
+      if: runner.debug == '1'
       run: |
         echo "::debug::trace ID input: '${GITHUB_REPOSITORY}+${GITHUB_RUN_ID}+${GITHUB_RUN_ATTEMPT}'"
         echo "::debug::$GITHUB_REPOSITORY="${GITHUB_REPOSITORY}""

@@ -1,4 +1,3 @@
-
 name: stash-job-artifacts
 description: |
     Saves and uploads a file with telemetry attributes that should be attached to spans from this run.

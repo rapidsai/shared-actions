@@ -1,4 +1,3 @@
-
 name: set-otel-service-name
 description: |
     Set OTEL_SERVICE_NAME from github job info

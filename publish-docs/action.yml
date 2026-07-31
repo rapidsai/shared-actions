@@ -73,8 +73,13 @@ runs:
   steps:
     - name: Install dependencies
       run: |
-        apt-get update
-        apt-get install -y --no-install-recommends jq xsltproc
+        if [ -f /.dockerenv ]; then
+          apt-get update
+          apt-get install -y --no-install-recommends jq xsltproc;
+        else
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq xsltproc;
+        fi
         rapids-pip-retry install --upgrade pip
         rapids-pip-retry install -q httpie-edgegrid  # for Akamai CDN
       shell: bash

@@ -73,9 +73,11 @@ runs:
   steps:
     - name: Install dependencies
       run: |
+        # Check if we're running inside a CI container
         if [ -f /.dockerenv ]; then
           apt-get update
           apt-get install -y --no-install-recommends jq xsltproc;
+        # Otherwise we'll need sudo
         else
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends jq xsltproc;

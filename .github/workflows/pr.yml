@@ -20,3 +20,34 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+      - name: Test release build-output materialization
+        run: |
+          ./tests/release_build_output_descriptors_test.sh
+          ./tests/release_build_output_prepare_test.sh
+          ./tests/release_build_output_test.sh
+      - name: Prepare release build-output dispatch smoke test
+        run: |
+          mkdir -p release-build-output-smoke
+          printf '%s\n' smoke >release-build-output-smoke/package.tar.gz
+      - name: Run release build-output dispatch smoke test
+        uses: ./release-build-output-dispatch
+        env:
+          SHARED_ACTIONS_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          SHARED_ACTIONS_REF: ${{ github.event.pull_request.head.sha }}
+        with:
+          artifact-type: custom
+          output-directory: release-build-output-smoke
+          release-artifacts: '[{"path":"package.tar.gz"}]'
+          release-package: '{"ecosystem":"archive","name":"smoke","version":"1.0"}'
+          release-unit: archive:smoke
+          source-artifact-name: release-build-output-dispatch-smoke
+          source-sha: ${{ github.event.pull_request.head.sha }}
+      - name: Verify release build-output dispatch smoke test
+        run: |
+          jq -e '
+            .artifacts[0].unit_id == "archive:smoke"
+            and .artifacts[0].path == "package.tar.gz"
+          ' release-build-output-smoke/release-build-output.json >/dev/null
+          jq -e '
+            .metadata.artifacts == [{path: "package.tar.gz", sbom_kind: "generated-identity"}]
+          ' release-build-output-smoke/release-build-metadata.json >/dev/null

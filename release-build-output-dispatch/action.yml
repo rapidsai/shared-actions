@@ -1,0 +1,72 @@
+name: Dispatch release build output
+description: Check out the selected shared-actions revision and create a release build-output companion.
+
+inputs:
+  artifact-type:
+    description: One of conda, wheel, or custom.
+    required: true
+  release-unit:
+    description: Release-platform unit ID for every primary artifact in this bundle.
+    required: true
+  release-package:
+    description: JSON package fields shared by the bundle.
+    required: false
+  release-package-file:
+    description: Relative path to producer-created package JSON inside output-directory.
+    required: false
+  release-artifacts:
+    description: JSON artifact and evidence descriptors relative to output-directory.
+    required: false
+  output-directory:
+    description: Directory containing the primary files and any producer-supplied evidence.
+    required: true
+  manifest-name:
+    description: Filename to write inside output-directory.
+    required: false
+    default: release-build-output.json
+  metadata-name:
+    description: Filename for the build metadata envelope.
+    required: false
+    default: release-build-metadata.json
+  source-artifact-name:
+    description: Name of the GitHub Actions artifact bundle containing this output.
+    required: true
+  source-sha:
+    description: Source revision built by the producing job.
+    required: false
+
+outputs:
+  manifest-path:
+    description: Absolute path to the generated manifest.
+    value: ${{ steps.release-build-output.outputs.manifest-path }}
+  metadata-path:
+    description: Absolute path to the build metadata envelope.
+    value: ${{ steps.release-build-output.outputs.metadata-path }}
+  manifest-artifact-name:
+    description: Name of the uploaded GitHub Actions companion artifact.
+    value: ${{ steps.release-build-output.outputs.manifest-artifact-name }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check out shared-actions implementation
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO || github.action_repository || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || github.action_ref || 'main' }}
+        path: ./shared-actions
+        persist-credentials: false
+    - id: release-build-output
+      name: Create release build-output companion
+      uses: ./shared-actions/release-build-output
+      with:
+        artifact-type: ${{ inputs.artifact-type }}
+        release-unit: ${{ inputs.release-unit }}
+        release-package: ${{ inputs.release-package }}
+        release-package-file: ${{ inputs.release-package-file }}
+        release-artifacts: ${{ inputs.release-artifacts }}
+        output-directory: ${{ inputs.output-directory }}
+        manifest-name: ${{ inputs.manifest-name }}
+        metadata-name: ${{ inputs.metadata-name }}
+        source-artifact-name: ${{ inputs.source-artifact-name }}
+        source-sha: ${{ inputs.source-sha }}

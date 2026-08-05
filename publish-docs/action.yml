@@ -94,37 +94,43 @@ runs:
         aws-region: ${{ inputs.target-aws-region }}
         unset-current-credentials: true
 
-    - name: Normalize S3 location
+    - name: Normalize paths
       env:
         S3_BUCKET: ${{ inputs.target-s3-bucket }}
         S3_KEY: ${{ inputs.target-s3-key }}
         S3_KEY_PREFIX: ${{ inputs.target-s3-key-prefix }}
         S3_KEY_SUFFIX: ${{ inputs.target-s3-key-suffix }}
-      id: normalize-s3-location
+      id: normalize-paths
       run: |
-        S3_BUCKET="${S3_BUCKET%/}"  # strip trailing slash
-        S3_BUCKET="${S3_BUCKET#/}"  # strip leading slash
-        S3_KEY="${S3_KEY%/}"        # strip trailing slash
-        S3_KEY="${S3_KEY#/}"        # strip leading slash
+        S3_BUCKET="${S3_BUCKET%/}"          # strip trailing slash
+        S3_BUCKET="${S3_BUCKET#/}"          # strip leading slash
+        S3_KEY="${S3_KEY%/}"                # strip trailing slash
+        S3_KEY="${S3_KEY#/}"                # strip leading slash
+        S3_KEY_PREFIX="${S3_KEY_PREFIX%/}"  # strip trailing slash
+        S3_KEY_PREFIX="${S3_KEY_PREFIX#/}"  # strip leading slash
+        S3_KEY_SUFFIX="${S3_KEY_SUFFIX%/}"  # strip trailing slash
+        S3_KEY_SUFFIX="${S3_KEY_SUFFIX#/}"  # strip leading slash
+        TARGET_URL_PATH="${S3_KEY}"
         if [[ -n "${S3_KEY_PREFIX}" ]]; then
-          S3_KEY_PREFIX="${S3_KEY_PREFIX%/}"
-          S3_KEY_PREFIX="${S3_KEY_PREFIX#/}"
           S3_KEY="${S3_KEY_PREFIX}/${S3_KEY}"
         fi
         if [[ -n "${S3_KEY_SUFFIX}" ]]; then
-          S3_KEY_SUFFIX="${S3_KEY_SUFFIX%/}"
-          S3_KEY_SUFFIX="${S3_KEY_SUFFIX#/}"
           S3_KEY="${S3_KEY}/${S3_KEY_SUFFIX}"
+          # CDN busting path omits the S3 prefix (e.g. "developer/docs"),
+          # but includes the suffix (e.g. "26.10")
+          TARGET_URL_PATH="${TARGET_URL_PATH}/${S3_KEY_SUFFIX}"
         fi
+        # CDN busting path omits the S3 prefix
         echo "target-s3-bucket=${S3_BUCKET}" >> "$GITHUB_OUTPUT"
         echo "target-s3-key=${S3_KEY}" >> "$GITHUB_OUTPUT"
+        echo "target-url-path=${TARGET_URL_PATH}" >> "$GITHUB_OUTPUT"
       shell: bash
 
     - name: Uploads docs
       env:
         DRY_RUN: ${{ inputs.dry-run }}
-        S3_BUCKET: ${{ steps.normalize-s3-location.outputs.target-s3-bucket }}
-        S3_KEY: ${{ steps.normalize-s3-location.outputs.target-s3-key }}
+        S3_BUCKET: ${{ steps.normalize-paths.outputs.target-s3-bucket }}
+        S3_KEY: ${{ steps.normalize-paths.outputs.target-s3-key }}
       run: |
         DRY_RUN_FLAG=""
         if [[ "$DRY_RUN" == "true" ]]; then
@@ -147,10 +153,10 @@ runs:
 
     - name: Create Akamai ECCU flush request XML
       env:
-        S3_PATH: ${{ steps.normalize-s3-location.outputs.target-s3-key }}
+        TARGET_URL_PATH: ${{ steps.normalize-paths.outputs.target-url-path }}
         XSLT_TEMPLATE: ${{ github.action_path }}/akamai-eccu-flush.xslt
       run: |
-        xsltproc --stringparam target-path "${S3_PATH}" "${XSLT_TEMPLATE}" "${XSLT_TEMPLATE}" | \
+        xsltproc --stringparam target-path "${TARGET_URL_PATH}" "${XSLT_TEMPLATE}" "${XSLT_TEMPLATE}" | \
           sed 's/xmlns:match="x" //' > /tmp/flush.xml
         cat /tmp/flush.xml
       shell: bash

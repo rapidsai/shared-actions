@@ -144,3 +144,22 @@ jq -e '
 jq -e '
   .metadata.artifacts == [{path: "libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl", sbom_kind: "generated-identity"}]
 ' "${wheel_directory}/release-build-metadata.json" >/dev/null
+
+missing_version_directory="${temporary_directory}/missing-version-bundle"
+mkdir -p "${missing_version_directory}"
+printf '%s\n' archive >"${missing_version_directory}/bundle.tar.gz"
+
+RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz"}]')"
+RELEASE_OUTPUT_DIRECTORY="${missing_version_directory}"
+RELEASE_PACKAGE="$(jq -cn '{ecosystem: "archive", name: "bundle"}')"
+RELEASE_PACKAGE_FILE=''
+RELEASE_SOURCE_ARTIFACT_NAME="bundle-archive"
+RELEASE_SOURCE_SHA="dddddddddddddddddddddddddddddddddddddddd"
+RELEASE_UNIT="archive:bundle"
+export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_PACKAGE_FILE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_UNIT
+
+if "${repository_root}/release-build-output/materialize.sh" 2>"${temporary_directory}/missing-version-error"; then
+  echo "materialize.sh unexpectedly accepted a custom artifact without a package version" >&2
+  exit 1
+fi
+grep -Fx 'release-package version is required for archive artifacts' "${temporary_directory}/missing-version-error"

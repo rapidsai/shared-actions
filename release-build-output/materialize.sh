@@ -52,12 +52,18 @@ if [[ ! -d "${RELEASE_OUTPUT_DIRECTORY}" ]]; then
   exit 1
 fi
 
-output_directory="$(realpath "${RELEASE_OUTPUT_DIRECTORY}")"
-if [[ -n "${RELEASE_PACKAGE_FILE:-}" ]]; then
-  if [[ "${RELEASE_PACKAGE_FILE}" == /* || "${RELEASE_PACKAGE_FILE}" == */../* || "${RELEASE_PACKAGE_FILE}" == ../* || "${RELEASE_PACKAGE_FILE}" == *"/.." ]]; then
-    echo "release-package-file must be a relative path inside output-directory: ${RELEASE_PACKAGE_FILE}" >&2
+ensure_relative_pattern() {
+  local field="$1"
+  local pattern="$2"
+  if [[ "${pattern}" == /* || "${pattern}" == */../* || "${pattern}" == ../* || "${pattern}" == *"/.." ]]; then
+    echo "${field} must be a relative path inside output-directory: ${pattern}" >&2
     exit 1
   fi
+}
+
+output_directory="$(realpath "${RELEASE_OUTPUT_DIRECTORY}")"
+if [[ -n "${RELEASE_PACKAGE_FILE:-}" ]]; then
+  ensure_relative_pattern "release-package-file" "${RELEASE_PACKAGE_FILE}"
   package_file_path="$(realpath "${output_directory}/${RELEASE_PACKAGE_FILE}")"
   if [[ "${package_file_path}" != "${output_directory}"/* || ! -f "${package_file_path}" ]]; then
     echo "release-package-file must resolve to one file inside output-directory: ${RELEASE_PACKAGE_FILE}" >&2
@@ -75,7 +81,7 @@ if ! jq -e '
   and ((.build // "") | type == "string")
   and ((.platform // "") | type == "string")
 ' <<<"${RELEASE_PACKAGE}" >/dev/null; then
-  echo "release-package must be a package object with ecosystem and name; version is optional for Conda and wheel artifacts" >&2
+  echo "release-package must be a package object with ecosystem and name; version may be supplied or derived per artifact" >&2
   exit 1
 fi
 
@@ -90,15 +96,6 @@ temporary_manifest="$(mktemp "${output_directory}/.release-build-output.XXXXXX")
 trap 'rm -f "${temporary_manifest}"' EXIT
 
 printf '%s\n' '{"schema_version":1,"producer":"release-platform","artifacts":[]}' >"${temporary_manifest}"
-
-ensure_relative_pattern() {
-  local field="$1"
-  local pattern="$2"
-  if [[ "${pattern}" == /* || "${pattern}" == */../* || "${pattern}" == ../* || "${pattern}" == *"/.." ]]; then
-    echo "${field} must be a relative path inside output-directory: ${pattern}" >&2
-    exit 1
-  fi
-}
 
 resolve_one_file() {
   local field="$1"
@@ -196,7 +193,7 @@ write_generated_sbom() {
   local artifact_digest
   artifact_digest="$(sha256sum "${output_directory}/${primary_path}" | awk '{print $1}')"
   mkdir -p "$(dirname "${output_directory}/${destination}")"
-  jq -n \
+  jq -n -S \
     --arg artifact_digest "${artifact_digest}" \
     --arg artifact_path "${primary_path}" \
     --argjson package "${package}" \
@@ -225,7 +222,7 @@ write_generated_sbom() {
         relatedSpdxElement: "SPDXRef-Artifact"
       }],
       comment: "Artifact-identity SBOM envelope. A producer-supplied dependency SBOM may replace this record."
-    }' | jq -S . >"${output_directory}/${destination}"
+    }' >"${output_directory}/${destination}"
 }
 
 write_generated_provenance() {
@@ -235,7 +232,7 @@ write_generated_provenance() {
   local artifact_digest
   artifact_digest="$(sha256sum "${output_directory}/${primary_path}" | awk '{print $1}')"
   mkdir -p "$(dirname "${output_directory}/${destination}")"
-  jq -n \
+  jq -n -S \
     --arg artifact_digest "${artifact_digest}" \
     --arg artifact_path "${primary_path}" \
     --arg repository "${GITHUB_REPOSITORY:-}" \
@@ -262,7 +259,7 @@ write_generated_provenance() {
           metadata: {invocationId: ("https://github.com/" + $repository + "/actions/runs/" + $run_id + "/attempts/" + $run_attempt)}
         }
       }
-    }' | jq -S . >"${output_directory}/${destination}"
+    }' >"${output_directory}/${destination}"
 }
 
 shopt -s globstar nullglob
@@ -341,7 +338,7 @@ if ! jq -e '.artifacts as $items | ($items | map([.unit_id, .path] | join("\u000
 fi
 
 jq -S . "${temporary_manifest}" >"${manifest_path}"
-jq -n \
+jq -n -S \
   --arg artifact_name "${RELEASE_SOURCE_ARTIFACT_NAME}" \
   --arg manifest_name "${RELEASE_MANIFEST_NAME}" \
   --arg repository "${GITHUB_REPOSITORY:-}" \
@@ -365,6 +362,6 @@ jq -n \
       run_attempt: $run_attempt
     },
     metadata: {artifacts: $artifact_metadata}
-  }' | jq -S . >"${metadata_path}"
+  }' >"${metadata_path}"
 echo "manifest-path=${manifest_path}" >>"${GITHUB_OUTPUT}"
 echo "metadata-path=${metadata_path}" >>"${GITHUB_OUTPUT}"

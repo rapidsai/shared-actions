@@ -37,17 +37,38 @@ runs:
     - name: Get PR info
       id: get-pr-info
       uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
-    - name: Fetch changed files
+    - name: Compute merge-base
+      id: merge-base
       shell: bash
       env:
         BASE_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
+        HEAD_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).head.sha }}
+      # Diff against the merge-base (three-dot semantics) rather than the tip
+      # of the base branch, so files changed upstream after the PR branched
+      # are not falsely attributed to the PR.
       run: |
-        git fetch --depth 1 origin "$BASE_SHA"
+        set -euo pipefail
+        depth=50
+        max_depth=6400
+        while :; do
+          git fetch --depth="$depth" origin "$BASE_SHA" "$HEAD_SHA"
+          if merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null); then
+            echo "Found merge-base $merge_base at depth $depth"
+            echo "merge_base=$merge_base" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$depth" -ge "$max_depth" ]; then
+            echo "::warning::Could not find merge-base within depth $max_depth; falling back to base SHA $BASE_SHA"
+            echo "merge_base=$BASE_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          depth=$((depth * 2))
+        done
     - name: Get changed files
       id: changed-files
       uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
       with:
-        base_sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
+        base_sha: ${{ steps.merge-base.outputs.merge_base }}
         sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).head.sha }}
         files_yaml: ${{ inputs.files_yaml }}
         write_output_files: true

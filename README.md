@@ -9,6 +9,41 @@ A dispatch action is one that:
 * clones the shared-actions repository (repo/ref changeable using env vars)
 * runs (dispatches to) another action within the clone, using a relative path
 
+## Release build-output companions
+
+`release-build-output-dispatch` validates a producer's local build artifact
+directory and uploads a companion artifact named
+`release-build-output-<source-artifact-name>`. The companion contains
+`release-build-output.json`, `release-build-metadata.json`, provenance, and an
+SBOM record for every primary artifact.
+
+Conda and wheel jobs can set `artifact-type` to `conda` or `wheel` and omit
+`release-artifacts`; the implementation reads package metadata from the built
+files. Custom bundles provide explicit artifact descriptors and either inline
+package identity or a producer-created package JSON file.
+
+```yaml
+- name: Create release build-output companion
+  uses: rapidsai/shared-actions/release-build-output-dispatch@main
+  with:
+    artifact-type: wheel
+    output-directory: ${{ steps.package-name.outputs.WHEEL_OUTPUT_DIR }}
+    release-unit: wheel:example
+    source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
+    source-sha: ${{ github.sha }}
+```
+
+A descriptor-selected producer SBOM is classified as `producer-dependency`.
+When no SBOM is supplied, the action generates an SPDX artifact-identity
+envelope and classifies it as `generated-identity`. The generated envelope
+contains the primary artifact's identity and SHA-256 but no dependency
+inventory; it must not be treated as dependency coverage.
+
+The dispatch wrapper honors `SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF`.
+When neither is set, it checks out the same repository and ref used to invoke
+the wrapper, which allows a feature-branch wrapper to dispatch to its matching
+implementation during canary testing.
+
 There can be more complicated arrangements of more actions, but the idea is to
 have the local clone of the shared-actions repository be the first step of an action.
 

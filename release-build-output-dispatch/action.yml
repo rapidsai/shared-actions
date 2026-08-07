@@ -1,33 +1,12 @@
 name: Dispatch release build output
-description: Check out the selected shared-actions revision and create a release build-output companion.
+description: Create a release build-output companion from the selected shared-actions revision.
 
 inputs:
-  artifact-type:
-    description: One of conda, wheel, or custom.
+  config:
+    description: >-
+      Release build-output JSON object containing artifact_type, component_id, output_directory, and custom artifact
+      selection and package identity when artifact_type is custom.
     required: true
-  release-unit:
-    description: Release-platform unit ID for every primary artifact in this bundle.
-    required: true
-  release-package:
-    description: JSON package fields shared by the bundle.
-    required: false
-  release-package-file:
-    description: Relative path to producer-created package JSON inside output-directory.
-    required: false
-  release-artifacts:
-    description: JSON artifact and evidence descriptors relative to output-directory.
-    required: false
-  output-directory:
-    description: Directory containing the primary files and any producer-supplied evidence.
-    required: true
-  manifest-name:
-    description: Filename to write inside output-directory.
-    required: false
-    default: release-build-output.json
-  metadata-name:
-    description: Filename for the build metadata envelope.
-    required: false
-    default: release-build-metadata.json
   source-artifact-name:
     description: Name of the GitHub Actions artifact bundle containing this output.
     required: true
@@ -38,35 +17,81 @@ inputs:
 outputs:
   manifest-path:
     description: Absolute path to the generated manifest.
-    value: ${{ steps.release-build-output.outputs.manifest-path }}
+    value: ${{ steps.materialize.outputs.manifest-path }}
   metadata-path:
     description: Absolute path to the build metadata envelope.
-    value: ${{ steps.release-build-output.outputs.metadata-path }}
+    value: ${{ steps.materialize.outputs.metadata-path }}
   manifest-artifact-name:
     description: Name of the uploaded GitHub Actions companion artifact.
-    value: ${{ steps.release-build-output.outputs.manifest-artifact-name }}
+    value: ${{ steps.companion-name.outputs.name }}
 
 runs:
   using: composite
   steps:
-    - name: Check out shared-actions implementation
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - id: implementation
+      name: Resolve release build-output implementation
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        HOST_WORKSPACE: ${{ github.workspace }}
+      run: |
+        host_root="$(dirname "$(dirname "${HOST_WORKSPACE}")")"
+        container_root="$(dirname "$(dirname "${PWD}")")"
+        action_path="${ACTION_PATH}"
+        if [[ ! -d "${action_path}" && "${action_path}" == "${host_root}/"* ]]; then
+          action_path="${container_root}/${action_path#"${host_root}/"}"
+        fi
+        implementation_path="$(dirname "${action_path}")/release-build-output"
+        if [[ ! -d "${implementation_path}" ]]; then
+          echo "release-build-output implementation not found at ${implementation_path}" >&2
+          exit 1
+        fi
+        echo "path=${implementation_path}" >>"${GITHUB_OUTPUT}"
+    - id: configuration
+      name: Validate release build-output configuration
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_BUILD_OUTPUT_CONFIG: ${{ inputs.config }}
+      run: "${IMPLEMENTATION_PATH}/validate-config.sh"
+    - id: prepare
+      name: Describe release artifacts
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_ARTIFACTS: ${{ steps.configuration.outputs.artifacts }}
+        RELEASE_ARTIFACT_TYPE: ${{ steps.configuration.outputs.artifact_type }}
+        RELEASE_OUTPUT_DIRECTORY: ${{ steps.configuration.outputs.output_directory }}
+        RELEASE_PACKAGE: ${{ steps.configuration.outputs.package }}
+        RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
+      run: "${IMPLEMENTATION_PATH}/prepare.sh"
+    - id: materialize
+      name: Materialize release build-output records
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_ARTIFACTS: ${{ steps.prepare.outputs.artifacts }}
+        RELEASE_MANIFEST_NAME: release-build-output.json
+        RELEASE_METADATA_NAME: release-build-metadata.json
+        RELEASE_OUTPUT_DIRECTORY: ${{ steps.configuration.outputs.output_directory }}
+        RELEASE_PACKAGE: ${{ steps.prepare.outputs.package }}
+        RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
+        RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+        RELEASE_SOURCE_SHA: ${{ inputs.source-sha || github.sha }}
+        RELEASE_UNIT: ${{ steps.configuration.outputs.component_id }}
+      run: "${IMPLEMENTATION_PATH}/materialize.sh"
+    - id: companion-name
+      name: Set companion artifact name
+      shell: bash
+      env:
+        SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+      run: echo "name=release-build-output-${SOURCE_ARTIFACT_NAME}" >>"${GITHUB_OUTPUT}"
+    - name: Upload release build-output companion
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO || github.action_repository || 'rapidsai/shared-actions' }}
-        ref: ${{ env.SHARED_ACTIONS_REF || github.action_ref || 'main' }}
-        path: ./shared-actions
-        persist-credentials: false
-    - id: release-build-output
-      name: Create release build-output companion
-      uses: ./shared-actions/release-build-output
-      with:
-        artifact-type: ${{ inputs.artifact-type }}
-        release-unit: ${{ inputs.release-unit }}
-        release-package: ${{ inputs.release-package }}
-        release-package-file: ${{ inputs.release-package-file }}
-        release-artifacts: ${{ inputs.release-artifacts }}
-        output-directory: ${{ inputs.output-directory }}
-        manifest-name: ${{ inputs.manifest-name }}
-        metadata-name: ${{ inputs.metadata-name }}
-        source-artifact-name: ${{ inputs.source-artifact-name }}
-        source-sha: ${{ inputs.source-sha }}
+        if-no-files-found: error
+        name: ${{ steps.companion-name.outputs.name }}
+        path: |
+          ${{ steps.configuration.outputs.output_directory }}/release-build-output.json
+          ${{ steps.configuration.outputs.output_directory }}/release-build-metadata.json
+          ${{ steps.configuration.outputs.output_directory }}/release-evidence/**

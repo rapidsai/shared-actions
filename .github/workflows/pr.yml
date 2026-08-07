@@ -22,6 +22,7 @@ jobs:
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
       - name: Test release build-output materialization
         run: |
+          ./tests/release_build_output_config_test.sh
           ./tests/release_build_output_descriptors_test.sh
           ./tests/release_build_output_prepare_test.sh
           ./tests/release_build_output_test.sh
@@ -35,11 +36,14 @@ jobs:
           SHARED_ACTIONS_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           SHARED_ACTIONS_REF: ${{ github.event.pull_request.head.sha }}
         with:
-          artifact-type: custom
-          output-directory: release-build-output-smoke
-          release-artifacts: '[{"path":"package.tar.gz"}]'
-          release-package: '{"ecosystem":"archive","name":"smoke","version":"1.0"}'
-          release-unit: archive:smoke
+          config: >-
+            {
+              "artifact_type": "custom",
+              "component_id": "archive:smoke",
+              "output_directory": "release-build-output-smoke",
+              "package": {"ecosystem": "archive", "name": "smoke", "version": "1.0"},
+              "artifacts": [{"path": "package.tar.gz"}]
+            }
           source-artifact-name: release-build-output-dispatch-smoke
           source-sha: ${{ github.event.pull_request.head.sha }}
       - name: Verify release build-output dispatch smoke test

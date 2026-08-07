@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rapids.ai/schemas/release-build-output-config-v1.json",
+  "title": "Release build-output configuration",
+  "description": "Producer configuration for one release build-output companion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type",
+    "component_id"
+  ],
+  "properties": {
+    "artifact_type": {
+      "description": "How primary artifact descriptors and package identities are obtained.",
+      "type": "string",
+      "enum": [
+        "conda",
+        "custom",
+        "wheel"
+      ]
+    },
+    "component_id": {
+      "description": "Stable release component ID shared by the selected files and their matrix variants.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\r\\n]+$"
+    },
+    "output_directory": {
+      "description": "Base directory for artifact and evidence paths. Defaults to the job working directory.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\r\\n]+$",
+      "default": "."
+    },
+    "package": {
+      "$ref": "#/$defs/package"
+    },
+    "package_file": {
+      "description": "Producer-created package identity JSON, relative to output_directory.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\r\\n]+$"
+    },
+    "artifacts": {
+      "description": "Primary release files and optional producer-supplied evidence sidecars.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "custom"
+          }
+        },
+        "required": [
+          "artifact_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "artifacts"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "package"
+            ],
+            "not": {
+              "required": [
+                "package_file"
+              ]
+            }
+          },
+          {
+            "required": [
+              "package_file"
+            ],
+            "not": {
+              "required": [
+                "package"
+              ]
+            }
+          }
+        ]
+      },
+      "else": {
+        "required": [
+          "output_directory"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "artifacts"
+              ]
+            },
+            {
+              "required": [
+                "package"
+              ]
+            },
+            {
+              "required": [
+                "package_file"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ecosystem",
+        "name"
+      ],
+      "properties": {
+        "ecosystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string"
+        },
+        "build": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "sbom": {
+          "description": "Producer-supplied dependency SBOM path or glob.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "provenance": {
+          "description": "Producer-supplied provenance path or glob.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "signature": {
+          "description": "Producer-supplied signature path or glob.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "package": {
+          "description": "Per-artifact package identity overrides.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ecosystem": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "build": {
+              "type": "string",
+              "minLength": 1
+            },
+            "platform": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

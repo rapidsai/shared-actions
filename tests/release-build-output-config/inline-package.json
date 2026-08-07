@@ -1,0 +1,14 @@
+{
+  "artifact_type": "custom",
+  "component_id": "archive:smoke",
+  "package": {
+    "ecosystem": "archive",
+    "name": "smoke",
+    "version": "1.0"
+  },
+  "artifacts": [
+    {
+      "path": "smoke.tar.gz"
+    }
+  ]
+}

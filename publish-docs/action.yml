@@ -147,6 +147,7 @@ runs:
         AKAMAI_CLIENT_TOKEN: ${{ inputs.akamai-client-token }}
         AKAMAI_HOST: ${{ inputs.akamai-host }}
       run: |
+        umask 077
         cat > ~/.edgerc <<EOF
         [default]
         client_secret = ${AKAMAI_CLIENT_SECRET}

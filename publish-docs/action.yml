@@ -146,9 +146,15 @@ runs:
         AKAMAI_CLIENT_SECRET: ${{ inputs.akamai-client-secret }}
         AKAMAI_CLIENT_TOKEN: ${{ inputs.akamai-client-token }}
         AKAMAI_HOST: ${{ inputs.akamai-host }}
-        EDGERC_TEMPLATE: ${{ github.action_path }}/edgerc.template
       run: |
-        envsubst < "${EDGERC_TEMPLATE}" > ~/.edgerc
+        umask 077
+        cat > ~/.edgerc <<EOF
+        [default]
+        client_secret = ${AKAMAI_CLIENT_SECRET}
+        host = ${AKAMAI_HOST}
+        access_token = ${AKAMAI_ACCESS_TOKEN}
+        client_token = ${AKAMAI_CLIENT_TOKEN}
+        EOF
       shell: bash
 
     - name: Create Akamai ECCU flush request XML

@@ -5,7 +5,8 @@ inputs:
   config:
     description: >-
       Release build-output JSON object containing artifact_type, component_id, output_directory, and custom artifact
-      selection and package identity when artifact_type is custom.
+      selection and package identity when artifact_type is custom. Schema and field documentation:
+      https://github.com/rapidsai/shared-actions/blob/main/release-build-output/config.schema.json
     required: true
   source-artifact-name:
     description: Name of the GitHub Actions artifact bundle containing this output.

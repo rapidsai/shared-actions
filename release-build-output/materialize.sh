@@ -12,7 +12,7 @@ require_nonempty() {
   fi
 }
 
-require_nonempty "RELEASE_UNIT" "${RELEASE_UNIT:-}"
+require_nonempty "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
 require_nonempty "RELEASE_OUTPUT_DIRECTORY" "${RELEASE_OUTPUT_DIRECTORY:-}"
 require_nonempty "RELEASE_MANIFEST_NAME" "${RELEASE_MANIFEST_NAME:-}"
 require_nonempty "RELEASE_METADATA_NAME" "${RELEASE_METADATA_NAME:-}"
@@ -248,7 +248,7 @@ write_generated_provenance() {
       predicate: {
         buildDefinition: {
           buildType: "https://rapids.ai/release-platform/build-output/v1",
-          externalParameters: {release_unit: env.RELEASE_UNIT, package: $package},
+          externalParameters: {release_catalog_key: env.RELEASE_CATALOG_KEY, package: $package},
           resolvedDependencies: [{
             uri: ("git+https://github.com/" + $repository + "@" + $source_sha),
             digest: {gitCommit: $source_sha}
@@ -310,12 +310,12 @@ while IFS= read -r descriptor; do
     write_generated_provenance "${primary_path}" "${package}" "${provenance_path}"
   fi
   artifact="$(jq -cn \
-    --arg unit_id "${RELEASE_UNIT}" \
+    --arg release_catalog_key "${RELEASE_CATALOG_KEY}" \
     --arg path "${primary_path}" \
     --arg sbom "${sbom_path}" \
     --arg provenance "${provenance_path}" \
     --argjson package "${package}" \
-    '{unit_id: $unit_id, path: $path, sbom: $sbom, provenance: $provenance, package: $package}')"
+    '{release_catalog_key: $release_catalog_key, path: $path, sbom: $sbom, provenance: $provenance, package: $package}')"
   if [[ -n "${signature_pattern}" ]]; then
     supplied_signature_path="$(resolve_one_file signature "${signature_pattern}")"
     signature_path="$(copy_supplied_evidence "${primary_path}" "${supplied_signature_path}" "signature")"
@@ -332,8 +332,8 @@ while IFS= read -r descriptor; do
   mv "${temporary_manifest}.next" "${temporary_manifest}"
 done < <(jq -c '.[]' <<<"${RELEASE_ARTIFACTS}")
 
-if ! jq -e '.artifacts as $items | ($items | map([.unit_id, .path] | join("\u0000")) | unique | length) == ($items | length)' "${temporary_manifest}" >/dev/null; then
-  echo "release-artifacts contains duplicate unit/path entries" >&2
+if ! jq -e '.artifacts as $items | ($items | map([.release_catalog_key, .path] | join("\u0000")) | unique | length) == ($items | length)' "${temporary_manifest}" >/dev/null; then
+  echo "release-artifacts contains duplicate release_catalog_key/path entries" >&2
   exit 1
 fi
 
@@ -345,13 +345,13 @@ jq -n -S \
   --arg run_attempt "${GITHUB_RUN_ATTEMPT:-}" \
   --arg run_id "${GITHUB_RUN_ID:-}" \
   --arg sha "${source_sha}" \
-  --arg unit_id "${RELEASE_UNIT}" \
+  --arg release_catalog_key "${RELEASE_CATALOG_KEY}" \
   --arg workflow_ref "${GITHUB_WORKFLOW_REF:-}" \
   --argjson artifact_metadata "${artifact_metadata}" \
   '{
     schema_version: 1,
     producer: "shared-workflows",
-    release_unit: $unit_id,
+    release_catalog_key: $release_catalog_key,
     source_artifact: $artifact_name,
     build_output_manifest: $manifest_name,
     build_environment: {

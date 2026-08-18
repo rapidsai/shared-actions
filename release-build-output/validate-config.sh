@@ -38,15 +38,15 @@ validation_errors="$(jq -r '
   if type != "object" then
     ["release-build-output must be a JSON object"]
   else
-    (keys - ["artifact_type", "component_id", "output_directory", "package", "package_file", "artifacts"]) as $unknown
+    (keys - ["artifact_type", "release_catalog_key", "output_directory", "package", "package_file", "artifacts"]) as $unknown
     | [
         if ($unknown | length) > 0 then
           "unknown field(s): " + ($unknown | join(", "))
         else empty end,
         if (.artifact_type == "conda" or .artifact_type == "custom" or .artifact_type == "wheel") then empty
         else "artifact_type must be one of: conda, custom, wheel" end,
-        if (.component_id | single_line_string) then empty
-        else "component_id must be a non-empty, single-line string" end,
+        if (.release_catalog_key | single_line_string) then empty
+        else "release_catalog_key must be a non-empty, single-line string" end,
         if (has("output_directory") | not) or (.output_directory | single_line_string) then empty
         else "output_directory must be a non-empty, single-line string when supplied" end
       ]
@@ -111,7 +111,7 @@ fi
 
 {
   printf 'artifact_type=%s\n' "$(jq -r '.artifact_type' <<<"${compact_config}")"
-  printf 'component_id=%s\n' "$(jq -r '.component_id' <<<"${compact_config}")"
+  printf 'release_catalog_key=%s\n' "$(jq -r '.release_catalog_key' <<<"${compact_config}")"
   printf 'output_directory=%s\n' "$(jq -r '.output_directory // "."' <<<"${compact_config}")"
   printf 'package=%s\n' "$(jq -c '.package // empty' <<<"${compact_config}")"
   printf 'package_file=%s\n' "$(jq -r '.package_file // empty' <<<"${compact_config}")"

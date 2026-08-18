@@ -4,8 +4,7 @@ description: Create a release build-output companion from the selected shared-ac
 inputs:
   config:
     description: >-
-      Release build-output JSON object containing artifact_type, component_id, output_directory, and custom artifact
-      selection and package identity when artifact_type is custom. Schema and field documentation:
+      JSON string with configuration for this action. Schema and field documentation:
       https://github.com/rapidsai/shared-actions/blob/main/release-build-output/config.schema.json
     required: true
   source-artifact-name:
@@ -79,7 +78,7 @@ runs:
         RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
         RELEASE_SOURCE_SHA: ${{ inputs.source-sha || github.sha }}
-        RELEASE_UNIT: ${{ steps.configuration.outputs.component_id }}
+        RELEASE_CATALOG_KEY: ${{ steps.configuration.outputs.release_catalog_key }}
       run: "${IMPLEMENTATION_PATH}/materialize.sh"
     - id: companion-name
       name: Set companion artifact name

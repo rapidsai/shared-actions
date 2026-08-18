@@ -39,7 +39,7 @@ jobs:
           config: >-
             {
               "artifact_type": "custom",
-              "component_id": "archive:smoke",
+              "release_catalog_key": "archive:smoke",
               "output_directory": "release-build-output-smoke",
               "package": {"ecosystem": "archive", "name": "smoke", "version": "1.0"},
               "artifacts": [{"path": "package.tar.gz"}]
@@ -49,7 +49,7 @@ jobs:
       - name: Verify release build-output dispatch smoke test
         run: |
           jq -e '
-            .artifacts[0].unit_id == "archive:smoke"
+            .artifacts[0].release_catalog_key == "archive:smoke"
             and .artifacts[0].path == "package.tar.gz"
           ' release-build-output-smoke/release-build-output.json >/dev/null
           jq -e '

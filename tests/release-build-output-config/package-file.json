@@ -1,6 +1,6 @@
 {
   "artifact_type": "custom",
-  "component_id": "maven:cuvs-java",
+  "release_catalog_key": "maven:cuvs-java",
   "output_directory": "java/cuvs-java/target",
   "package_file": "cuvs-java.release-package.json",
   "artifacts": [

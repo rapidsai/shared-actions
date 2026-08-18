@@ -4,7 +4,11 @@
 build and uploads a companion GitHub Actions artifact named
 `release-catalog-<source-artifact-name>`. Release tooling uses the
 companion to associate primary artifacts with their build identity and generated
-identity evidence without reconstructing the build later.
+identity evidence without reconstructing the build later. This evidence supports:
+
+- [assembling releases that can be tested and verified before formal tagging](https://github.com/rapidsai/release-scripts/issues/102)
+- using build-time metadata to triage CVE scan records more quickly (internal
+  GitLab project, `nspect-manager`)
 
 The companion contains:
 
@@ -22,58 +26,48 @@ contains the release catalog entries produced by that job. The release platform
 validates and aggregates entry arrays from selected builds into the release
 catalog; there is no separate metadata document to keep synchronized.
 
+Each matrix job produces its own companion artifact. The release platform merges
+their entries into one composite release catalog.
+
 ## Configuration
 
-Every producer passes one `config` JSON object. Its canonical schema and field
-documentation are in [`config.schema.json`](config.schema.json).
-
-When `artifacts` is omitted, the action discovers every Conda and wheel output
-in `artifact_directory` and extracts identity from each package independently.
-When `artifacts` is supplied, each descriptor is resolved independently:
-supported Conda and wheel files are parsed, while any other artifact requires
-its own `package_identity_file`.
-
-`release_catalog_key` identifies the release catalog entry that owns these
-artifacts. Every file from every matrix variant in the same publishable artifact
-set uses the same key, and multiple files are aggregated. Standard RAPIDS Conda
-and wheel workflows construct it as `<ecosystem>:<repository-name>`, such as
-`conda:cudf`; custom producers select an existing catalog key, such as
-`maven:cuvs-java`. Do not generate a UUID or a per-build value.
-
-Use a distinct `release_catalog_key` only when the release catalog intentionally gives the
-outputs different release policy. Examples include:
-
-* different versioning
-* validation requirements
-* dependency ordering
-* publication destinations
-* promotion strategy.
-
-Multiple package names from one repository do not by themselves justify separate
-keys: for example, `cudf` and `dask-cudf` Conda packages remain part of
-`conda:cudf` when they share one release policy.
+Every build job that calls this action passes one `config` JSON object. Its
+canonical schema and field documentation are in
+[`config.schema.json`](config.schema.json).
 
 The action validates the configuration before inspecting build outputs. It then
 verifies properties that depend on produced files, including the package
 identity contents and whether primary-artifact paths resolve unambiguously.
 
-## Source revision
+### `release_catalog_key`
 
-The action requires `RAPIDS_SHA` in the job environment. It must identify the
-repository revision actually checked out and built:
+The `release_catalog_key` is used to group artifacts in the catalog. Every file
+from every matrix variant in the same publishable artifact set uses the same
+key. The release platform aggregates multiple `release-catalog-entries.json`
+files and coalesces entries with the same `release_catalog_key`. Standard RAPIDS
+conda and wheel workflows construct the key as `<ecosystem>:<repository-name>`,
+such as `conda:cudf`. Custom producers select a key, such as `maven:cuvs-java`,
+that represents their release policy.
 
-- Conda build workflows set `RAPIDS_SHA` to `git rev-parse HEAD` immediately
-  after checkout.
-- Wheel and custom workflows use `rapids-github-info`; it uses `inputs.sha`
-  when supplied and otherwise sets `RAPIDS_SHA` to `git rev-parse HEAD`.
+Use a distinct `release_catalog_key` only when the outputs intentionally have
+different release policies. Reasons include differences in:
 
-This distinction matters when a reusable workflow checks out a repository or
-revision different from the workflow event. Direct callers must likewise set
-`RAPIDS_SHA` to the checked-out commit instead of assuming `${{ github.sha }}`
-names the built source. Variables written to `GITHUB_ENV` are available to the
-action when it runs as a subsequent job step.
+- versioning schemes
+- validation requirements
+- dependency ordering
+- publication destinations
+- promotion strategy
 
-## Standard package example
+Multiple package names from one repository do not by themselves justify separate
+keys: for example, `cudf` and `dask-cudf` Conda packages remain part of
+`conda:cudf` when they share one release policy.
+
+### `artifacts`
+
+This is a list of objects, where each object corresponds to exactly one artifact
+(filename). Standard Conda and wheel workflows do not explicitly specify
+`artifacts`. Instead, the action discovers every Conda and wheel output in
+`artifact_directory` and creates corresponding artifact entries.
 
 ```yaml
 - name: Create wheel release catalog companion
@@ -87,7 +81,8 @@ action when it runs as a subsequent job step.
     source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
 ```
 
-## Custom package example
+For artifacts other than conda and wheels, path and package_identity_file must
+be specified:
 
 ```yaml
 - name: Create custom release catalog companion
@@ -105,10 +100,21 @@ action when it runs as a subsequent job step.
     source-artifact-name: cuvs-java
 ```
 
-Before the action runs, the producer creates
-`java/cuvs-java/target/cuvs-java.release-package-identity.json`. The
-artifact descriptor's `package_identity_file` value is the path to that file
-relative to `artifact_directory`. For example:
+Wildcards are allowed to allow for variance in filenames, but each wildcard must
+resolve to only one file. In other words, each list object corresponds to
+exactly one artifact, and any ambiguity is an error.
+
+#### Package identity file
+
+Package identity is high-level information about an artifact outside of its
+filename. It requires `ecosystem`, `name`, and `version` and may include `build`
+and `platform`. The action implicitly parses this information from conda and
+wheel artifacts, but other artifact formats require the producer to provide it
+explicitly.
+
+The workflow that calls release-catalog must create each package identity file before this
+action runs. An artifact descriptor's `package_identity_file` is the path to
+that file relative to `artifact_directory`. For example:
 
 ```json
 {
@@ -118,6 +124,25 @@ relative to `artifact_directory`. For example:
 }
 ```
 
+Multiple artifact descriptors may reference the same identity file when those
+artifacts have the same package identity.
+
+## Prerequisite state
+
+The action requires `RAPIDS_SHA` in the job environment. It must identify the
+repository revision actually checked out and built:
+
+- Conda build workflows set `RAPIDS_SHA` to `git rev-parse HEAD` immediately
+  after checkout.
+- Wheel and custom workflows use `rapids-github-info`; it uses `inputs.sha`
+  when supplied and otherwise sets `RAPIDS_SHA` to `git rev-parse HEAD`.
+
+This distinction matters when a reusable workflow checks out a repository or
+revision different from the workflow event. Direct callers must likewise set
+`RAPIDS_SHA` to the checked-out commit instead of assuming `${{ github.sha }}`
+names the built source. Variables written to `GITHUB_ENV` are available to the
+action when it runs as a subsequent job step.
+
 ## Generated identity evidence
 
 For every artifact, the action generates an SPDX artifact-identity envelope
@@ -126,6 +151,7 @@ They record the artifact SHA-256, package identity, source revision, and workflo
 context, but contain no dependency or source-license inventory. They must not be
 reported as producer-supplied dependency coverage.
 
-Producer-supplied SBOM, provenance, and signature inputs are intentionally
-deferred until a future revision defines a generic, unambiguous way to associate
-them with detected artifacts.
+Producer-supplied dependency SBOMs and richer build provenance, such as build
+dependencies and compiler flags, would make package contents easier to
+understand without downloading them. Associating that input-side evidence with
+artifacts is left for future work.

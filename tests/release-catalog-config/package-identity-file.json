@@ -1,11 +1,10 @@
 {
-  "artifact_type": "custom",
   "release_catalog_key": "maven:cuvs-java",
   "output_directory": "java/cuvs-java/target",
-  "package_identity_file": "cuvs-java.release-package-identity.json",
   "artifacts": [
     {
       "path": "cuvs-java-*-x86_64-cuda*.jar",
+      "package_identity_file": "cuvs-java.release-package-identity.json",
       "sbom": "cuvs-java.spdx.json"
     }
   ]

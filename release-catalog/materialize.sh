@@ -13,7 +13,6 @@ require_nonempty() {
 }
 
 require_nonempty "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
-require_nonempty "RELEASE_ARTIFACT_TYPE" "${RELEASE_ARTIFACT_TYPE:-}"
 require_nonempty "RELEASE_OUTPUT_DIRECTORY" "${RELEASE_OUTPUT_DIRECTORY:-}"
 require_nonempty "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
 require_nonempty "RELEASE_ARTIFACTS" "${RELEASE_ARTIFACTS:-}"
@@ -48,42 +47,6 @@ ensure_relative_pattern() {
 }
 
 output_directory="$(realpath "${RELEASE_OUTPUT_DIRECTORY}")"
-package_identity=''
-case "${RELEASE_ARTIFACT_TYPE}" in
-  custom)
-    require_nonempty "RELEASE_PACKAGE_IDENTITY_FILE" "${RELEASE_PACKAGE_IDENTITY_FILE:-}"
-    ensure_relative_pattern "package-identity-file" "${RELEASE_PACKAGE_IDENTITY_FILE}"
-    package_identity_path="$(realpath "${output_directory}/${RELEASE_PACKAGE_IDENTITY_FILE}")"
-    if [[ "${package_identity_path}" != "${output_directory}"/* || ! -f "${package_identity_path}" ]]; then
-      echo "package-identity-file must resolve to one file inside output-directory: ${RELEASE_PACKAGE_IDENTITY_FILE}" >&2
-      exit 1
-    fi
-    package_identity="$(jq -c . "${package_identity_path}")"
-    ;;
-  conda | wheel)
-    if [[ -n "${RELEASE_PACKAGE_IDENTITY_FILE:-}" ]]; then
-      echo "package-identity-file is only valid for custom artifacts" >&2
-      exit 1
-    fi
-    ;;
-  *)
-    echo "artifact-type must be one of: conda, custom, wheel" >&2
-    exit 1
-    ;;
-esac
-
-if [[ "${RELEASE_ARTIFACT_TYPE}" == "custom" ]] && ! jq -e '
-  type == "object"
-  and (keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
-  and (.ecosystem | type == "string" and length > 0)
-  and (.name | type == "string" and length > 0)
-  and (.version | type == "string" and length > 0)
-  and ((has("build") | not) or (.build | type == "string" and length > 0))
-  and ((has("platform") | not) or (.platform | type == "string" and length > 0))
-' <<<"${package_identity}" >/dev/null; then
-  echo "package identity file must contain non-empty ecosystem, name, and version strings and only optional build or platform strings" >&2
-  exit 1
-fi
 
 if ! jq -e 'type == "array" and length > 0' <<<"${RELEASE_ARTIFACTS}" >/dev/null; then
   echo "release-artifacts must be a non-empty JSON array" >&2
@@ -117,6 +80,18 @@ resolve_one_file() {
     exit 1
   fi
   printf '%s\n' "${resolved#"${output_directory}/"}"
+}
+
+validate_package_identity() {
+  jq -e '
+    type == "object"
+    and (keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
+    and (.ecosystem | type == "string" and length > 0)
+    and (.name | type == "string" and length > 0)
+    and (.version | type == "string" and length > 0)
+    and ((has("build") | not) or (.build | type == "string" and length > 0))
+    and ((has("platform") | not) or (.platform | type == "string" and length > 0))
+  ' >/dev/null
 }
 
 generated_evidence_path() {
@@ -220,34 +195,17 @@ write_generated_provenance() {
 
 shopt -s globstar nullglob
 while IFS= read -r descriptor; do
-  if ! jq -e --arg artifact_type "${RELEASE_ARTIFACT_TYPE}" '
+  if ! jq -e '
     type == "object"
-    and (
-      if $artifact_type == "custom" then
-        (keys - ["path", "sbom", "provenance", "signature"] | length == 0)
-      else
-        (keys - ["path", "sbom", "provenance", "signature", "package"] | length == 0)
-      end
-    )
+    and (keys - ["path", "package_identity_file", "sbom", "provenance", "signature", "package"] | length == 0)
     and (.path | type == "string" and length > 0)
+    and ((.package_identity_file // "") | type == "string")
     and ((.sbom // "") | type == "string")
     and ((.provenance // "") | type == "string")
     and ((.signature // "") | type == "string")
-    and (
-      if $artifact_type == "custom" then
-        has("package") | not
-      else
-        (.package | type == "object")
-        and (.package | keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
-        and (.package.ecosystem | type == "string" and length > 0)
-        and (.package.name | type == "string" and length > 0)
-        and (.package.version | type == "string" and length > 0)
-        and ((.package | has("build") | not) or (.package.build | type == "string" and length > 0))
-        and ((.package | has("platform") | not) or (.package.platform | type == "string" and length > 0))
-      end
-    )
+    and ([has("package"), has("package_identity_file")] | map(select(.)) | length == 1)
   ' <<<"${descriptor}" >/dev/null; then
-    echo "release artifact descriptor is invalid for ${RELEASE_ARTIFACT_TYPE}: ${descriptor}" >&2
+    echo "release artifact descriptor must contain path, exactly one package identity source, and optional evidence paths: ${descriptor}" >&2
     exit 1
   fi
 
@@ -255,10 +213,19 @@ while IFS= read -r descriptor; do
   sbom_pattern="$(jq -r '.sbom // empty' <<<"${descriptor}")"
   provenance_pattern="$(jq -r '.provenance // empty' <<<"${descriptor}")"
   signature_pattern="$(jq -r '.signature // empty' <<<"${descriptor}")"
-  if [[ "${RELEASE_ARTIFACT_TYPE}" == "custom" ]]; then
-    package="${package_identity}"
+  package_identity_file="$(jq -r '.package_identity_file // empty' <<<"${descriptor}")"
+  if [[ -n "${package_identity_file}" ]]; then
+    package_identity_path="$(resolve_one_file package_identity_file "${package_identity_file}")"
+    if ! package="$(jq -ce . "${output_directory}/${package_identity_path}" 2>/dev/null)"; then
+      echo "package_identity_file must contain valid JSON: ${package_identity_file}" >&2
+      exit 1
+    fi
   else
     package="$(jq -c '.package' <<<"${descriptor}")"
+  fi
+  if ! validate_package_identity <<<"${package}"; then
+    echo "package identity for ${primary_path} must contain non-empty ecosystem, name, and version strings and only optional build or platform strings" >&2
+    exit 1
   fi
 
   if [[ -n "${sbom_pattern}" ]]; then

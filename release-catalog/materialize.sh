@@ -15,7 +15,6 @@ require_nonempty() {
 require_nonempty "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
 require_nonempty "RELEASE_ARTIFACT_DIRECTORY" "${RELEASE_ARTIFACT_DIRECTORY:-}"
 require_nonempty "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
-require_nonempty "RELEASE_ARTIFACTS" "${RELEASE_ARTIFACTS:-}"
 require_nonempty "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NAME:-}"
 
 source_sha="${RELEASE_SOURCE_SHA:-${GITHUB_SHA:-}}"
@@ -48,17 +47,6 @@ ensure_relative_pattern() {
 
 artifact_directory="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
 
-if ! jq -e 'type == "array" and length > 0' <<<"${RELEASE_ARTIFACTS}" >/dev/null; then
-  echo "release-artifacts must be a non-empty JSON array" >&2
-  exit 1
-fi
-
-entries_path="${artifact_directory}/${RELEASE_ENTRIES_NAME}"
-temporary_manifest="$(mktemp "${artifact_directory}/.release-catalog.XXXXXX")"
-trap 'rm -f "${temporary_manifest}"' EXIT
-
-printf '%s\n' '{"entries":[]}' >"${temporary_manifest}"
-
 resolve_one_file() {
   local field="$1"
   local pattern="$2"
@@ -81,6 +69,175 @@ resolve_one_file() {
   fi
   printf '%s\n' "${resolved#"${artifact_directory}/"}"
 }
+
+describe_wheel_package() {
+  local wheel_path="$1"
+  local relative_path="${wheel_path#"${artifact_directory}/"}"
+  local -a metadata_members=()
+  local metadata_member
+  while IFS= read -r metadata_member; do
+    metadata_members+=("${metadata_member}")
+  done < <(unzip -Z1 "${wheel_path}" | awk '/\.dist-info\/METADATA$/')
+  if [[ "${#metadata_members[@]}" -ne 1 ]]; then
+    echo "wheel must contain exactly one .dist-info/METADATA file: ${relative_path}" >&2
+    exit 1
+  fi
+
+  local metadata package_name package_version
+  metadata="$(unzip -p "${wheel_path}" "${metadata_members[0]}")"
+  package_name="$(awk 'tolower($0) ~ /^name:[[:space:]]*/ {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
+  package_version="$(awk 'tolower($0) ~ /^version:[[:space:]]*/ {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
+  if [[ -z "${package_name}" || -z "${package_version}" ]]; then
+    echo "wheel metadata must contain non-empty Name and Version fields: ${relative_path}" >&2
+    exit 1
+  fi
+
+  jq -cn --arg name "${package_name}" --arg version "${package_version}" \
+    '{ecosystem: "wheel", name: $name, version: $version}'
+}
+
+describe_conda_package() {
+  local package_path="$1"
+  local relative_path="${package_path#"${artifact_directory}/"}"
+  local index_json
+  case "${package_path}" in
+    *.conda)
+      local -a info_members=()
+      local info_member
+      while IFS= read -r info_member; do
+        info_members+=("${info_member}")
+      done < <(unzip -Z1 "${package_path}" | awk '/^info-.*\.tar\.zst$/')
+      if [[ "${#info_members[@]}" -ne 1 ]]; then
+        echo ".conda package must contain exactly one info-*.tar.zst member: ${relative_path}" >&2
+        exit 1
+      fi
+      index_json="$(unzip -p "${package_path}" "${info_members[0]}" | zstd -dc | tar -xOf - info/index.json)"
+      ;;
+    *.tar.bz2)
+      index_json="$(tar -xOjf "${package_path}" info/index.json)"
+      ;;
+    *)
+      echo "unsupported Conda package extension: ${relative_path}" >&2
+      exit 1
+      ;;
+  esac
+
+  if ! jq -e '
+    type == "object"
+    and (.name | type == "string" and length > 0)
+    and (.version | type == "string" and length > 0)
+    and (.build | type == "string" and length > 0)
+    and (.subdir | type == "string" and length > 0)
+  ' <<<"${index_json}" >/dev/null; then
+    echo "Conda info/index.json must contain exact name, version, build, and subdir fields: ${relative_path}" >&2
+    exit 1
+  fi
+
+  jq -c '{ecosystem: "conda", name, version, build, platform: .subdir}' <<<"${index_json}"
+}
+
+prepare_artifacts() {
+  local configured_artifacts="${RELEASE_ARTIFACTS:-}"
+  local prepared_artifacts='[]'
+  local conda_package descriptor package primary_path primary_file identity_file
+
+  if [[ -z "${configured_artifacts}" ]]; then
+    local -a detected_files=()
+    while IFS= read -r primary_file; do
+      detected_files+=("${primary_file}")
+    done < <(find "${artifact_directory}" -type f \( -name '*.conda' -o -name '*.tar.bz2' -o -name '*.whl' \) -print | sort)
+
+    for primary_file in "${detected_files[@]}"; do
+      primary_path="${primary_file#"${artifact_directory}/"}"
+      case "${primary_file}" in
+        *.whl)
+          if ! package="$(describe_wheel_package "${primary_file}")"; then
+            return 1
+          fi
+          ;;
+        *)
+          if ! package="$(describe_conda_package "${primary_file}")"; then
+            return 1
+          fi
+          ;;
+      esac
+      descriptor="$(jq -cn --arg path "${primary_path}" --argjson package "${package}" '{path: $path, package: $package}')"
+      prepared_artifacts="$(jq -cn --argjson current "${prepared_artifacts}" --argjson descriptor "${descriptor}" '$current + [$descriptor]')"
+    done
+  else
+    if ! jq -e 'type == "array" and length > 0' <<<"${configured_artifacts}" >/dev/null; then
+      echo "release-artifacts must be a non-empty JSON array when supplied" >&2
+      exit 1
+    fi
+    while IFS= read -r descriptor; do
+      if jq -e 'has("package")' <<<"${descriptor}" >/dev/null; then
+        echo "package identity must not be supplied inline: ${descriptor}" >&2
+        return 1
+      fi
+      primary_path="$(resolve_one_file path "$(jq -r '.path' <<<"${descriptor}")")"
+      primary_file="${artifact_directory}/${primary_path}"
+      identity_file="$(jq -r '.package_identity_file // empty' <<<"${descriptor}")"
+      package=''
+
+      case "${primary_file}" in
+        *.whl)
+          if [[ -n "${identity_file}" ]]; then
+            echo "package_identity_file is not allowed when wheel identity can be extracted: $(jq -r '.path' <<<"${descriptor}")" >&2
+            exit 1
+          fi
+          if ! package="$(describe_wheel_package "${primary_file}")"; then
+            return 1
+          fi
+          ;;
+        *.conda)
+          if [[ -n "${identity_file}" ]]; then
+            echo "package_identity_file is not allowed when Conda identity can be extracted: $(jq -r '.path' <<<"${descriptor}")" >&2
+            exit 1
+          fi
+          if ! package="$(describe_conda_package "${primary_file}")"; then
+            return 1
+          fi
+          ;;
+        *.tar.bz2)
+          if conda_package="$(describe_conda_package "${primary_file}" 2>/dev/null)"; then
+            if [[ -n "${identity_file}" ]]; then
+              echo "package_identity_file is not allowed when Conda identity can be extracted: $(jq -r '.path' <<<"${descriptor}")" >&2
+              exit 1
+            fi
+            package="${conda_package}"
+          elif [[ -z "${identity_file}" ]]; then
+            echo "artifact is not a valid Conda package and requires package_identity_file: $(jq -r '.path' <<<"${descriptor}")" >&2
+            exit 1
+          fi
+          ;;
+        *)
+          if [[ -z "${identity_file}" ]]; then
+            echo "artifact identity cannot be extracted; package_identity_file is required: $(jq -r '.path' <<<"${descriptor}")" >&2
+            exit 1
+          fi
+          ;;
+      esac
+
+      if [[ -n "${package}" ]]; then
+        descriptor="$(jq -c --argjson package "${package}" '. + {package: $package}' <<<"${descriptor}")"
+      fi
+      prepared_artifacts="$(jq -cn --argjson current "${prepared_artifacts}" --argjson descriptor "${descriptor}" '$current + [$descriptor]')"
+    done < <(jq -c '.[]' <<<"${configured_artifacts}")
+  fi
+
+  if [[ "$(jq 'length' <<<"${prepared_artifacts}")" -eq 0 ]]; then
+    echo "artifact-directory contains no detectable Conda or wheel artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed" >&2
+    exit 1
+  fi
+  printf '%s\n' "${prepared_artifacts}"
+}
+
+artifacts="$(prepare_artifacts)"
+entries_path="${artifact_directory}/${RELEASE_ENTRIES_NAME}"
+temporary_manifest="$(mktemp "${artifact_directory}/.release-catalog.XXXXXX")"
+trap 'rm -f "${temporary_manifest}"' EXIT
+
+printf '%s\n' '{"entries":[]}' >"${temporary_manifest}"
 
 validate_package_identity() {
   jq -e '
@@ -133,6 +290,8 @@ write_generated_sbom() {
       dataLicense: "CC0-1.0",
       SPDXID: "SPDXRef-DOCUMENT",
       name: ("RAPIDS release artifact " + $artifact_path),
+      # This is a unique identifier, not a retrieval URL; SPDX requires an
+      # absolute URI for the document namespace but does not require it to resolve.
       documentNamespace: ("https://rapids.ai/release-platform/spdx/" + $artifact_digest),
       creationInfo: {
         creators: ["Tool: rapidsai/shared-workflows release catalog"],
@@ -260,7 +419,7 @@ while IFS= read -r descriptor; do
 
   jq --argjson entry "${entry}" '.entries += [$entry]' "${temporary_manifest}" >"${temporary_manifest}.next"
   mv "${temporary_manifest}.next" "${temporary_manifest}"
-done < <(jq -c '.[]' <<<"${RELEASE_ARTIFACTS}")
+done < <(jq -c '.[]' <<<"${artifacts}")
 
 if ! jq -e '.entries as $items | ($items | map([.release_catalog_key, .path] | join("\u0000")) | unique | length) == ($items | length)' "${temporary_manifest}" >/dev/null; then
   echo "release-artifacts contains duplicate release_catalog_key/path entries" >&2

@@ -7,6 +7,14 @@ repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "${temporary_directory}"' EXIT
 
+GITHUB_OUTPUT="${temporary_directory}/github-output"
+RELEASE_ARTIFACTS=''
+RELEASE_CATALOG_KEY="test:package-parsing"
+RELEASE_ENTRIES_NAME="release-catalog-entries.json"
+RELEASE_SOURCE_ARTIFACT_NAME="package-parsing-test"
+RELEASE_SOURCE_SHA="0123456789012345678901234567890123456789"
+export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_CATALOG_KEY RELEASE_ENTRIES_NAME RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA
+
 wheel_output_directory="${temporary_directory}/wheels"
 wheel_staging_directory="${temporary_directory}/wheel-staging"
 mkdir -p "${wheel_output_directory}" "${wheel_staging_directory}/libkvikio_cu12-26.8.0.dist-info"
@@ -20,13 +28,15 @@ printf '%s\n' \
   zip -qr "${wheel_output_directory}/libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl" .
 )
 
-wheel_descriptors="$("${repository_root}/release-catalog/describe-wheels.sh" "${wheel_output_directory}")"
+RELEASE_ARTIFACT_DIRECTORY="${wheel_output_directory}"
+export RELEASE_ARTIFACT_DIRECTORY
+"${repository_root}/release-catalog/materialize.sh"
 jq -e '
-  . == [{
+  [.entries[] | {path, package}] == [{
     path: "libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl",
     package: {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32"}
   }]
-' <<<"${wheel_descriptors}" >/dev/null
+' "${wheel_output_directory}/release-catalog-entries.json" >/dev/null
 
 conda_output_directory="${temporary_directory}/conda"
 tar_bz2_staging_directory="${temporary_directory}/tar-bz2-staging"
@@ -57,10 +67,13 @@ zstd -q -f "${temporary_directory}/info-librmm.tar" -o "${temporary_directory}/i
     info-librmm.tar.zst
 )
 
-conda_descriptors="$("${repository_root}/release-catalog/describe-conda.sh" "${conda_output_directory}")"
+GITHUB_OUTPUT="${temporary_directory}/conda-github-output"
+RELEASE_ARTIFACT_DIRECTORY="${conda_output_directory}"
+export GITHUB_OUTPUT RELEASE_ARTIFACT_DIRECTORY
+"${repository_root}/release-catalog/materialize.sh"
 jq -e '
-  length == 2
-  and any(.[];
+  (.entries | length == 2)
+  and any(.entries[];
     .path == "linux-64/librmm-26.08.00a32-cuda12_260714_2f567060.conda"
     and .package == {
       ecosystem: "conda",
@@ -70,7 +83,7 @@ jq -e '
       platform: "linux-64"
     }
   )
-  and any(.[];
+  and any(.entries[];
     .path == "noarch/rapids-dask-dependency-26.08.0-py_0.tar.bz2"
     and .package == {
       ecosystem: "conda",
@@ -80,4 +93,17 @@ jq -e '
       platform: "noarch"
     }
   )
-' <<<"${conda_descriptors}" >/dev/null
+' "${conda_output_directory}/release-catalog-entries.json" >/dev/null
+
+invalid_wheel_directory="${temporary_directory}/invalid-wheel"
+mkdir -p "${invalid_wheel_directory}"
+printf '%s\n' invalid >"${invalid_wheel_directory}/invalid.whl"
+GITHUB_OUTPUT="${temporary_directory}/invalid-wheel-output"
+RELEASE_ARTIFACT_DIRECTORY="${invalid_wheel_directory}"
+export GITHUB_OUTPUT RELEASE_ARTIFACT_DIRECTORY
+if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/invalid-wheel-error"; then
+  echo "materialize.sh unexpectedly accepted an invalid wheel" >&2
+  exit 1
+fi
+grep -F 'wheel must contain exactly one .dist-info/METADATA file: invalid.whl' \
+  "${temporary_directory}/invalid-wheel-error" >/dev/null

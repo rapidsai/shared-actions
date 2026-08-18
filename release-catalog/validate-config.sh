@@ -5,18 +5,18 @@ set -euo pipefail
 
 emit_error() {
   local message="$1"
-  printf '::error title=Invalid release-build-output configuration::%s\n' "${message}" >&2
+  printf '::error title=Invalid release catalog configuration::%s\n' "${message}" >&2
 }
 
-config="${RELEASE_BUILD_OUTPUT_CONFIG:-}"
+config="${RELEASE_CATALOG_CONFIG:-}"
 if [[ -z "${config}" ]]; then
-  emit_error "release-build-output must be a non-empty JSON object"
+  emit_error "release catalog configuration must be a non-empty JSON object"
   exit 1
 fi
 
 if ! compact_config="$(jq -ce . <<<"${config}" 2>/dev/null)"; then
   parse_error="$(jq -ce . <<<"${config}" 2>&1 || true)"
-  emit_error "release-build-output must be valid JSON: ${parse_error}"
+  emit_error "release catalog configuration must be valid JSON: ${parse_error}"
   exit 1
 fi
 
@@ -36,7 +36,7 @@ validation_errors="$(jq -r '
     and (keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
     and (to_entries | map(.value | single_line_string) | all);
   if type != "object" then
-    ["release-build-output must be a JSON object"]
+    ["release catalog configuration must be a JSON object"]
   else
     (keys - ["artifact_type", "release_catalog_key", "output_directory", "package", "package_file", "artifacts"]) as $unknown
     | [

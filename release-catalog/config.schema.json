@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://rapids.ai/schemas/release-build-output-config-v1.json",
-  "title": "Release build-output configuration",
-  "description": "Producer configuration for one release build-output companion.",
+  "$id": "https://rapids.ai/schemas/release-catalog-config-v1.json",
+  "title": "Release catalog configuration",
+  "description": "Producer configuration for one release catalog companion.",
   "type": "object",
   "additionalProperties": false,
   "required": [

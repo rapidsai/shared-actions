@@ -6,10 +6,10 @@ ci:
   # These hooks require tools unavailable in pre-commit.ci:
   #
   #   * actionlint-docker requires Docker
-  #   * release-build-output-config requires jq
+  #   * release-catalog-config requires jq
   #
   # Both run in other CI jobs with controlled runtime dependencies.
-  skip: [actionlint-docker, release-build-output-config]
+  skip: [actionlint-docker, release-catalog-config]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -63,14 +63,14 @@ repos:
     rev: 0.37.2
     hooks:
       - id: check-jsonschema
-        name: validate release build-output config schema fixtures
-        args: [--schemafile, release-build-output/config.schema.json]
-        files: ^tests/release-build-output-config/.*\.json$
+        name: validate release catalog config schema fixtures
+        args: [--schemafile, release-catalog/config.schema.json]
+        files: ^tests/release-catalog-config/.*\.json$
   - repo: local
     hooks:
-      - id: release-build-output-config
-        name: validate release build-output configuration
-        entry: ./tests/release_build_output_config_test.sh
+      - id: release-catalog-config
+        name: validate release catalog configuration
+        entry: ./tests/release_catalog_config_test.sh
         language: system
         pass_filenames: false
-        files: ^(release-build-output/(config\.schema\.json|validate-config\.sh)|tests/release_build_output_config_test\.sh)$
+        files: ^(release-catalog/(config\.schema\.json|validate-config\.sh)|tests/release_catalog_config_test\.sh)$

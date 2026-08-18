@@ -8,20 +8,8 @@ inputs:
       https://github.com/rapidsai/shared-actions/blob/main/release-catalog/config.schema.json
     required: true
   source-artifact-name:
-    description: Name of the GitHub Actions artifact bundle containing this output.
+    description: Name of the existing GitHub Actions artifact whose files are being cataloged.
     required: true
-  source-sha:
-    description: Source revision built by the producing job.
-    required: false
-
-outputs:
-  entries-path:
-    description: Absolute path to the generated release catalog entries.
-    value: ${{ steps.materialize.outputs.entries-path }}
-  companion-artifact-name:
-    description: Name of the uploaded GitHub Actions companion artifact.
-    value: ${{ steps.companion-name.outputs.name }}
-
 runs:
   using: composite
   steps:
@@ -51,8 +39,7 @@ runs:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         RELEASE_CATALOG_CONFIG: ${{ inputs.config }}
       run: "${IMPLEMENTATION_PATH}/validate-config.sh"
-    - id: materialize
-      name: Materialize release catalog entries
+    - name: Materialize release catalog entries
       shell: bash
       env:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
@@ -60,20 +47,13 @@ runs:
         RELEASE_ENTRIES_NAME: release-catalog-entries.json
         RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
-        RELEASE_SOURCE_SHA: ${{ inputs.source-sha || github.sha }}
         RELEASE_CATALOG_KEY: ${{ steps.configuration.outputs.release_catalog_key }}
       run: "${IMPLEMENTATION_PATH}/materialize.sh"
-    - id: companion-name
-      name: Set companion artifact name
-      shell: bash
-      env:
-        SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
-      run: echo "name=release-catalog-${SOURCE_ARTIFACT_NAME}" >>"${GITHUB_OUTPUT}"
     - name: Upload release catalog companion
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         if-no-files-found: error
-        name: ${{ steps.companion-name.outputs.name }}
+        name: release-catalog-${{ inputs.source-artifact-name }}
         path: |
           ${{ steps.configuration.outputs.artifact_directory }}/release-catalog-entries.json
           ${{ steps.configuration.outputs.artifact_directory }}/release-evidence/**

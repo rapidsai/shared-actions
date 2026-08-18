@@ -10,8 +10,8 @@ trap 'rm -rf "${temporary_directory}"' EXIT
 RELEASE_CATALOG_KEY="test:discovery"
 RELEASE_ENTRIES_NAME="release-catalog-entries.json"
 RELEASE_SOURCE_ARTIFACT_NAME="discovery-test"
-RELEASE_SOURCE_SHA="0123456789012345678901234567890123456789"
-export RELEASE_CATALOG_KEY RELEASE_ENTRIES_NAME RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA
+RAPIDS_SHA="0123456789012345678901234567890123456789"
+export RAPIDS_SHA RELEASE_CATALOG_KEY RELEASE_ENTRIES_NAME RELEASE_SOURCE_ARTIFACT_NAME
 
 mkdir -p "${temporary_directory}/wheel/libkvikio_cu12-26.8.0.dist-info"
 printf '%s\n' \
@@ -24,10 +24,9 @@ printf '%s\n' \
   zip -qr "${temporary_directory}/libkvikio_cu12-26.8.0-py3-none-manylinux_2_28_x86_64.whl" .
 )
 
-GITHUB_OUTPUT="${temporary_directory}/wheel-output"
 RELEASE_ARTIFACTS=''
 RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 
 "${repository_root}/release-catalog/materialize.sh"
 
@@ -49,9 +48,8 @@ tar -cjf \
   -C "${conda_staging_directory}" \
   info/index.json
 
-GITHUB_OUTPUT="${temporary_directory}/conda-output"
 RELEASE_ARTIFACT_DIRECTORY="${conda_output_directory}"
-export GITHUB_OUTPUT RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACT_DIRECTORY
 
 "${repository_root}/release-catalog/materialize.sh"
 
@@ -68,14 +66,13 @@ jq -e '
   }]
 ' "${conda_output_directory}/release-catalog-entries.json" >/dev/null
 
-GITHUB_OUTPUT="${temporary_directory}/custom-output"
 RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
 printf '%s\n' bundle >"${temporary_directory}/bundle.tar.gz"
 printf '%s\n' sbom >"${temporary_directory}/bundle.spdx.json"
 jq -n '{ecosystem: "archive", name: "bundle", version: "1.0"}' \
   >"${temporary_directory}/release-package-identity.json"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz", package_identity_file: "release-package-identity.json", sbom: "bundle.spdx.json"}]')"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 
 "${repository_root}/release-catalog/materialize.sh"
 
@@ -85,11 +82,10 @@ jq -e '
   and .entries[0].sbom_kind == "producer-dependency"
 ' "${temporary_directory}/release-catalog-entries.json" >/dev/null
 
-GITHUB_OUTPUT="${temporary_directory}/explicit-wheel-output"
 RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
 printf '%s\n' signature >"${temporary_directory}/libkvikio.sig"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.whl", signature: "libkvikio.sig"}]')"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 "${repository_root}/release-catalog/materialize.sh"
 jq -e '
   .entries[0].path == "libkvikio_cu12-26.8.0-py3-none-manylinux_2_28_x86_64.whl"
@@ -101,10 +97,9 @@ mixed_directory="${temporary_directory}/mixed"
 mkdir -p "${mixed_directory}"
 cp "${temporary_directory}/libkvikio_cu12-26.8.0-py3-none-manylinux_2_28_x86_64.whl" "${mixed_directory}/"
 cp "${conda_output_directory}/noarch/rapids-dask-dependency-26.08.0-py_0.tar.bz2" "${mixed_directory}/"
-GITHUB_OUTPUT="${temporary_directory}/mixed-output"
 RELEASE_ARTIFACTS=''
 RELEASE_ARTIFACT_DIRECTORY="${mixed_directory}"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 "${repository_root}/release-catalog/materialize.sh"
 jq -e '
   (.entries | length == 2)
@@ -113,28 +108,25 @@ jq -e '
 
 empty_directory="${temporary_directory}/empty"
 mkdir -p "${empty_directory}"
-GITHUB_OUTPUT="${temporary_directory}/empty-output"
 RELEASE_ARTIFACT_DIRECTORY="${empty_directory}"
-export GITHUB_OUTPUT RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACT_DIRECTORY
 if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/empty-error"; then
   echo "materialize.sh unexpectedly accepted an artifact directory without detectable artifacts" >&2
   exit 1
 fi
 grep -Fx 'artifact-directory contains no detectable Conda or wheel artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed' "${temporary_directory}/empty-error"
 
-GITHUB_OUTPUT="${temporary_directory}/unsupported-output"
 RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz"}]')"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/unsupported-error"; then
   echo "materialize.sh unexpectedly accepted an unsupported artifact without identity" >&2
   exit 1
 fi
 grep -Fx 'artifact identity cannot be extracted; package_identity_file is required: bundle.tar.gz' "${temporary_directory}/unsupported-error"
 
-GITHUB_OUTPUT="${temporary_directory}/conflicting-identity-output"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.whl", package_identity_file: "release-package-identity.json"}]')"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS
+export RELEASE_ARTIFACTS
 if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/conflicting-identity-error"; then
   echo "materialize.sh unexpectedly accepted an identity file for a parseable artifact" >&2
   exit 1

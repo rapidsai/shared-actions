@@ -17,8 +17,8 @@ require_nonempty "RELEASE_ARTIFACT_DIRECTORY" "${RELEASE_ARTIFACT_DIRECTORY:-}"
 require_nonempty "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
 require_nonempty "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NAME:-}"
 
-source_sha="${RELEASE_SOURCE_SHA:-${GITHUB_SHA:-}}"
-require_nonempty "RELEASE_SOURCE_SHA or GITHUB_SHA" "${source_sha}"
+source_sha="${RAPIDS_SHA:-}"
+require_nonempty "RAPIDS_SHA" "${source_sha}"
 
 require_plain_filename() {
   local label="$1"
@@ -447,4 +447,3 @@ jq -n -S \
     },
     entries: $entries
   }' >"${entries_path}"
-echo "entries-path=${entries_path}" >>"${GITHUB_OUTPUT}"

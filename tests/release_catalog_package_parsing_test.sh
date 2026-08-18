@@ -7,13 +7,12 @@ repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "${temporary_directory}"' EXIT
 
-GITHUB_OUTPUT="${temporary_directory}/github-output"
 RELEASE_ARTIFACTS=''
 RELEASE_CATALOG_KEY="test:package-parsing"
 RELEASE_ENTRIES_NAME="release-catalog-entries.json"
 RELEASE_SOURCE_ARTIFACT_NAME="package-parsing-test"
-RELEASE_SOURCE_SHA="0123456789012345678901234567890123456789"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_CATALOG_KEY RELEASE_ENTRIES_NAME RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA
+RAPIDS_SHA="0123456789012345678901234567890123456789"
+export RAPIDS_SHA RELEASE_ARTIFACTS RELEASE_CATALOG_KEY RELEASE_ENTRIES_NAME RELEASE_SOURCE_ARTIFACT_NAME
 
 wheel_output_directory="${temporary_directory}/wheels"
 wheel_staging_directory="${temporary_directory}/wheel-staging"
@@ -67,9 +66,8 @@ zstd -q -f "${temporary_directory}/info-librmm.tar" -o "${temporary_directory}/i
     info-librmm.tar.zst
 )
 
-GITHUB_OUTPUT="${temporary_directory}/conda-github-output"
 RELEASE_ARTIFACT_DIRECTORY="${conda_output_directory}"
-export GITHUB_OUTPUT RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACT_DIRECTORY
 "${repository_root}/release-catalog/materialize.sh"
 jq -e '
   (.entries | length == 2)
@@ -98,9 +96,8 @@ jq -e '
 invalid_wheel_directory="${temporary_directory}/invalid-wheel"
 mkdir -p "${invalid_wheel_directory}"
 printf '%s\n' invalid >"${invalid_wheel_directory}/invalid.whl"
-GITHUB_OUTPUT="${temporary_directory}/invalid-wheel-output"
 RELEASE_ARTIFACT_DIRECTORY="${invalid_wheel_directory}"
-export GITHUB_OUTPUT RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_ARTIFACT_DIRECTORY
 if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/invalid-wheel-error"; then
   echo "materialize.sh unexpectedly accepted an invalid wheel" >&2
   exit 1

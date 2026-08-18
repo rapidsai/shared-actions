@@ -61,8 +61,8 @@ unambiguously.
 
 ## Source revision
 
-`source-sha` must identify the repository revision actually checked out and
-built. RAPIDS shared workflows pass `${{ env.RAPIDS_SHA }}`:
+The action requires `RAPIDS_SHA` in the job environment. It must identify the
+repository revision actually checked out and built:
 
 - Conda build workflows set `RAPIDS_SHA` to `git rev-parse HEAD` immediately
   after checkout.
@@ -70,9 +70,10 @@ built. RAPIDS shared workflows pass `${{ env.RAPIDS_SHA }}`:
   when supplied and otherwise sets `RAPIDS_SHA` to `git rev-parse HEAD`.
 
 This distinction matters when a reusable workflow checks out a repository or
-revision different from the workflow event. Direct callers should likewise
-resolve the checked-out commit instead of assuming `${{ github.sha }}` names
-the built source.
+revision different from the workflow event. Direct callers must likewise set
+`RAPIDS_SHA` to the checked-out commit instead of assuming `${{ github.sha }}`
+names the built source. Variables written to `GITHUB_ENV` are available to the
+action when it runs as a subsequent job step.
 
 ## Standard package example
 
@@ -86,7 +87,6 @@ the built source.
         "artifact_directory": ${{ toJSON(steps.package-name.outputs.WHEEL_OUTPUT_DIR) }}
       }
     source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
-    source-sha: ${{ env.RAPIDS_SHA }}
 ```
 
 ## Custom package example
@@ -105,7 +105,6 @@ the built source.
         }]
       }
     source-artifact-name: cuvs-java
-    source-sha: ${{ env.RAPIDS_SHA }}
 ```
 
 Before the action runs, the producer creates

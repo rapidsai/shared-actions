@@ -45,7 +45,7 @@
           "pattern": "^[^\\r\\n]+$"
         },
         "package_identity_file": {
-          "description": "Path, relative to artifact_directory, to producer-created package identity JSON for this artifact. Required only when identity cannot be extracted from the artifact. The file must contain ecosystem, name, and version and may contain build and platform.",
+          "description": "Path, relative to artifact_directory, to producer-created package identity JSON for this artifact. Required only when identity cannot be extracted from the artifact. See https://github.com/rapidsai/shared-actions/blob/main/release-catalog/README.md#package-identity-file",
           "type": "string",
           "minLength": 1,
           "pattern": "^[^\\r\\n]+$"

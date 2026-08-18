@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": [
     "artifact_type",
-    "component_id"
+    "release_catalog_key"
   ],
   "properties": {
     "artifact_type": {
@@ -19,8 +19,8 @@
         "wheel"
       ]
     },
-    "component_id": {
-      "description": "Stable release component ID shared by the selected files and their matrix variants.",
+    "release_catalog_key": {
+      "description": "Key of the release-catalog entry that owns these artifacts. Reuse it for every file and matrix variant in the same publishable artifact set. Standard RAPIDS workflows use <ecosystem>:<repository-name>, such as conda:cudf; custom producers select an existing catalog key, such as maven:cuvs-java. This is not a generated UUID or per-build value.",
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\r\\n]+$"

@@ -30,7 +30,7 @@ valid_output="${temporary_directory}/valid.output"
 RELEASE_BUILD_OUTPUT_CONFIG="$(<"${repository_root}/tests/release-build-output-config/package-file.json")" \
   GITHUB_OUTPUT="${valid_output}" "${validator}"
 
-grep -Fx 'component_id=maven:cuvs-java' "${valid_output}"
+grep -Fx 'release_catalog_key=maven:cuvs-java' "${valid_output}"
 grep -Fx 'artifact_type=custom' "${valid_output}"
 grep -Fx 'output_directory=java/cuvs-java/target' "${valid_output}"
 grep -Fx 'package=' "${valid_output}"
@@ -47,7 +47,7 @@ grep -Fx 'package_file=' "${inline_output}"
 
 assert_invalid \
   malformed-json \
-  '{"component_id":' \
+  '{"release_catalog_key":' \
   'release-build-output must be valid JSON'
 
 assert_invalid \
@@ -58,50 +58,50 @@ assert_invalid \
 assert_invalid \
   missing-fields \
   '{}' \
-  'component_id must be a non-empty, single-line string'
+  'release_catalog_key must be a non-empty, single-line string'
 grep -F 'artifact_type must be one of: conda, custom, wheel' "${temporary_directory}/missing-fields.error" >/dev/null
 
 assert_invalid \
   custom-missing-fields \
-  '{"artifact_type":"custom","component_id":"archive:smoke"}' \
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke"}' \
   'exactly one of package or package_file is required for custom artifacts'
 grep -F 'artifacts must be a non-empty array for custom artifacts' "${temporary_directory}/custom-missing-fields.error" >/dev/null
 
 assert_invalid \
   unknown-field \
-  '{"artifact_type":"custom","component_id":"archive:smoke","package_file":"package.json","artifacts":[{"path":"smoke.tar.gz"}],"unit":"archive:smoke"}' \
-  'unknown field(s): unit'
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_file":"package.json","artifacts":[{"path":"smoke.tar.gz"}],"component_id":"archive:smoke"}' \
+  'unknown field(s): component_id'
 
 assert_invalid \
   conflicting-package-source \
-  '{"artifact_type":"custom","component_id":"archive:smoke","package":{"ecosystem":"archive","name":"smoke"},"package_file":"package.json","artifacts":[{"path":"smoke.tar.gz"}]}' \
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package":{"ecosystem":"archive","name":"smoke"},"package_file":"package.json","artifacts":[{"path":"smoke.tar.gz"}]}' \
   'exactly one of package or package_file is required for custom artifacts'
 
 assert_invalid \
   malformed-artifact \
-  '{"artifact_type":"custom","component_id":"archive:smoke","package_file":"package.json","artifacts":[{"file":"smoke.tar.gz","sbom":false}]}' \
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_file":"package.json","artifacts":[{"file":"smoke.tar.gz","sbom":false}]}' \
   'artifacts[0] has unknown field(s): file'
 grep -F 'artifacts[0].path must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
 grep -F 'artifacts[0].sbom must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
 
 assert_invalid \
   standard-missing-output-directory \
-  '{"artifact_type":"conda","component_id":"conda:smoke"}' \
+  '{"artifact_type":"conda","release_catalog_key":"conda:smoke"}' \
   'output_directory is required for conda and wheel artifacts'
 
 assert_invalid \
   standard-custom-fields \
-  '{"artifact_type":"wheel","component_id":"wheel:smoke","output_directory":"dist","artifacts":[{"path":"smoke.whl"}]}' \
+  '{"artifact_type":"wheel","release_catalog_key":"wheel:smoke","output_directory":"dist","artifacts":[{"path":"smoke.whl"}]}' \
   'artifacts, package, and package_file are only valid when artifact_type is custom'
 
 standard_output="${temporary_directory}/standard.output"
 RELEASE_BUILD_OUTPUT_CONFIG='{
   "artifact_type": "wheel",
-  "component_id": "wheel:kvikio",
+  "release_catalog_key": "wheel:kvikio",
   "output_directory": "dist"
 }' GITHUB_OUTPUT="${standard_output}" "${validator}"
 
 grep -Fx 'artifact_type=wheel' "${standard_output}"
-grep -Fx 'component_id=wheel:kvikio' "${standard_output}"
+grep -Fx 'release_catalog_key=wheel:kvikio' "${standard_output}"
 grep -Fx 'output_directory=dist' "${standard_output}"
 grep -Fx 'artifacts=' "${standard_output}"

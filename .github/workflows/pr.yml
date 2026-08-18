@@ -23,29 +23,33 @@ jobs:
       - name: Test release catalog materialization
         run: |
           ./tests/release_catalog_config_test.sh
-          ./tests/release_catalog_descriptors_test.sh
-          ./tests/release_catalog_prepare_test.sh
+          ./tests/release_catalog_discovery_test.sh
+          ./tests/release_catalog_package_parsing_test.sh
           ./tests/release_catalog_test.sh
       - name: Prepare release catalog dispatch smoke test
         run: |
           mkdir -p release-catalog-smoke
           printf '%s\n' smoke >release-catalog-smoke/package.tar.gz
+          jq -n \
+            '{ecosystem: "archive", name: "smoke", version: "1.0"}' \
+            >release-catalog-smoke/package-identity.json
       - name: Run release catalog dispatch smoke test
         uses: ./release-catalog-dispatch
         env:
+          RAPIDS_SHA: ${{ github.sha }}
           SHARED_ACTIONS_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           SHARED_ACTIONS_REF: ${{ github.event.pull_request.head.sha }}
         with:
           config: >-
             {
-              "artifact_type": "custom",
               "release_catalog_key": "archive:smoke",
-              "output_directory": "release-catalog-smoke",
-              "package": {"ecosystem": "archive", "name": "smoke", "version": "1.0"},
-              "artifacts": [{"path": "package.tar.gz"}]
+              "artifact_directory": "release-catalog-smoke",
+              "artifacts": [{
+                "path": "package.tar.gz",
+                "package_identity_file": "package-identity.json"
+              }]
             }
           source-artifact-name: release-catalog-dispatch-smoke
-          source-sha: ${{ github.event.pull_request.head.sha }}
       - name: Verify release catalog dispatch smoke test
         run: |
           jq -e '

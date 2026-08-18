@@ -17,7 +17,7 @@ directory and uploads a companion artifact named
 
 See the [release catalog documentation](release-catalog/README.md)
 for configuration, examples, source-revision handling, companion contents, and
-evidence semantics.
+generated identity evidence semantics.
 
 The dispatch wrapper honors `SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF`.
 When neither is set, it checks out the same repository and ref used to invoke

@@ -10,9 +10,6 @@ trap 'rm -rf "${temporary_directory}"' EXIT
 bundle_directory="${temporary_directory}/bundle"
 mkdir -p "${bundle_directory}"
 printf '%s\n' jar >"${bundle_directory}/cuvs-java-26.08.0.jar"
-printf '%s\n' sbom >"${bundle_directory}/cuvs-java-26.08.0.spdx.json"
-printf '%s\n' provenance >"${bundle_directory}/cuvs-java-26.08.0.provenance.jsonl"
-printf '%s\n' signature >"${bundle_directory}/cuvs-java-26.08.0.jar.asc"
 jq -n \
   '{ecosystem: "maven", name: "ai.rapids:cuvs-java", version: "26.08.0"}' \
   >"${bundle_directory}/cuvs-java-package-identity.json"
@@ -22,7 +19,7 @@ GITHUB_RUN_ATTEMPT="1"
 GITHUB_RUN_ID="1234"
 GITHUB_SHA="0123456789012345678901234567890123456789"
 GITHUB_WORKFLOW_REF="rapidsai/cuvs/.github/workflows/build.yaml@refs/heads/release/26.08"
-RELEASE_ARTIFACTS="$(jq -cn '[{path: "cuvs-java-*.jar", package_identity_file: "cuvs-java-package-identity.json", sbom: "cuvs-java-*.spdx.json", provenance: "cuvs-java-*.provenance.jsonl", signature: "cuvs-java-*.jar.asc"}]')"
+RELEASE_ARTIFACTS="$(jq -cn '[{path: "cuvs-java-*.jar", package_identity_file: "cuvs-java-package-identity.json"}]')"
 RELEASE_ENTRIES_NAME="release-catalog-entries.json"
 RELEASE_ARTIFACT_DIRECTORY="${bundle_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="cuvs-java-cuda12.9.1"
@@ -47,18 +44,8 @@ jq -e '
   and .entries[0].release_catalog_key == "maven:cuvs-java"
   and .entries[0].path == "cuvs-java-26.08.0.jar"
   and .entries[0].package.name == "ai.rapids:cuvs-java"
-  and .entries[0].sbom_kind == "producer-dependency"
+  and .entries[0].sbom_kind == "generated-identity"
 ' "${entries_path}" >/dev/null
-
-supplied_sbom_path="$(jq -r '.entries[0].sbom' "${entries_path}")"
-supplied_provenance_path="$(jq -r '.entries[0].provenance' "${entries_path}")"
-supplied_signature_path="$(jq -r '.entries[0].signature' "${entries_path}")"
-[[ "${supplied_sbom_path}" == release-evidence/*/sbom-* ]]
-[[ "${supplied_provenance_path}" == release-evidence/*/provenance-* ]]
-[[ "${supplied_signature_path}" == release-evidence/*/signature-* ]]
-grep -Fx sbom "${canonical_bundle_directory}/${supplied_sbom_path}"
-grep -Fx provenance "${canonical_bundle_directory}/${supplied_provenance_path}"
-grep -Fx signature "${canonical_bundle_directory}/${supplied_signature_path}"
 
 isolated_companion_directory="${temporary_directory}/isolated-companion"
 mkdir -p "${isolated_companion_directory}"
@@ -66,7 +53,7 @@ cp "${entries_path}" "${isolated_companion_directory}/"
 cp -R "${canonical_bundle_directory}/release-evidence" "${isolated_companion_directory}/"
 while IFS= read -r evidence_path; do
   test -f "${isolated_companion_directory}/${evidence_path}"
-done < <(jq -r '.entries[] | .sbom, .provenance, (.signature // empty)' "${isolated_companion_directory}/release-catalog-entries.json")
+done < <(jq -r '.entries[] | .sbom, .provenance' "${isolated_companion_directory}/release-catalog-entries.json")
 
 multiple_identity_directory="${temporary_directory}/multiple-identities"
 mkdir -p "${multiple_identity_directory}"

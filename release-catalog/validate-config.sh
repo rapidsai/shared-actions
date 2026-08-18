@@ -50,14 +50,14 @@ validation_errors="$(jq -r '
             | if ($artifact | type) != "object" then
                 "artifacts[\($index)] must be an object"
               else
-                ($artifact | keys - ["path", "package_identity_file", "sbom", "provenance", "signature"]) as $artifact_unknown
+                ($artifact | keys - ["path", "package_identity_file"]) as $artifact_unknown
                 | if ($artifact_unknown | length) > 0 then
                     "artifacts[\($index)] has unknown field(s): " + ($artifact_unknown | join(", "))
                   else empty end,
                   if ($artifact.path | single_line_string) then empty
                   else "artifacts[\($index)].path must be a non-empty, single-line string" end,
                   ($artifact | to_entries[]
-                    | select(.key == "package_identity_file" or .key == "sbom" or .key == "provenance" or .key == "signature")
+                    | select(.key == "package_identity_file")
                     | select((.value | single_line_string) | not)
                     | "artifacts[\($index)].\(.key) must be a non-empty, single-line string")
               end

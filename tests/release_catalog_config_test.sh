@@ -32,7 +32,7 @@ RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/pack
 
 grep -Fx 'release_catalog_key=maven:cuvs-java' "${valid_output}"
 grep -Fx 'artifact_directory=java/cuvs-java/target' "${valid_output}"
-grep -Fx 'artifacts=[{"path":"cuvs-java-*-x86_64-cuda*.jar","package_identity_file":"cuvs-java.release-package-identity.json","sbom":"cuvs-java.spdx.json"}]' "${valid_output}"
+grep -Fx 'artifacts=[{"path":"cuvs-java-*-x86_64-cuda*.jar","package_identity_file":"cuvs-java.release-package-identity.json"}]' "${valid_output}"
 
 assert_invalid \
   malformed-json \
@@ -77,10 +77,9 @@ assert_invalid \
 assert_invalid \
   malformed-artifact \
   '{"release_catalog_key":"archive:smoke","artifacts":[{"file":"smoke.tar.gz","package_identity_file":false,"sbom":false}]}' \
-  'artifacts[0] has unknown field(s): file'
+  'artifacts[0] has unknown field(s): file, sbom'
 grep -F 'artifacts[0].path must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
 grep -F 'artifacts[0].package_identity_file must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
-grep -F 'artifacts[0].sbom must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
 
 default_output="${temporary_directory}/default.output"
 RELEASE_CATALOG_CONFIG='{"release_catalog_key":"conda:smoke"}' \

@@ -31,8 +31,8 @@ The `artifact_type` field determines how the action discovers primary files:
 
 - `conda` and `wheel` derive artifact descriptors and package identity from the
   built packages;
-- `custom` requires explicit artifact descriptors and exactly one of `package`
-  or `package_file`.
+- `custom` requires explicit artifact descriptors and a
+  `package_identity_file` created by the producer during the build.
 
 `release_catalog_key` identifies the release catalog entry that owns these
 artifacts. Every file from every matrix variant in the same publishable artifact
@@ -54,9 +54,10 @@ Multiple package names from one repository do not by themselves justify separate
 keys: for example, `cudf` and `dask-cudf` Conda packages remain part of
 `conda:cudf` when they share one release policy.
 
-The action validates the complete configuration before inspecting build
-outputs. It then verifies properties that depend on produced files, including
-whether package, primary-artifact, and evidence paths resolve unambiguously.
+The action validates the configuration before inspecting build outputs. It then
+verifies properties that depend on produced files, including the package
+identity contents and whether primary-artifact and evidence paths resolve
+unambiguously.
 
 ## Source revision
 
@@ -100,11 +101,24 @@ the built source.
         "artifact_type": "custom",
         "release_catalog_key": "maven:cuvs-java",
         "output_directory": "java/cuvs-java/target",
-        "package_file": "cuvs-java.release-package.json",
+        "package_identity_file": "cuvs-java.release-package-identity.json",
         "artifacts": [{"path": "cuvs-java-*-x86_64-cuda*.jar"}]
       }
     source-artifact-name: cuvs-java
     source-sha: ${{ env.RAPIDS_SHA }}
+```
+
+Before the action runs, the producer creates
+`java/cuvs-java/target/cuvs-java.release-package-identity.json`. The
+`package_identity_file` value is the path to that file relative to
+`output_directory`. For example:
+
+```json
+{
+  "ecosystem": "maven",
+  "name": "ai.rapids:cuvs-java",
+  "version": "26.08.0"
+}
 ```
 
 ## Evidence semantics
@@ -119,3 +133,13 @@ inventory. It must not be reported as producer-supplied dependency coverage.
 
 Producer-supplied SBOM, provenance, and signature sidecars are copied under
 `release-evidence/` so the companion remains independently consumable.
+
+Concrete producer-supplied evidence examples include:
+
+- an official [SPDX 2.3 dependency SBOM](https://github.com/spdx/spdx-examples/blob/2181917ef6ff74de89252ee785583c27a38d6199/presentations/OSS-NA-2023/SPDXVersion2.3/03-SBOMwDependency.json);
+- an official [SLSA provenance v1 statement](https://github.com/slsa-framework/github-actions-buildtypes/blob/5f855ef0106dad3ee0e0f1046dc31b3b65152956/workflow/v1/example.json);
+- a Maven Central [detached ASCII-armored signature](https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar.asc).
+
+These examples illustrate the expected purpose of the files, not required
+serialization formats. The action copies producer-supplied evidence as opaque
+sidecars and does not validate their contents or require these formats.

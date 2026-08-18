@@ -23,22 +23,10 @@ fi
 validation_errors="$(jq -r '
   def single_line_string:
     type == "string" and length > 0 and (test("[\\r\\n]") | not);
-  def package_object:
-    type == "object"
-    and (keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
-    and (.ecosystem | single_line_string)
-    and (.name | single_line_string)
-    and ((.version // "") | type == "string")
-    and ((.build // "") | type == "string")
-    and ((.platform // "") | type == "string");
-  def artifact_package_object:
-    type == "object"
-    and (keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
-    and (to_entries | map(.value | single_line_string) | all);
   if type != "object" then
     ["release catalog configuration must be a JSON object"]
   else
-    (keys - ["artifact_type", "release_catalog_key", "output_directory", "package", "package_file", "artifacts"]) as $unknown
+    (keys - ["artifact_type", "release_catalog_key", "output_directory", "package_identity_file", "artifacts"]) as $unknown
     | [
         if ($unknown | length) > 0 then
           "unknown field(s): " + ($unknown | join(", "))
@@ -52,12 +40,8 @@ validation_errors="$(jq -r '
       ]
       + if .artifact_type == "custom" then
           [
-            if ([has("package"), has("package_file")] | map(select(.)) | length) == 1 then empty
-            else "exactly one of package or package_file is required for custom artifacts" end,
-            if (has("package") | not) or (.package | package_object) then empty
-            else "package must contain non-empty ecosystem and name strings and only version, build, or platform as optional string fields" end,
-            if (has("package_file") | not) or (.package_file | single_line_string) then empty
-            else "package_file must be a non-empty, single-line path relative to output_directory" end,
+            if (.package_identity_file | single_line_string) then empty
+            else "package_identity_file is required for custom artifacts and must be a non-empty, single-line path relative to output_directory" end,
             if (.artifacts | type == "array" and length > 0) then empty
             else "artifacts must be a non-empty array for custom artifacts" end
           ]
@@ -65,8 +49,8 @@ validation_errors="$(jq -r '
           [
             if (.output_directory | single_line_string) then empty
             else "output_directory is required for conda and wheel artifacts" end,
-            if has("artifacts") or has("package") or has("package_file") then
-              "artifacts, package, and package_file are only valid when artifact_type is custom"
+            if has("artifacts") or has("package_identity_file") then
+              "artifacts and package_identity_file are only valid when artifact_type is custom"
             else empty end
           ]
         else [] end
@@ -78,7 +62,7 @@ validation_errors="$(jq -r '
             | if ($artifact | type) != "object" then
                 "artifacts[\($index)] must be an object"
               else
-                ($artifact | keys - ["path", "sbom", "provenance", "signature", "package"]) as $artifact_unknown
+                ($artifact | keys - ["path", "sbom", "provenance", "signature"]) as $artifact_unknown
                 | if ($artifact_unknown | length) > 0 then
                     "artifacts[\($index)] has unknown field(s): " + ($artifact_unknown | join(", "))
                   else empty end,
@@ -87,9 +71,7 @@ validation_errors="$(jq -r '
                   ($artifact | to_entries[]
                     | select(.key == "sbom" or .key == "provenance" or .key == "signature")
                     | select((.value | single_line_string) | not)
-                    | "artifacts[\($index)].\(.key) must be a non-empty, single-line string"),
-                  if ($artifact | has("package") | not) or ($artifact.package | artifact_package_object) then empty
-                  else "artifacts[\($index)].package must contain only non-empty string identity overrides" end
+                    | "artifacts[\($index)].\(.key) must be a non-empty, single-line string")
               end
           ]
         else [] end
@@ -113,7 +95,6 @@ fi
   printf 'artifact_type=%s\n' "$(jq -r '.artifact_type' <<<"${compact_config}")"
   printf 'release_catalog_key=%s\n' "$(jq -r '.release_catalog_key' <<<"${compact_config}")"
   printf 'output_directory=%s\n' "$(jq -r '.output_directory // "."' <<<"${compact_config}")"
-  printf 'package=%s\n' "$(jq -c '.package // empty' <<<"${compact_config}")"
-  printf 'package_file=%s\n' "$(jq -r '.package_file // empty' <<<"${compact_config}")"
+  printf 'package_identity_file=%s\n' "$(jq -r '.package_identity_file // empty' <<<"${compact_config}")"
   printf 'artifacts=%s\n' "$(jq -c '.artifacts // empty' <<<"${compact_config}")"
 } >>"${GITHUB_OUTPUT}"

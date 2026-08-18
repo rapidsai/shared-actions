@@ -22,13 +22,11 @@ GITHUB_OUTPUT="${temporary_directory}/wheel-output"
 RELEASE_ARTIFACTS=''
 RELEASE_ARTIFACT_TYPE=wheel
 RELEASE_OUTPUT_DIRECTORY="${temporary_directory}"
-RELEASE_PACKAGE=''
-RELEASE_PACKAGE_FILE=''
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_PACKAGE_FILE
+RELEASE_PACKAGE_IDENTITY_FILE=''
+export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE_IDENTITY_FILE
 
 "${repository_root}/release-catalog/prepare.sh"
 
-grep -Fx 'package={"ecosystem":"wheel","name":"bundle"}' "${GITHUB_OUTPUT}"
 artifacts="$(sed -n 's/^artifacts=//p' "${GITHUB_OUTPUT}")"
 jq -e '
   . == [{
@@ -40,14 +38,12 @@ jq -e '
 GITHUB_OUTPUT="${temporary_directory}/custom-output"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz", sbom: "bundle.spdx.json"}]')"
 RELEASE_ARTIFACT_TYPE=custom
-RELEASE_PACKAGE=''
-RELEASE_PACKAGE_FILE=release-package.json
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_PACKAGE RELEASE_PACKAGE_FILE
+RELEASE_PACKAGE_IDENTITY_FILE=release-package-identity.json
+export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_PACKAGE_IDENTITY_FILE
 
 "${repository_root}/release-catalog/prepare.sh"
 
 grep -Fx 'artifacts=[{"path":"bundle.tar.gz","sbom":"bundle.spdx.json"}]' "${GITHUB_OUTPUT}"
-grep -Fx 'package=' "${GITHUB_OUTPUT}"
 
 GITHUB_OUTPUT="${temporary_directory}/invalid-output"
 RELEASE_ARTIFACT_TYPE=archive

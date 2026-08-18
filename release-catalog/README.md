@@ -28,7 +28,7 @@ Every producer passes one `config` JSON object. Its canonical schema and field
 documentation are in [`config.schema.json`](config.schema.json).
 
 When `artifacts` is omitted, the action discovers every Conda and wheel output
-in `output_directory` and extracts identity from each package independently.
+in `artifact_directory` and extracts identity from each package independently.
 When `artifacts` is supplied, each descriptor is resolved independently:
 supported Conda and wheel files are parsed, while any other artifact requires
 its own `package_identity_file`. Evidence paths also belong to the individual
@@ -83,7 +83,7 @@ the built source.
     config: >-
       {
         "release_catalog_key": "wheel:example",
-        "output_directory": ${{ toJSON(steps.package-name.outputs.WHEEL_OUTPUT_DIR) }}
+        "artifact_directory": ${{ toJSON(steps.package-name.outputs.WHEEL_OUTPUT_DIR) }}
       }
     source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
     source-sha: ${{ env.RAPIDS_SHA }}
@@ -98,7 +98,7 @@ the built source.
     config: >-
       {
         "release_catalog_key": "maven:cuvs-java",
-        "output_directory": "java/cuvs-java/target",
+        "artifact_directory": "java/cuvs-java/target",
         "artifacts": [{
           "path": "cuvs-java-*-x86_64-cuda*.jar",
           "package_identity_file": "cuvs-java.release-package-identity.json"
@@ -111,7 +111,7 @@ the built source.
 Before the action runs, the producer creates
 `java/cuvs-java/target/cuvs-java.release-package-identity.json`. The
 artifact descriptor's `package_identity_file` value is the path to that file
-relative to `output_directory`. For example:
+relative to `artifact_directory`. For example:
 
 ```json
 {

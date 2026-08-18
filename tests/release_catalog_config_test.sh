@@ -31,7 +31,7 @@ RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/pack
   GITHUB_OUTPUT="${valid_output}" "${validator}"
 
 grep -Fx 'release_catalog_key=maven:cuvs-java' "${valid_output}"
-grep -Fx 'output_directory=java/cuvs-java/target' "${valid_output}"
+grep -Fx 'artifact_directory=java/cuvs-java/target' "${valid_output}"
 grep -Fx 'artifacts=[{"path":"cuvs-java-*-x86_64-cuda*.jar","package_identity_file":"cuvs-java.release-package-identity.json","sbom":"cuvs-java.spdx.json"}]' "${valid_output}"
 
 assert_invalid \
@@ -86,15 +86,15 @@ default_output="${temporary_directory}/default.output"
 RELEASE_CATALOG_CONFIG='{"release_catalog_key":"conda:smoke"}' \
   GITHUB_OUTPUT="${default_output}" "${validator}"
 grep -Fx 'release_catalog_key=conda:smoke' "${default_output}"
-grep -Fx 'output_directory=.' "${default_output}"
+grep -Fx 'artifact_directory=.' "${default_output}"
 grep -Fx 'artifacts=' "${default_output}"
 
 standard_output="${temporary_directory}/standard.output"
 RELEASE_CATALOG_CONFIG='{
   "release_catalog_key": "wheel:kvikio",
-  "output_directory": "dist"
+  "artifact_directory": "dist"
 }' GITHUB_OUTPUT="${standard_output}" "${validator}"
 
 grep -Fx 'release_catalog_key=wheel:kvikio' "${standard_output}"
-grep -Fx 'output_directory=dist' "${standard_output}"
+grep -Fx 'artifact_directory=dist' "${standard_output}"
 grep -Fx 'artifacts=' "${standard_output}"

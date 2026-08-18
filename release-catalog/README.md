@@ -81,7 +81,7 @@ This is a list of objects, where each object corresponds to exactly one artifact
     source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
 ```
 
-For artifacts other than conda and wheels, path and package_identity_file must
+For artifacts other than conda and wheels, `path` and `package_identity_file` must
 be specified:
 
 ```yaml
@@ -110,11 +110,10 @@ Package identity is high-level information about an artifact outside of its
 filename. It requires `ecosystem`, `name`, and `version` and may include `build`
 and `platform`. The action implicitly parses this information from conda and
 wheel artifacts, but other artifact formats require the producer to provide it
-explicitly.
-
-The workflow that calls release-catalog must create each package identity file before this
-action runs. An artifact descriptor's `package_identity_file` is the path to
-that file relative to `artifact_directory`. For example:
+explicitly using the `package_identity_file` parameter. Any referenced package
+identity file must be created before this action runs. An artifact descriptor's
+`package_identity_file` is the path to that file relative to
+`artifact_directory`. Example contents of a package_identity_file:
 
 ```json
 {

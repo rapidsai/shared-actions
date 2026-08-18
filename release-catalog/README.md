@@ -27,12 +27,12 @@ catalog; there is no separate metadata document to keep synchronized.
 Every producer passes one `config` JSON object. Its canonical schema and field
 documentation are in [`config.schema.json`](config.schema.json).
 
-The `artifact_type` field determines how the action discovers primary files:
-
-- `conda` and `wheel` derive artifact descriptors and package identity from the
-  built packages;
-- `custom` requires explicit artifact descriptors and a
-  `package_identity_file` created by the producer during the build.
+When `artifacts` is omitted, the action discovers every Conda and wheel output
+in `output_directory` and extracts identity from each package independently.
+When `artifacts` is supplied, each descriptor is resolved independently:
+supported Conda and wheel files are parsed, while any other artifact requires
+its own `package_identity_file`. Evidence paths also belong to the individual
+artifact descriptor.
 
 `release_catalog_key` identifies the release catalog entry that owns these
 artifacts. Every file from every matrix variant in the same publishable artifact
@@ -82,7 +82,6 @@ the built source.
   with:
     config: >-
       {
-        "artifact_type": "wheel",
         "release_catalog_key": "wheel:example",
         "output_directory": ${{ toJSON(steps.package-name.outputs.WHEEL_OUTPUT_DIR) }}
       }
@@ -98,11 +97,12 @@ the built source.
   with:
     config: >-
       {
-        "artifact_type": "custom",
         "release_catalog_key": "maven:cuvs-java",
         "output_directory": "java/cuvs-java/target",
-        "package_identity_file": "cuvs-java.release-package-identity.json",
-        "artifacts": [{"path": "cuvs-java-*-x86_64-cuda*.jar"}]
+        "artifacts": [{
+          "path": "cuvs-java-*-x86_64-cuda*.jar",
+          "package_identity_file": "cuvs-java.release-package-identity.json"
+        }]
       }
     source-artifact-name: cuvs-java
     source-sha: ${{ env.RAPIDS_SHA }}
@@ -110,8 +110,8 @@ the built source.
 
 Before the action runs, the producer creates
 `java/cuvs-java/target/cuvs-java.release-package-identity.json`. The
-`package_identity_file` value is the path to that file relative to
-`output_directory`. For example:
+artifact descriptor's `package_identity_file` value is the path to that file
+relative to `output_directory`. For example:
 
 ```json
 {

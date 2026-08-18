@@ -31,10 +31,8 @@ RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/pack
   GITHUB_OUTPUT="${valid_output}" "${validator}"
 
 grep -Fx 'release_catalog_key=maven:cuvs-java' "${valid_output}"
-grep -Fx 'artifact_type=custom' "${valid_output}"
 grep -Fx 'output_directory=java/cuvs-java/target' "${valid_output}"
-grep -Fx 'package_identity_file=cuvs-java.release-package-identity.json' "${valid_output}"
-grep -Fx 'artifacts=[{"path":"cuvs-java-*-x86_64-cuda*.jar","sbom":"cuvs-java.spdx.json"}]' "${valid_output}"
+grep -Fx 'artifacts=[{"path":"cuvs-java-*-x86_64-cuda*.jar","package_identity_file":"cuvs-java.release-package-identity.json","sbom":"cuvs-java.spdx.json"}]' "${valid_output}"
 
 assert_invalid \
   malformed-json \
@@ -50,54 +48,53 @@ assert_invalid \
   missing-fields \
   '{}' \
   'release_catalog_key must be a non-empty, single-line string'
-grep -F 'artifact_type must be one of: conda, custom, wheel' "${temporary_directory}/missing-fields.error" >/dev/null
 
 assert_invalid \
-  custom-missing-fields \
-  '{"artifact_type":"custom","release_catalog_key":"archive:smoke"}' \
-  'package_identity_file is required for custom artifacts'
-grep -F 'artifacts must be a non-empty array for custom artifacts' "${temporary_directory}/custom-missing-fields.error" >/dev/null
+  top-level-package-identity-file \
+  '{"release_catalog_key":"archive:smoke","package_identity_file":"package.json"}' \
+  'unknown field(s): package_identity_file'
 
 assert_invalid \
   unknown-field \
-  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_identity_file":"package.json","artifacts":[{"path":"smoke.tar.gz"}],"component_id":"archive:smoke"}' \
+  '{"release_catalog_key":"archive:smoke","artifacts":[{"path":"smoke.tar.gz","package_identity_file":"package.json"}],"component_id":"archive:smoke"}' \
   'unknown field(s): component_id'
 
 assert_invalid \
+  artifact-type \
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","artifacts":[{"path":"smoke.tar.gz","package_identity_file":"package.json"}]}' \
+  'unknown field(s): artifact_type'
+
+assert_invalid \
   inline-package \
-  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_identity_file":"package.json","package":{"ecosystem":"archive","name":"smoke","version":"1.0"},"artifacts":[{"path":"smoke.tar.gz"}]}' \
+  '{"release_catalog_key":"archive:smoke","package":{"ecosystem":"archive","name":"smoke","version":"1.0"},"artifacts":[{"path":"smoke.tar.gz","package_identity_file":"package.json"}]}' \
   'unknown field(s): package'
 
 assert_invalid \
   per-artifact-package \
-  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_identity_file":"package.json","artifacts":[{"path":"smoke.tar.gz","package":{"ecosystem":"archive","name":"smoke","version":"1.0"}}]}' \
+  '{"release_catalog_key":"archive:smoke","artifacts":[{"path":"smoke.tar.gz","package":{"ecosystem":"archive","name":"smoke","version":"1.0"}}]}' \
   'artifacts[0] has unknown field(s): package'
 
 assert_invalid \
   malformed-artifact \
-  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_identity_file":"package.json","artifacts":[{"file":"smoke.tar.gz","sbom":false}]}' \
+  '{"release_catalog_key":"archive:smoke","artifacts":[{"file":"smoke.tar.gz","package_identity_file":false,"sbom":false}]}' \
   'artifacts[0] has unknown field(s): file'
 grep -F 'artifacts[0].path must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
+grep -F 'artifacts[0].package_identity_file must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
 grep -F 'artifacts[0].sbom must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
 
-assert_invalid \
-  standard-missing-output-directory \
-  '{"artifact_type":"conda","release_catalog_key":"conda:smoke"}' \
-  'output_directory is required for conda and wheel artifacts'
-
-assert_invalid \
-  standard-custom-fields \
-  '{"artifact_type":"wheel","release_catalog_key":"wheel:smoke","output_directory":"dist","artifacts":[{"path":"smoke.whl"}]}' \
-  'artifacts and package_identity_file are only valid when artifact_type is custom'
+default_output="${temporary_directory}/default.output"
+RELEASE_CATALOG_CONFIG='{"release_catalog_key":"conda:smoke"}' \
+  GITHUB_OUTPUT="${default_output}" "${validator}"
+grep -Fx 'release_catalog_key=conda:smoke' "${default_output}"
+grep -Fx 'output_directory=.' "${default_output}"
+grep -Fx 'artifacts=' "${default_output}"
 
 standard_output="${temporary_directory}/standard.output"
 RELEASE_CATALOG_CONFIG='{
-  "artifact_type": "wheel",
   "release_catalog_key": "wheel:kvikio",
   "output_directory": "dist"
 }' GITHUB_OUTPUT="${standard_output}" "${validator}"
 
-grep -Fx 'artifact_type=wheel' "${standard_output}"
 grep -Fx 'release_catalog_key=wheel:kvikio' "${standard_output}"
 grep -Fx 'output_directory=dist' "${standard_output}"
 grep -Fx 'artifacts=' "${standard_output}"

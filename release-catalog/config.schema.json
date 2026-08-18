@@ -6,19 +6,9 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "artifact_type",
     "release_catalog_key"
   ],
   "properties": {
-    "artifact_type": {
-      "description": "Metadata can be extracted from the artifact for conda/wheel types. More info needed for custom type.",
-      "type": "string",
-      "enum": [
-        "conda",
-        "custom",
-        "wheel"
-      ]
-    },
     "release_catalog_key": {
       "description": "Release-catalog entry name that owns these artifacts. Default for conda & wheels is <ecosystem>:<repository-name>, such as conda:cudf. Custom jobs specify their own, such as maven:cuvs-java.",
       "type": "string",
@@ -32,14 +22,8 @@
       "pattern": "^[^\\r\\n]+$",
       "default": "."
     },
-    "package_identity_file": {
-      "description": "Path, relative to output_directory, to producer-created package identity JSON. Required for custom artifacts; Conda and wheel identities are extracted from the artifacts. The file must contain ecosystem, name, and version and may contain build and platform.",
-      "type": "string",
-      "minLength": 1,
-      "pattern": "^[^\\r\\n]+$"
-    },
     "artifacts": {
-      "description": "Primary release files and optional SBoM evidence sidecar files",
+      "description": "Optional explicit primary release files and their identity or evidence sidecars. When omitted, Conda and wheel artifacts are discovered in output_directory.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -47,45 +31,6 @@
       }
     }
   },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "artifact_type": {
-            "const": "custom"
-          }
-        },
-        "required": [
-          "artifact_type"
-        ]
-      },
-      "then": {
-        "required": [
-          "artifacts",
-          "package_identity_file"
-        ]
-      },
-      "else": {
-        "required": [
-          "output_directory"
-        ],
-        "not": {
-          "anyOf": [
-            {
-              "required": [
-                "artifacts"
-              ]
-            },
-            {
-              "required": [
-                "package_identity_file"
-              ]
-            }
-          ]
-        }
-      }
-    }
-  ],
   "$defs": {
     "artifact": {
       "type": "object",
@@ -95,6 +40,12 @@
       ],
       "properties": {
         "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "package_identity_file": {
+          "description": "Path, relative to output_directory, to producer-created package identity JSON for this artifact. Required only when identity cannot be extracted from the artifact. The file must contain ecosystem, name, and version and may contain build and platform.",
           "type": "string",
           "minLength": 1,
           "pattern": "^[^\\r\\n]+$"

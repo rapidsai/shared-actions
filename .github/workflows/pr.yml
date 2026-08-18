@@ -49,9 +49,9 @@ jobs:
       - name: Verify release catalog dispatch smoke test
         run: |
           jq -e '
-            .artifacts[0].release_catalog_key == "archive:smoke"
-            and .artifacts[0].path == "package.tar.gz"
+            .producer == "shared-workflows"
+            and .source.artifact == "release-catalog-dispatch-smoke"
+            and .entries[0].release_catalog_key == "archive:smoke"
+            and .entries[0].path == "package.tar.gz"
+            and .entries[0].sbom_kind == "generated-identity"
           ' release-catalog-smoke/release-catalog-entries.json >/dev/null
-          jq -e '
-            .metadata.artifacts == [{path: "package.tar.gz", sbom_kind: "generated-identity"}]
-          ' release-catalog-smoke/release-catalog-metadata.json >/dev/null

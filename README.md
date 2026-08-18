@@ -13,63 +13,11 @@ A dispatch action is one that:
 
 `release-build-output-dispatch` validates a producer's local build artifact
 directory and uploads a companion artifact named
-`release-build-output-<source-artifact-name>`. The companion contains
-`release-build-output.json`, `release-build-metadata.json`, provenance, and an
-SBOM record for every primary artifact.
+`release-build-output-<source-artifact-name>`.
 
-Every producer passes one `config` JSON object. `artifact_type` is the
-discriminator: `conda` and `wheel` derive artifact descriptors and package
-metadata from the built files, while `custom` selects them explicitly. The
-action validates the complete object before inspecting build outputs and
-reports each invalid field as a pipeline error. Its schema is
-[`release-build-output/config.schema.json`](release-build-output/config.schema.json).
-
-The custom configuration requires `component_id`, a non-empty `artifacts`
-array, and exactly one of `package` or `package_file`. `output_directory`
-defaults to `.`. A descriptor's `sbom`, `provenance`, and `signature` fields
-select producer-supplied evidence; omitting `sbom` requests a generated
-identity-only SPDX envelope, not a dependency SBOM.
-
-```yaml
-- name: Create custom release build-output companion
-  uses: rapidsai/shared-actions/release-build-output-dispatch@main
-  with:
-    config: >-
-      {
-        "artifact_type": "custom",
-        "component_id": "maven:cuvs-java",
-        "output_directory": "java/cuvs-java/target",
-        "package_file": "cuvs-java.release-package.json",
-        "artifacts": [{"path": "cuvs-java-*-x86_64-cuda*.jar"}]
-      }
-    source-artifact-name: cuvs-java
-    source-sha: ${{ github.sha }}
-```
-
-The validator is also exercised by pre-commit against valid and invalid
-fixtures. Pre-commit can validate the JSON structure, while the pipeline checks
-that package files, primary artifacts, and evidence globs resolve after the
-producer has run.
-
-```yaml
-- name: Create release build-output companion
-  uses: rapidsai/shared-actions/release-build-output-dispatch@main
-  with:
-    config: >-
-      {
-        "artifact_type": "wheel",
-        "component_id": "wheel:example",
-        "output_directory": ${{ toJSON(steps.package-name.outputs.WHEEL_OUTPUT_DIR) }}
-      }
-    source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
-    source-sha: ${{ github.sha }}
-```
-
-A descriptor-selected producer SBOM is classified as `producer-dependency`.
-When no SBOM is supplied, the action generates an SPDX artifact-identity
-envelope and classifies it as `generated-identity`. The generated envelope
-contains the primary artifact's identity and SHA-256 but no dependency
-inventory; it must not be treated as dependency coverage.
+See the [`release-build-output` documentation](release-build-output/README.md)
+for configuration, examples, source-revision handling, companion contents, and
+evidence semantics.
 
 The dispatch wrapper honors `SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF`.
 When neither is set, it checks out the same repository and ref used to invoke

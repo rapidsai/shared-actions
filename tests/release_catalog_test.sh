@@ -24,16 +24,14 @@ GITHUB_RUN_ID="1234"
 GITHUB_SHA="0123456789012345678901234567890123456789"
 GITHUB_WORKFLOW_REF="rapidsai/cuvs/.github/workflows/build.yaml@refs/heads/release/26.08"
 export GITHUB_OUTPUT
-RELEASE_ARTIFACTS="$(jq -cn '[{path: "cuvs-java-*.jar", sbom: "cuvs-java-*.spdx.json", provenance: "cuvs-java-*.provenance.jsonl", signature: "cuvs-java-*.jar.asc"}]')"
-RELEASE_ARTIFACT_TYPE=custom
+RELEASE_ARTIFACTS="$(jq -cn '[{path: "cuvs-java-*.jar", package_identity_file: "cuvs-java-package-identity.json", sbom: "cuvs-java-*.spdx.json", provenance: "cuvs-java-*.provenance.jsonl", signature: "cuvs-java-*.jar.asc"}]')"
 RELEASE_ENTRIES_NAME="release-catalog-entries.json"
 RELEASE_OUTPUT_DIRECTORY="${bundle_directory}"
-RELEASE_PACKAGE_IDENTITY_FILE="cuvs-java-package-identity.json"
 RELEASE_SOURCE_ARTIFACT_NAME="cuvs-java-cuda12.9.1"
 RELEASE_SOURCE_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 RELEASE_CATALOG_KEY="maven:cuvs-java"
 export GITHUB_REPOSITORY GITHUB_RUN_ATTEMPT GITHUB_RUN_ID GITHUB_SHA GITHUB_WORKFLOW_REF
-export RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_ENTRIES_NAME RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE_IDENTITY_FILE
+export RELEASE_ARTIFACTS RELEASE_ENTRIES_NAME RELEASE_OUTPUT_DIRECTORY
 export RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
 
 "${repository_root}/release-catalog/materialize.sh"
@@ -73,18 +71,40 @@ while IFS= read -r evidence_path; do
   test -f "${isolated_companion_directory}/${evidence_path}"
 done < <(jq -r '.entries[] | .sbom, .provenance, (.signature // empty)' "${isolated_companion_directory}/release-catalog-entries.json")
 
+multiple_identity_directory="${temporary_directory}/multiple-identities"
+mkdir -p "${multiple_identity_directory}"
+printf '%s\n' first >"${multiple_identity_directory}/first.tar.gz"
+printf '%s\n' second >"${multiple_identity_directory}/second.jar"
+jq -n '{ecosystem: "archive", name: "first", version: "1.0"}' \
+  >"${multiple_identity_directory}/first.identity.json"
+jq -n '{ecosystem: "maven", name: "example:second", version: "2.0"}' \
+  >"${multiple_identity_directory}/second.identity.json"
+RELEASE_ARTIFACTS="$(jq -cn '[
+  {path: "first.tar.gz", package_identity_file: "first.identity.json"},
+  {path: "second.jar", package_identity_file: "second.identity.json"}
+]')"
+RELEASE_OUTPUT_DIRECTORY="${multiple_identity_directory}"
+RELEASE_SOURCE_ARTIFACT_NAME="multiple-identities"
+RELEASE_SOURCE_SHA="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+RELEASE_CATALOG_KEY="archive:multiple"
+export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
+"${repository_root}/release-catalog/materialize.sh"
+jq -e '
+  (.entries | length == 2)
+  and .entries[0].package == {ecosystem: "archive", name: "first", version: "1.0"}
+  and .entries[1].package == {ecosystem: "maven", name: "example:second", version: "2.0"}
+' "${multiple_identity_directory}/release-catalog-entries.json" >/dev/null
+
 generated_directory="${temporary_directory}/generated-bundle"
 mkdir -p "${generated_directory}/linux-64"
 printf '%s\n' conda >"${generated_directory}/linux-64/kvikio-26.08.00a32-cuda12_260714_2f567060.conda"
 
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "linux-64/kvikio-*.conda", package: {ecosystem: "conda", name: "kvikio", version: "26.08.00a32"}}]')"
-RELEASE_ARTIFACT_TYPE=conda
 RELEASE_OUTPUT_DIRECTORY="${generated_directory}"
-RELEASE_PACKAGE_IDENTITY_FILE=''
 RELEASE_SOURCE_ARTIFACT_NAME="kvikio_conda_python_kvikio_x86_64_abi3_cu12"
 RELEASE_SOURCE_SHA="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 RELEASE_CATALOG_KEY="conda:kvikio"
-export RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE_IDENTITY_FILE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
+export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
 
 "${repository_root}/release-catalog/materialize.sh"
 
@@ -114,12 +134,11 @@ mkdir -p "${wheel_directory}"
 printf '%s\n' wheel >"${wheel_directory}/libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl"
 
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.whl", package: {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32"}}]')"
-RELEASE_ARTIFACT_TYPE=wheel
 RELEASE_OUTPUT_DIRECTORY="${wheel_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="kvikio_wheel_cpp_libkvikio_x86_64_cu12"
 RELEASE_SOURCE_SHA="cccccccccccccccccccccccccccccccccccccccc"
 RELEASE_CATALOG_KEY="wheel:kvikio"
-export RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_OUTPUT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
+export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
 
 "${repository_root}/release-catalog/materialize.sh"
 
@@ -137,17 +156,15 @@ jq -n \
   '{ecosystem: "archive", name: "bundle"}' \
   >"${missing_version_directory}/bundle-package-identity.json"
 
-RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz"}]')"
-RELEASE_ARTIFACT_TYPE=custom
+RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz", package_identity_file: "bundle-package-identity.json"}]')"
 RELEASE_OUTPUT_DIRECTORY="${missing_version_directory}"
-RELEASE_PACKAGE_IDENTITY_FILE='bundle-package-identity.json'
 RELEASE_SOURCE_ARTIFACT_NAME="bundle-archive"
 RELEASE_SOURCE_SHA="dddddddddddddddddddddddddddddddddddddddd"
 RELEASE_CATALOG_KEY="archive:bundle"
-export RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE_IDENTITY_FILE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
+export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
 
 if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/missing-version-error"; then
   echo "materialize.sh unexpectedly accepted a custom artifact without a package version" >&2
   exit 1
 fi
-grep -Fx 'package identity file must contain non-empty ecosystem, name, and version strings and only optional build or platform strings' "${temporary_directory}/missing-version-error"
+grep -Fx 'package identity for bundle.tar.gz must contain non-empty ecosystem, name, and version strings and only optional build or platform strings' "${temporary_directory}/missing-version-error"

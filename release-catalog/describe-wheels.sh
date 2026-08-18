@@ -3,16 +3,25 @@
 
 set -euo pipefail
 
-if [[ "$#" -ne 1 || ! -d "$1" ]]; then
-  echo "usage: $0 WHEEL_OUTPUT_DIRECTORY" >&2
+if [[ "$#" -lt 1 || ! -d "$1" ]]; then
+  echo "usage: $0 WHEEL_OUTPUT_DIRECTORY [WHEEL ...]" >&2
   exit 1
 fi
 
 output_directory="$(realpath "$1")"
 descriptors='[]'
 wheel_count=0
+wheel_paths=()
 
-while IFS= read -r wheel_path; do
+if [[ "$#" -gt 1 ]]; then
+  wheel_paths=("${@:2}")
+else
+  while IFS= read -r wheel_path; do
+    wheel_paths+=("${wheel_path}")
+  done < <(find "${output_directory}" -type f -name '*.whl' -print | sort)
+fi
+
+for wheel_path in "${wheel_paths[@]}"; do
   wheel_path="$(realpath "${wheel_path}")"
   if [[ "${wheel_path}" != "${output_directory}"/* ]]; then
     echo "wheel must resolve inside output directory: ${wheel_path}" >&2
@@ -44,7 +53,7 @@ while IFS= read -r wheel_path; do
     --argjson current "${descriptors}" \
     '$current + [{path: $path, package: {ecosystem: "wheel", name: $name, version: $version}}]')"
   wheel_count=$((wheel_count + 1))
-done < <(find "${output_directory}" -type f -name '*.whl' -print | sort)
+done
 
 if [[ "${wheel_count}" -eq 0 ]]; then
   echo "wheel output directory contains no .whl files: ${output_directory}" >&2

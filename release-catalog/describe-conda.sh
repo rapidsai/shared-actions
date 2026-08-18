@@ -3,16 +3,25 @@
 
 set -euo pipefail
 
-if [[ "$#" -ne 1 || ! -d "$1" ]]; then
-  echo "usage: $0 CONDA_OUTPUT_DIRECTORY" >&2
+if [[ "$#" -lt 1 || ! -d "$1" ]]; then
+  echo "usage: $0 CONDA_OUTPUT_DIRECTORY [CONDA_PACKAGE ...]" >&2
   exit 1
 fi
 
 output_directory="$(realpath "$1")"
 descriptors='[]'
 package_count=0
+package_paths=()
 
-while IFS= read -r package_path; do
+if [[ "$#" -gt 1 ]]; then
+  package_paths=("${@:2}")
+else
+  while IFS= read -r package_path; do
+    package_paths+=("${package_path}")
+  done < <(find "${output_directory}" -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print | sort)
+fi
+
+for package_path in "${package_paths[@]}"; do
   package_path="$(realpath "${package_path}")"
   if [[ "${package_path}" != "${output_directory}"/* ]]; then
     echo "Conda package must resolve inside output directory: ${package_path}" >&2
@@ -59,7 +68,7 @@ while IFS= read -r package_path; do
     --argjson current "${descriptors}" \
     '$current + [{path: $path, package: $package}]')"
   package_count=$((package_count + 1))
-done < <(find "${output_directory}" -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print | sort)
+done
 
 if [[ "${package_count}" -eq 0 ]]; then
   echo "Conda output directory contains no .conda or .tar.bz2 packages: ${output_directory}" >&2

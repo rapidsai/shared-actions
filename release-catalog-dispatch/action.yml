@@ -51,20 +51,12 @@ runs:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         RELEASE_CATALOG_CONFIG: ${{ inputs.config }}
       run: "${IMPLEMENTATION_PATH}/validate-config.sh"
-    - id: prepare
-      name: Describe release artifacts
-      shell: bash
-      env:
-        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
-        RELEASE_ARTIFACTS: ${{ steps.configuration.outputs.artifacts }}
-        RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
-      run: "${IMPLEMENTATION_PATH}/prepare.sh"
     - id: materialize
       name: Materialize release catalog entries
       shell: bash
       env:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
-        RELEASE_ARTIFACTS: ${{ steps.prepare.outputs.artifacts }}
+        RELEASE_ARTIFACTS: ${{ steps.configuration.outputs.artifacts }}
         RELEASE_ENTRIES_NAME: release-catalog-entries.json
         RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}

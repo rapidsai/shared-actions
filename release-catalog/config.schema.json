@@ -15,7 +15,7 @@
       "minLength": 1,
       "pattern": "^[^\\r\\n]+$"
     },
-    "output_directory": {
+    "artifact_directory": {
       "description": "Base directory for artifact and evidence paths. Defaults to the job working directory.",
       "type": "string",
       "minLength": 1,
@@ -23,7 +23,7 @@
       "default": "."
     },
     "artifacts": {
-      "description": "Optional explicit primary release files and their identity or evidence sidecars. When omitted, Conda and wheel artifacts are discovered in output_directory.",
+      "description": "Optional explicit primary release files and their identity or evidence sidecars. When omitted, Conda and wheel artifacts are discovered in artifact_directory.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -45,7 +45,7 @@
           "pattern": "^[^\\r\\n]+$"
         },
         "package_identity_file": {
-          "description": "Path, relative to output_directory, to producer-created package identity JSON for this artifact. Required only when identity cannot be extracted from the artifact. The file must contain ecosystem, name, and version and may contain build and platform.",
+          "description": "Path, relative to artifact_directory, to producer-created package identity JSON for this artifact. Required only when identity cannot be extracted from the artifact. The file must contain ecosystem, name, and version and may contain build and platform.",
           "type": "string",
           "minLength": 1,
           "pattern": "^[^\\r\\n]+$"

@@ -59,8 +59,7 @@ runs:
         RELEASE_ARTIFACTS: ${{ steps.configuration.outputs.artifacts }}
         RELEASE_ARTIFACT_TYPE: ${{ steps.configuration.outputs.artifact_type }}
         RELEASE_OUTPUT_DIRECTORY: ${{ steps.configuration.outputs.output_directory }}
-        RELEASE_PACKAGE: ${{ steps.configuration.outputs.package }}
-        RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
+        RELEASE_PACKAGE_IDENTITY_FILE: ${{ steps.configuration.outputs.package_identity_file }}
       run: "${IMPLEMENTATION_PATH}/prepare.sh"
     - id: materialize
       name: Materialize release catalog entries
@@ -68,10 +67,10 @@ runs:
       env:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         RELEASE_ARTIFACTS: ${{ steps.prepare.outputs.artifacts }}
+        RELEASE_ARTIFACT_TYPE: ${{ steps.configuration.outputs.artifact_type }}
         RELEASE_ENTRIES_NAME: release-catalog-entries.json
         RELEASE_OUTPUT_DIRECTORY: ${{ steps.configuration.outputs.output_directory }}
-        RELEASE_PACKAGE: ${{ steps.prepare.outputs.package }}
-        RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
+        RELEASE_PACKAGE_IDENTITY_FILE: ${{ steps.configuration.outputs.package_identity_file }}
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
         RELEASE_SOURCE_SHA: ${{ inputs.source-sha || github.sha }}
         RELEASE_CATALOG_KEY: ${{ steps.configuration.outputs.release_catalog_key }}

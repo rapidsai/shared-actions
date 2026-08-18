@@ -13,19 +13,11 @@ require_nonempty() {
 }
 
 require_nonempty "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
+require_nonempty "RELEASE_ARTIFACT_TYPE" "${RELEASE_ARTIFACT_TYPE:-}"
 require_nonempty "RELEASE_OUTPUT_DIRECTORY" "${RELEASE_OUTPUT_DIRECTORY:-}"
 require_nonempty "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
 require_nonempty "RELEASE_ARTIFACTS" "${RELEASE_ARTIFACTS:-}"
 require_nonempty "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NAME:-}"
-
-if [[ -n "${RELEASE_PACKAGE:-}" && -n "${RELEASE_PACKAGE_FILE:-}" ]]; then
-  echo "release-package and release-package-file are mutually exclusive" >&2
-  exit 1
-fi
-if [[ -z "${RELEASE_PACKAGE:-}" && -z "${RELEASE_PACKAGE_FILE:-}" ]]; then
-  echo "one of release-package or release-package-file is required" >&2
-  exit 1
-fi
 
 source_sha="${RELEASE_SOURCE_SHA:-${GITHUB_SHA:-}}"
 require_nonempty "RELEASE_SOURCE_SHA or GITHUB_SHA" "${source_sha}"
@@ -56,26 +48,40 @@ ensure_relative_pattern() {
 }
 
 output_directory="$(realpath "${RELEASE_OUTPUT_DIRECTORY}")"
-if [[ -n "${RELEASE_PACKAGE_FILE:-}" ]]; then
-  ensure_relative_pattern "release-package-file" "${RELEASE_PACKAGE_FILE}"
-  package_file_path="$(realpath "${output_directory}/${RELEASE_PACKAGE_FILE}")"
-  if [[ "${package_file_path}" != "${output_directory}"/* || ! -f "${package_file_path}" ]]; then
-    echo "release-package-file must resolve to one file inside output-directory: ${RELEASE_PACKAGE_FILE}" >&2
+package_identity=''
+case "${RELEASE_ARTIFACT_TYPE}" in
+  custom)
+    require_nonempty "RELEASE_PACKAGE_IDENTITY_FILE" "${RELEASE_PACKAGE_IDENTITY_FILE:-}"
+    ensure_relative_pattern "package-identity-file" "${RELEASE_PACKAGE_IDENTITY_FILE}"
+    package_identity_path="$(realpath "${output_directory}/${RELEASE_PACKAGE_IDENTITY_FILE}")"
+    if [[ "${package_identity_path}" != "${output_directory}"/* || ! -f "${package_identity_path}" ]]; then
+      echo "package-identity-file must resolve to one file inside output-directory: ${RELEASE_PACKAGE_IDENTITY_FILE}" >&2
+      exit 1
+    fi
+    package_identity="$(jq -c . "${package_identity_path}")"
+    ;;
+  conda | wheel)
+    if [[ -n "${RELEASE_PACKAGE_IDENTITY_FILE:-}" ]]; then
+      echo "package-identity-file is only valid for custom artifacts" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "artifact-type must be one of: conda, custom, wheel" >&2
     exit 1
-  fi
-  RELEASE_PACKAGE="$(jq -c . "${package_file_path}")"
-fi
+    ;;
+esac
 
-if ! jq -e '
+if [[ "${RELEASE_ARTIFACT_TYPE}" == "custom" ]] && ! jq -e '
   type == "object"
   and (keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
   and (.ecosystem | type == "string" and length > 0)
   and (.name | type == "string" and length > 0)
-  and ((.version // "") | type == "string")
-  and ((.build // "") | type == "string")
-  and ((.platform // "") | type == "string")
-' <<<"${RELEASE_PACKAGE}" >/dev/null; then
-  echo "release-package must be a package object with ecosystem and name; version may be supplied or derived per artifact" >&2
+  and (.version | type == "string" and length > 0)
+  and ((has("build") | not) or (.build | type == "string" and length > 0))
+  and ((has("platform") | not) or (.platform | type == "string" and length > 0))
+' <<<"${package_identity}" >/dev/null; then
+  echo "package identity file must contain non-empty ecosystem, name, and version strings and only optional build or platform strings" >&2
   exit 1
 fi
 
@@ -111,49 +117,6 @@ resolve_one_file() {
     exit 1
   fi
   printf '%s\n' "${resolved#"${output_directory}/"}"
-}
-
-derive_package_version() {
-  local ecosystem="$1"
-  local package_name="$2"
-  local artifact_path="$3"
-  local filename
-  filename="$(basename "${artifact_path}")"
-
-  case "${ecosystem}" in
-    conda)
-      local conda_prefix="${package_name}-"
-      if [[ "${filename}" != "${conda_prefix}"* ]]; then
-        echo "Conda artifact filename does not start with package name '${package_name}': ${filename}" >&2
-        exit 1
-      fi
-      local conda_remainder="${filename#"${conda_prefix}"}"
-      local conda_version="${conda_remainder%%-*}"
-      if [[ -z "${conda_version}" || "${conda_version}" == "${conda_remainder}" ]]; then
-        echo "cannot derive Conda package version from artifact filename: ${filename}" >&2
-        exit 1
-      fi
-      printf '%s\n' "${conda_version}"
-      ;;
-    wheel)
-      local wheel_prefix="${package_name//-/_}-"
-      if [[ "${filename}" != "${wheel_prefix}"* ]]; then
-        echo "wheel artifact filename does not start with normalized package name '${package_name}': ${filename}" >&2
-        exit 1
-      fi
-      local wheel_remainder="${filename#"${wheel_prefix}"}"
-      local wheel_version="${wheel_remainder%%-*}"
-      if [[ -z "${wheel_version}" || "${wheel_version}" == "${wheel_remainder}" ]]; then
-        echo "cannot derive wheel package version from artifact filename: ${filename}" >&2
-        exit 1
-      fi
-      printf '%s\n' "${wheel_version}"
-      ;;
-    *)
-      echo "release-package version is required for ${ecosystem} artifacts" >&2
-      exit 1
-      ;;
-  esac
 }
 
 generated_evidence_path() {
@@ -257,18 +220,34 @@ write_generated_provenance() {
 
 shopt -s globstar nullglob
 while IFS= read -r descriptor; do
-  if ! jq -e '
+  if ! jq -e --arg artifact_type "${RELEASE_ARTIFACT_TYPE}" '
     type == "object"
-    and (keys - ["path", "sbom", "provenance", "signature", "package"] | length == 0)
+    and (
+      if $artifact_type == "custom" then
+        (keys - ["path", "sbom", "provenance", "signature"] | length == 0)
+      else
+        (keys - ["path", "sbom", "provenance", "signature", "package"] | length == 0)
+      end
+    )
     and (.path | type == "string" and length > 0)
     and ((.sbom // "") | type == "string")
     and ((.provenance // "") | type == "string")
     and ((.signature // "") | type == "string")
-    and ((.package // {}) | type == "object")
-    and ((.package // {} | keys - ["ecosystem", "name", "version", "build", "platform"]) | length == 0)
-    and ((.package // {} | to_entries | map(.value | type == "string" and length > 0) | all))
+    and (
+      if $artifact_type == "custom" then
+        has("package") | not
+      else
+        (.package | type == "object")
+        and (.package | keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
+        and (.package.ecosystem | type == "string" and length > 0)
+        and (.package.name | type == "string" and length > 0)
+        and (.package.version | type == "string" and length > 0)
+        and ((.package | has("build") | not) or (.package.build | type == "string" and length > 0))
+        and ((.package | has("platform") | not) or (.package.platform | type == "string" and length > 0))
+      end
+    )
   ' <<<"${descriptor}" >/dev/null; then
-    echo "every release-artifacts entry must contain path and optional SBOM/provenance/signature/package overrides" >&2
+    echo "release artifact descriptor is invalid for ${RELEASE_ARTIFACT_TYPE}: ${descriptor}" >&2
     exit 1
   fi
 
@@ -276,13 +255,10 @@ while IFS= read -r descriptor; do
   sbom_pattern="$(jq -r '.sbom // empty' <<<"${descriptor}")"
   provenance_pattern="$(jq -r '.provenance // empty' <<<"${descriptor}")"
   signature_pattern="$(jq -r '.signature // empty' <<<"${descriptor}")"
-  package_override="$(jq -c '.package // {}' <<<"${descriptor}")"
-
-  package="$(jq -cn --argjson base "${RELEASE_PACKAGE}" --argjson override "${package_override}" '$base + $override')"
-  package_version="$(jq -r '.version // empty' <<<"${package}")"
-  if [[ -z "${package_version}" ]]; then
-    package_version="$(derive_package_version "$(jq -r '.ecosystem' <<<"${package}")" "$(jq -r '.name' <<<"${package}")" "${primary_path}")"
-    package="$(jq -c --arg version "${package_version}" '. + {version: $version}' <<<"${package}")"
+  if [[ "${RELEASE_ARTIFACT_TYPE}" == "custom" ]]; then
+    package="${package_identity}"
+  else
+    package="$(jq -c '.package' <<<"${descriptor}")"
   fi
 
   if [[ -n "${sbom_pattern}" ]]; then

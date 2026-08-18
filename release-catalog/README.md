@@ -1,8 +1,8 @@
-# Release build-output companions
+# Release catalog companions
 
-`release-build-output-dispatch` records the exact files produced by a package
+`release-catalog-dispatch` records the exact files produced by a package
 build and uploads a companion GitHub Actions artifact named
-`release-build-output-<source-artifact-name>`. Release tooling uses the
+`release-catalog-<source-artifact-name>`. Release tooling uses the
 companion to associate primary artifacts with their build identity and
 available evidence without reconstructing the build later.
 
@@ -10,8 +10,8 @@ The companion contains:
 
 ```text
 .
-├── release-build-metadata.json
-├── release-build-output.json
+├── release-catalog-metadata.json
+├── release-catalog-entries.json
 └── release-evidence
     ├── <artifact evidence>.provenance.json
     └── <artifact evidence>.spdx.json
@@ -58,8 +58,8 @@ the built source.
 ## Standard package example
 
 ```yaml
-- name: Create wheel release build-output companion
-  uses: rapidsai/shared-actions/release-build-output-dispatch@main
+- name: Create wheel release catalog companion
+  uses: rapidsai/shared-actions/release-catalog-dispatch@main
   with:
     config: >-
       {
@@ -74,8 +74,8 @@ the built source.
 ## Custom package example
 
 ```yaml
-- name: Create custom release build-output companion
-  uses: rapidsai/shared-actions/release-build-output-dispatch@main
+- name: Create custom release catalog companion
+  uses: rapidsai/shared-actions/release-catalog-dispatch@main
   with:
     config: >-
       {

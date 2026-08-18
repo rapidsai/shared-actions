@@ -97,9 +97,11 @@ jq -e '
 
 generated_directory="${temporary_directory}/generated-bundle"
 mkdir -p "${generated_directory}/linux-64"
-printf '%s\n' conda >"${generated_directory}/linux-64/kvikio-26.08.00a32-cuda12_260714_2f567060.conda"
+printf '%s\n' conda >"${generated_directory}/linux-64/kvikio-26.08.00a32-cuda12_260714_2f567060.bin"
+jq -n '{ecosystem: "conda", name: "kvikio", version: "26.08.00a32"}' \
+  >"${generated_directory}/kvikio.identity.json"
 
-RELEASE_ARTIFACTS="$(jq -cn '[{path: "linux-64/kvikio-*.conda", package: {ecosystem: "conda", name: "kvikio", version: "26.08.00a32"}}]')"
+RELEASE_ARTIFACTS="$(jq -cn '[{path: "linux-64/kvikio-*.bin", package_identity_file: "kvikio.identity.json"}]')"
 RELEASE_ARTIFACT_DIRECTORY="${generated_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="kvikio_conda_python_kvikio_x86_64_abi3_cu12"
 RELEASE_SOURCE_SHA="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -115,7 +117,7 @@ jq -e '
   .source.artifact == "kvikio_conda_python_kvikio_x86_64_abi3_cu12"
   and .source.sha == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   and .entries[0].release_catalog_key == "conda:kvikio"
-  and .entries[0].path == "linux-64/kvikio-26.08.00a32-cuda12_260714_2f567060.conda"
+  and .entries[0].path == "linux-64/kvikio-26.08.00a32-cuda12_260714_2f567060.bin"
   and .entries[0].package == {ecosystem: "conda", name: "kvikio", version: "26.08.00a32"}
   and .entries[0].sbom_kind == "generated-identity"
 ' "${generated_entries_path}" >/dev/null
@@ -131,9 +133,11 @@ jq -e '
 ' "${generated_directory}/${generated_provenance_path}" >/dev/null
 wheel_directory="${temporary_directory}/wheel-bundle"
 mkdir -p "${wheel_directory}"
-printf '%s\n' wheel >"${wheel_directory}/libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl"
+printf '%s\n' wheel >"${wheel_directory}/libkvikio_cu12-26.8.0a32.bin"
+jq -n '{ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32"}' \
+  >"${wheel_directory}/libkvikio.identity.json"
 
-RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.whl", package: {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32"}}]')"
+RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.bin", package_identity_file: "libkvikio.identity.json"}]')"
 RELEASE_ARTIFACT_DIRECTORY="${wheel_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="kvikio_wheel_cpp_libkvikio_x86_64_cu12"
 RELEASE_SOURCE_SHA="cccccccccccccccccccccccccccccccccccccccc"
@@ -144,7 +148,7 @@ export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME
 
 jq -e '
   .entries[0].release_catalog_key == "wheel:kvikio"
-  and .entries[0].path == "libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl"
+  and .entries[0].path == "libkvikio_cu12-26.8.0a32.bin"
   and .entries[0].package == {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32"}
   and .entries[0].sbom_kind == "generated-identity"
 ' "${wheel_directory}/release-catalog-entries.json" >/dev/null

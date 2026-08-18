@@ -11,7 +11,7 @@
   ],
   "properties": {
     "artifact_type": {
-      "description": "How primary artifact descriptors and package identities are obtained.",
+      "description": "Metadata can be extracted from the artifact for conda/wheel types. More info needed for custom type.",
       "type": "string",
       "enum": [
         "conda",
@@ -20,7 +20,7 @@
       ]
     },
     "release_catalog_key": {
-      "description": "Release-catalog entry name that owns these artifacts. Default for conda/wheels is <ecosystem>:<repository-name>, such as conda:cudf. Custom producers specify their own, such as maven:cuvs-java.",
+      "description": "Release-catalog entry name that owns these artifacts. Default for conda & wheels is <ecosystem>:<repository-name>, such as conda:cudf. Custom jobs specify their own, such as maven:cuvs-java.",
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\r\\n]+$"
@@ -32,17 +32,14 @@
       "pattern": "^[^\\r\\n]+$",
       "default": "."
     },
-    "package": {
-      "$ref": "#/$defs/package"
-    },
-    "package_file": {
-      "description": "Producer-created package identity JSON, relative to output_directory.",
+    "package_identity_file": {
+      "description": "Path, relative to output_directory, to producer-created package identity JSON. Required for custom artifacts; Conda and wheel identities are extracted from the artifacts. The file must contain ecosystem, name, and version and may contain build and platform.",
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\r\\n]+$"
     },
     "artifacts": {
-      "description": "Primary release files and optional producer-supplied evidence sidecars.",
+      "description": "Primary release files and optional SBoM evidence sidecar files",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -64,29 +61,8 @@
       },
       "then": {
         "required": [
-          "artifacts"
-        ],
-        "oneOf": [
-          {
-            "required": [
-              "package"
-            ],
-            "not": {
-              "required": [
-                "package_file"
-              ]
-            }
-          },
-          {
-            "required": [
-              "package_file"
-            ],
-            "not": {
-              "required": [
-                "package"
-              ]
-            }
-          }
+          "artifacts",
+          "package_identity_file"
         ]
       },
       "else": {
@@ -102,12 +78,7 @@
             },
             {
               "required": [
-                "package"
-              ]
-            },
-            {
-              "required": [
-                "package_file"
+                "package_identity_file"
               ]
             }
           ]
@@ -116,33 +87,6 @@
     }
   ],
   "$defs": {
-    "package": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "ecosystem",
-        "name"
-      ],
-      "properties": {
-        "ecosystem": {
-          "type": "string",
-          "minLength": 1
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1
-        },
-        "version": {
-          "type": "string"
-        },
-        "build": {
-          "type": "string"
-        },
-        "platform": {
-          "type": "string"
-        }
-      }
-    },
     "artifact": {
       "type": "object",
       "additionalProperties": false,
@@ -156,49 +100,22 @@
           "pattern": "^[^\\r\\n]+$"
         },
         "sbom": {
-          "description": "Producer-supplied dependency SBOM path or glob.",
+          "description": "Dependency SBOM path or glob. Example file: https://github.com/spdx/spdx-examples/blob/2181917ef6ff74de89252ee785583c27a38d6199/presentations/OSS-NA-2023/SPDXVersion2.3/03-SBOMwDependency.json",
           "type": "string",
           "minLength": 1,
           "pattern": "^[^\\r\\n]+$"
         },
         "provenance": {
-          "description": "Producer-supplied provenance path or glob.",
+          "description": "Provenance path or glob. Example file: https://github.com/slsa-framework/github-actions-buildtypes/blob/5f855ef0106dad3ee0e0f1046dc31b3b65152956/workflow/v1/example.json",
           "type": "string",
           "minLength": 1,
           "pattern": "^[^\\r\\n]+$"
         },
         "signature": {
-          "description": "Producer-supplied signature path or glob.",
+          "description": "Signature path or glob. Example file: https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar.asc",
           "type": "string",
           "minLength": 1,
           "pattern": "^[^\\r\\n]+$"
-        },
-        "package": {
-          "description": "Per-artifact package identity overrides.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "ecosystem": {
-              "type": "string",
-              "minLength": 1
-            },
-            "name": {
-              "type": "string",
-              "minLength": 1
-            },
-            "version": {
-              "type": "string",
-              "minLength": 1
-            },
-            "build": {
-              "type": "string",
-              "minLength": 1
-            },
-            "platform": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
         }
       }
     }

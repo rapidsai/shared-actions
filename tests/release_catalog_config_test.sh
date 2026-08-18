@@ -27,23 +27,14 @@ assert_invalid() {
 }
 
 valid_output="${temporary_directory}/valid.output"
-RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/package-file.json")" \
+RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/package-identity-file.json")" \
   GITHUB_OUTPUT="${valid_output}" "${validator}"
 
 grep -Fx 'release_catalog_key=maven:cuvs-java' "${valid_output}"
 grep -Fx 'artifact_type=custom' "${valid_output}"
 grep -Fx 'output_directory=java/cuvs-java/target' "${valid_output}"
-grep -Fx 'package=' "${valid_output}"
-grep -Fx 'package_file=cuvs-java.release-package.json' "${valid_output}"
+grep -Fx 'package_identity_file=cuvs-java.release-package-identity.json' "${valid_output}"
 grep -Fx 'artifacts=[{"path":"cuvs-java-*-x86_64-cuda*.jar","sbom":"cuvs-java.spdx.json"}]' "${valid_output}"
-
-inline_output="${temporary_directory}/inline.output"
-RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/inline-package.json")" \
-  GITHUB_OUTPUT="${inline_output}" "${validator}"
-
-grep -Fx 'output_directory=.' "${inline_output}"
-grep -Fx 'package={"ecosystem":"archive","name":"smoke","version":"1.0"}' "${inline_output}"
-grep -Fx 'package_file=' "${inline_output}"
 
 assert_invalid \
   malformed-json \
@@ -64,22 +55,27 @@ grep -F 'artifact_type must be one of: conda, custom, wheel' "${temporary_direct
 assert_invalid \
   custom-missing-fields \
   '{"artifact_type":"custom","release_catalog_key":"archive:smoke"}' \
-  'exactly one of package or package_file is required for custom artifacts'
+  'package_identity_file is required for custom artifacts'
 grep -F 'artifacts must be a non-empty array for custom artifacts' "${temporary_directory}/custom-missing-fields.error" >/dev/null
 
 assert_invalid \
   unknown-field \
-  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_file":"package.json","artifacts":[{"path":"smoke.tar.gz"}],"component_id":"archive:smoke"}' \
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_identity_file":"package.json","artifacts":[{"path":"smoke.tar.gz"}],"component_id":"archive:smoke"}' \
   'unknown field(s): component_id'
 
 assert_invalid \
-  conflicting-package-source \
-  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package":{"ecosystem":"archive","name":"smoke"},"package_file":"package.json","artifacts":[{"path":"smoke.tar.gz"}]}' \
-  'exactly one of package or package_file is required for custom artifacts'
+  inline-package \
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_identity_file":"package.json","package":{"ecosystem":"archive","name":"smoke","version":"1.0"},"artifacts":[{"path":"smoke.tar.gz"}]}' \
+  'unknown field(s): package'
+
+assert_invalid \
+  per-artifact-package \
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_identity_file":"package.json","artifacts":[{"path":"smoke.tar.gz","package":{"ecosystem":"archive","name":"smoke","version":"1.0"}}]}' \
+  'artifacts[0] has unknown field(s): package'
 
 assert_invalid \
   malformed-artifact \
-  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_file":"package.json","artifacts":[{"file":"smoke.tar.gz","sbom":false}]}' \
+  '{"artifact_type":"custom","release_catalog_key":"archive:smoke","package_identity_file":"package.json","artifacts":[{"file":"smoke.tar.gz","sbom":false}]}' \
   'artifacts[0] has unknown field(s): file'
 grep -F 'artifacts[0].path must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
 grep -F 'artifacts[0].sbom must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
@@ -92,7 +88,7 @@ assert_invalid \
 assert_invalid \
   standard-custom-fields \
   '{"artifact_type":"wheel","release_catalog_key":"wheel:smoke","output_directory":"dist","artifacts":[{"path":"smoke.whl"}]}' \
-  'artifacts, package, and package_file are only valid when artifact_type is custom'
+  'artifacts and package_identity_file are only valid when artifact_type is custom'
 
 standard_output="${temporary_directory}/standard.output"
 RELEASE_CATALOG_CONFIG='{

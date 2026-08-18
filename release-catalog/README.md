@@ -30,11 +30,24 @@ The `artifact_type` field determines how the action discovers primary files:
   or `package_file`.
 
 `release_catalog_key` identifies the release-catalog entry that owns these
-artifacts. Every file and matrix variant in the same publishable artifact set
-uses the same key. Standard RAPIDS Conda and wheel workflows construct it as
-`<ecosystem>:<repository-name>`, such as `conda:cudf`; custom producers select
-an existing catalog key, such as `maven:cuvs-java`. Do not generate a UUID or a
-per-build value.
+artifacts. Every file from every matrix variant in the same publishable artifact
+set uses the same key, and multiple files are aggregated. Standard RAPIDS Conda
+and wheel workflows construct it as `<ecosystem>:<repository-name>`, such as
+`conda:cudf`; custom producers select an existing catalog key, such as
+`maven:cuvs-java`. Do not generate a UUID or a per-build value.
+
+Use a distinct `release_catalog_key` only when the release catalog intentionally gives the
+outputs different release policy. Examples include:
+
+* different versioning
+* validation requirements
+* dependency ordering
+* publication destinations
+* promotion strategy.
+
+Multiple package names from one repository do not by themselves justify separate
+keys: for example, `cudf` and `dask-cudf` Conda packages remain part of
+`conda:cudf` when they share one release policy.
 
 The action validates the complete configuration before inspecting build
 outputs. It then verifies properties that depend on produced files, including

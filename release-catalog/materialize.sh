@@ -14,8 +14,7 @@ require_nonempty() {
 
 require_nonempty "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
 require_nonempty "RELEASE_OUTPUT_DIRECTORY" "${RELEASE_OUTPUT_DIRECTORY:-}"
-require_nonempty "RELEASE_MANIFEST_NAME" "${RELEASE_MANIFEST_NAME:-}"
-require_nonempty "RELEASE_METADATA_NAME" "${RELEASE_METADATA_NAME:-}"
+require_nonempty "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
 require_nonempty "RELEASE_ARTIFACTS" "${RELEASE_ARTIFACTS:-}"
 require_nonempty "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NAME:-}"
 
@@ -40,12 +39,7 @@ require_plain_filename() {
   fi
 }
 
-require_plain_filename "manifest-name" "${RELEASE_MANIFEST_NAME}"
-require_plain_filename "metadata-name" "${RELEASE_METADATA_NAME}"
-if [[ "${RELEASE_MANIFEST_NAME}" == "${RELEASE_METADATA_NAME}" ]]; then
-  echo "manifest-name and metadata-name must differ" >&2
-  exit 1
-fi
+require_plain_filename "entries-name" "${RELEASE_ENTRIES_NAME}"
 
 if [[ ! -d "${RELEASE_OUTPUT_DIRECTORY}" ]]; then
   echo "output-directory does not exist or is not a directory: ${RELEASE_OUTPUT_DIRECTORY}" >&2
@@ -90,12 +84,11 @@ if ! jq -e 'type == "array" and length > 0' <<<"${RELEASE_ARTIFACTS}" >/dev/null
   exit 1
 fi
 
-manifest_path="${output_directory}/${RELEASE_MANIFEST_NAME}"
-metadata_path="${output_directory}/${RELEASE_METADATA_NAME}"
+entries_path="${output_directory}/${RELEASE_ENTRIES_NAME}"
 temporary_manifest="$(mktemp "${output_directory}/.release-catalog.XXXXXX")"
 trap 'rm -f "${temporary_manifest}"' EXIT
 
-printf '%s\n' '{"schema_version":1,"producer":"release-platform","artifacts":[]}' >"${temporary_manifest}"
+printf '%s\n' '{"entries":[]}' >"${temporary_manifest}"
 
 resolve_one_file() {
   local field="$1"
@@ -263,7 +256,6 @@ write_generated_provenance() {
 }
 
 shopt -s globstar nullglob
-artifact_metadata='[]'
 while IFS= read -r descriptor; do
   if ! jq -e '
     type == "object"
@@ -309,59 +301,48 @@ while IFS= read -r descriptor; do
     provenance_path="$(generated_evidence_path "${primary_path}" "provenance")"
     write_generated_provenance "${primary_path}" "${package}" "${provenance_path}"
   fi
-  artifact="$(jq -cn \
+  entry="$(jq -cn \
     --arg release_catalog_key "${RELEASE_CATALOG_KEY}" \
     --arg path "${primary_path}" \
     --arg sbom "${sbom_path}" \
+    --arg sbom_kind "${sbom_kind}" \
     --arg provenance "${provenance_path}" \
     --argjson package "${package}" \
-    '{release_catalog_key: $release_catalog_key, path: $path, sbom: $sbom, provenance: $provenance, package: $package}')"
+    '{release_catalog_key: $release_catalog_key, path: $path, sbom: $sbom, sbom_kind: $sbom_kind, provenance: $provenance, package: $package}')"
   if [[ -n "${signature_pattern}" ]]; then
     supplied_signature_path="$(resolve_one_file signature "${signature_pattern}")"
     signature_path="$(copy_supplied_evidence "${primary_path}" "${supplied_signature_path}" "signature")"
-    artifact="$(jq -c --arg signature "${signature_path}" '. + {signature: $signature}' <<<"${artifact}")"
+    entry="$(jq -c --arg signature "${signature_path}" '. + {signature: $signature}' <<<"${entry}")"
   fi
 
-  artifact_metadata="$(jq -cn \
-    --arg path "${primary_path}" \
-    --arg sbom_kind "${sbom_kind}" \
-    --argjson artifacts "${artifact_metadata}" \
-    '$artifacts + [{path: $path, sbom_kind: $sbom_kind}]')"
-
-  jq --argjson artifact "${artifact}" '.artifacts += [$artifact]' "${temporary_manifest}" >"${temporary_manifest}.next"
+  jq --argjson entry "${entry}" '.entries += [$entry]' "${temporary_manifest}" >"${temporary_manifest}.next"
   mv "${temporary_manifest}.next" "${temporary_manifest}"
 done < <(jq -c '.[]' <<<"${RELEASE_ARTIFACTS}")
 
-if ! jq -e '.artifacts as $items | ($items | map([.release_catalog_key, .path] | join("\u0000")) | unique | length) == ($items | length)' "${temporary_manifest}" >/dev/null; then
+if ! jq -e '.entries as $items | ($items | map([.release_catalog_key, .path] | join("\u0000")) | unique | length) == ($items | length)' "${temporary_manifest}" >/dev/null; then
   echo "release-artifacts contains duplicate release_catalog_key/path entries" >&2
   exit 1
 fi
 
-jq -S . "${temporary_manifest}" >"${manifest_path}"
 jq -n -S \
   --arg artifact_name "${RELEASE_SOURCE_ARTIFACT_NAME}" \
-  --arg manifest_name "${RELEASE_MANIFEST_NAME}" \
   --arg repository "${GITHUB_REPOSITORY:-}" \
   --arg run_attempt "${GITHUB_RUN_ATTEMPT:-}" \
   --arg run_id "${GITHUB_RUN_ID:-}" \
   --arg sha "${source_sha}" \
-  --arg release_catalog_key "${RELEASE_CATALOG_KEY}" \
   --arg workflow_ref "${GITHUB_WORKFLOW_REF:-}" \
-  --argjson artifact_metadata "${artifact_metadata}" \
+  --argjson entries "$(jq -c '.entries' "${temporary_manifest}")" \
   '{
     schema_version: 1,
     producer: "shared-workflows",
-    release_catalog_key: $release_catalog_key,
-    source_artifact: $artifact_name,
-    catalog_record_manifest: $manifest_name,
-    build_environment: {
+    source: {
+      artifact: $artifact_name,
       repository: $repository,
       sha: $sha,
       workflow_ref: $workflow_ref,
       run_id: $run_id,
       run_attempt: $run_attempt
     },
-    metadata: {artifacts: $artifact_metadata}
-  }' >"${metadata_path}"
-echo "manifest-path=${manifest_path}" >>"${GITHUB_OUTPUT}"
-echo "metadata-path=${metadata_path}" >>"${GITHUB_OUTPUT}"
+    entries: $entries
+  }' >"${entries_path}"
+echo "entries-path=${entries_path}" >>"${GITHUB_OUTPUT}"

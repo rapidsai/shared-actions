@@ -1,6 +1,6 @@
 {
   "artifact_type": "custom",
-  "component_id": "archive:smoke",
+  "release_catalog_key": "archive:smoke",
   "package": {
     "ecosystem": "archive",
     "name": "smoke",

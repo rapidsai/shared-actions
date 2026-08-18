@@ -29,10 +29,12 @@ The `artifact_type` field determines how the action discovers primary files:
 - `custom` requires explicit artifact descriptors and exactly one of `package`
   or `package_file`.
 
-`component_id` is a stable release-catalog identifier such as `conda:cudf` or
-`maven:cuvs-java`; it is not a generated UUID. Standard RAPIDS Conda and wheel
-workflows construct it as `<ecosystem>:<repository-name>`. Custom producers
-must supply the release unit selected for that package family.
+`release_catalog_key` identifies the release-catalog entry that owns these
+artifacts. Every file and matrix variant in the same publishable artifact set
+uses the same key. Standard RAPIDS Conda and wheel workflows construct it as
+`<ecosystem>:<repository-name>`, such as `conda:cudf`; custom producers select
+an existing catalog key, such as `maven:cuvs-java`. Do not generate a UUID or a
+per-build value.
 
 The action validates the complete configuration before inspecting build
 outputs. It then verifies properties that depend on produced files, including
@@ -62,7 +64,7 @@ the built source.
     config: >-
       {
         "artifact_type": "wheel",
-        "component_id": "wheel:example",
+        "release_catalog_key": "wheel:example",
         "output_directory": ${{ toJSON(steps.package-name.outputs.WHEEL_OUTPUT_DIR) }}
       }
     source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
@@ -78,7 +80,7 @@ the built source.
     config: >-
       {
         "artifact_type": "custom",
-        "component_id": "maven:cuvs-java",
+        "release_catalog_key": "maven:cuvs-java",
         "output_directory": "java/cuvs-java/target",
         "package_file": "cuvs-java.release-package.json",
         "artifacts": [{"path": "cuvs-java-*-x86_64-cuda*.jar"}]

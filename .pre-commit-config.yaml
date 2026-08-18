@@ -3,9 +3,12 @@
 
 ci:
   autoupdate_schedule: quarterly
-  # The runtime validator suite requires jq. pre-commit.ci validates the same
-  # valid fixtures against config.schema.json; GitHub Actions runs the full
-  # valid/invalid runtime suite on an Ubuntu runner with jq.
+  # These hooks require tools unavailable in pre-commit.ci:
+  #
+  #   * actionlint-docker requires Docker
+  #   * release-build-output-config requires jq
+  #
+  # Both run in other CI jobs with controlled runtime dependencies.
   skip: [actionlint-docker, release-build-output-config]
 
 repos:

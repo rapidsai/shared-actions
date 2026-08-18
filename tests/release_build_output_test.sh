@@ -32,10 +32,10 @@ RELEASE_PACKAGE=''
 RELEASE_PACKAGE_FILE="cuvs-java-package.json"
 RELEASE_SOURCE_ARTIFACT_NAME="cuvs-java-cuda12.9.1"
 RELEASE_SOURCE_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-RELEASE_UNIT="maven:cuvs-java"
+RELEASE_CATALOG_KEY="maven:cuvs-java"
 export GITHUB_REPOSITORY GITHUB_RUN_ATTEMPT GITHUB_RUN_ID GITHUB_SHA GITHUB_WORKFLOW_REF
 export RELEASE_ARTIFACTS RELEASE_MANIFEST_NAME RELEASE_METADATA_NAME RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_PACKAGE_FILE
-export RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_UNIT
+export RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
 
 "${repository_root}/release-build-output/materialize.sh"
 
@@ -46,14 +46,14 @@ jq -e '
   .schema_version == 1
   and .producer == "release-platform"
   and (.artifacts | length == 1)
-  and .artifacts[0].unit_id == "maven:cuvs-java"
+  and .artifacts[0].release_catalog_key == "maven:cuvs-java"
   and .artifacts[0].path == "cuvs-java-26.08.0.jar"
   and .artifacts[0].package.name == "ai.rapids:cuvs-java"
 ' "${manifest_path}" >/dev/null
 jq -e '
   .schema_version == 1
   and .producer == "shared-workflows"
-  and .release_unit == "maven:cuvs-java"
+  and .release_catalog_key == "maven:cuvs-java"
   and .source_artifact == "cuvs-java-cuda12.9.1"
   and .build_output_manifest == "release-build-output.json"
   and .build_environment.repository == "rapidsai/cuvs"
@@ -91,8 +91,8 @@ RELEASE_PACKAGE="$(jq -cn '{ecosystem: "conda", name: "kvikio"}')"
 RELEASE_PACKAGE_FILE=''
 RELEASE_SOURCE_ARTIFACT_NAME="kvikio_conda_python_kvikio_x86_64_abi3_cu12"
 RELEASE_SOURCE_SHA="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-RELEASE_UNIT="conda:kvikio"
-export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_PACKAGE_FILE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_UNIT
+RELEASE_CATALOG_KEY="conda:kvikio"
+export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_PACKAGE_FILE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
 
 "${repository_root}/release-build-output/materialize.sh"
 
@@ -101,7 +101,7 @@ generated_metadata_path="${generated_directory}/release-build-metadata.json"
 generated_sbom_path="$(jq -r '.artifacts[0].sbom' "${generated_manifest_path}")"
 generated_provenance_path="$(jq -r '.artifacts[0].provenance' "${generated_manifest_path}")"
 jq -e '
-  .artifacts[0].unit_id == "conda:kvikio"
+  .artifacts[0].release_catalog_key == "conda:kvikio"
   and .artifacts[0].path == "linux-64/kvikio-26.08.00a32-cuda12_260714_2f567060.conda"
   and .artifacts[0].package == {ecosystem: "conda", name: "kvikio", version: "26.08.00a32"}
 ' "${generated_manifest_path}" >/dev/null
@@ -112,11 +112,11 @@ jq -e '
 ' "${generated_directory}/${generated_sbom_path}" >/dev/null
 jq -e '
   .predicateType == "https://slsa.dev/provenance/v1"
-  and .predicate.buildDefinition.externalParameters.release_unit == "conda:kvikio"
+  and .predicate.buildDefinition.externalParameters.release_catalog_key == "conda:kvikio"
   and .predicate.buildDefinition.resolvedDependencies[0].digest.gitCommit == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 ' "${generated_directory}/${generated_provenance_path}" >/dev/null
 jq -e '
-  .release_unit == "conda:kvikio"
+  .release_catalog_key == "conda:kvikio"
   and .source_artifact == "kvikio_conda_python_kvikio_x86_64_abi3_cu12"
   and .build_environment.sha == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   and .metadata.artifacts == [{path: "linux-64/kvikio-26.08.00a32-cuda12_260714_2f567060.conda", sbom_kind: "generated-identity"}]
@@ -131,13 +131,13 @@ RELEASE_OUTPUT_DIRECTORY="${wheel_directory}"
 RELEASE_PACKAGE="$(jq -cn '{ecosystem: "wheel", name: "libkvikio-cu12"}')"
 RELEASE_SOURCE_ARTIFACT_NAME="kvikio_wheel_cpp_libkvikio_x86_64_cu12"
 RELEASE_SOURCE_SHA="cccccccccccccccccccccccccccccccccccccccc"
-RELEASE_UNIT="wheel:kvikio"
-export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_UNIT
+RELEASE_CATALOG_KEY="wheel:kvikio"
+export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
 
 "${repository_root}/release-build-output/materialize.sh"
 
 jq -e '
-  .artifacts[0].unit_id == "wheel:kvikio"
+  .artifacts[0].release_catalog_key == "wheel:kvikio"
   and .artifacts[0].path == "libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl"
   and .artifacts[0].package == {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32"}
 ' "${wheel_directory}/release-build-output.json" >/dev/null
@@ -155,8 +155,8 @@ RELEASE_PACKAGE="$(jq -cn '{ecosystem: "archive", name: "bundle"}')"
 RELEASE_PACKAGE_FILE=''
 RELEASE_SOURCE_ARTIFACT_NAME="bundle-archive"
 RELEASE_SOURCE_SHA="dddddddddddddddddddddddddddddddddddddddd"
-RELEASE_UNIT="archive:bundle"
-export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_PACKAGE_FILE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_UNIT
+RELEASE_CATALOG_KEY="archive:bundle"
+export RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_PACKAGE_FILE RELEASE_SOURCE_ARTIFACT_NAME RELEASE_SOURCE_SHA RELEASE_CATALOG_KEY
 
 if "${repository_root}/release-build-output/materialize.sh" 2>"${temporary_directory}/missing-version-error"; then
   echo "materialize.sh unexpectedly accepted a custom artifact without a package version" >&2

@@ -9,13 +9,13 @@ A dispatch action is one that:
 * clones the shared-actions repository (repo/ref changeable using env vars)
 * runs (dispatches to) another action within the clone, using a relative path
 
-## Release build-output companions
+## Release catalog companions
 
-`release-build-output-dispatch` validates a producer's local build artifact
+`release-catalog-dispatch` validates a producer's local build artifact
 directory and uploads a companion artifact named
-`release-build-output-<source-artifact-name>`.
+`release-catalog-<source-artifact-name>`.
 
-See the [`release-build-output` documentation](release-build-output/README.md)
+See the [release catalog documentation](release-catalog/README.md)
 for configuration, examples, source-revision handling, companion contents, and
 evidence semantics.
 

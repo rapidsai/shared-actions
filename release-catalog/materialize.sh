@@ -92,7 +92,7 @@ fi
 
 manifest_path="${output_directory}/${RELEASE_MANIFEST_NAME}"
 metadata_path="${output_directory}/${RELEASE_METADATA_NAME}"
-temporary_manifest="$(mktemp "${output_directory}/.release-build-output.XXXXXX")"
+temporary_manifest="$(mktemp "${output_directory}/.release-catalog.XXXXXX")"
 trap 'rm -f "${temporary_manifest}"' EXIT
 
 printf '%s\n' '{"schema_version":1,"producer":"release-platform","artifacts":[]}' >"${temporary_manifest}"
@@ -204,7 +204,7 @@ write_generated_sbom() {
       name: ("RAPIDS release artifact " + $artifact_path),
       documentNamespace: ("https://rapids.ai/release-platform/spdx/" + $artifact_digest),
       creationInfo: {
-        creators: ["Tool: rapidsai/shared-workflows release-build-output"],
+        creators: ["Tool: rapidsai/shared-workflows release catalog"],
         created: (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
       },
       documentDescribes: ["SPDXRef-Artifact"],
@@ -247,7 +247,7 @@ write_generated_provenance() {
       predicateType: "https://slsa.dev/provenance/v1",
       predicate: {
         buildDefinition: {
-          buildType: "https://rapids.ai/release-platform/build-output/v1",
+          buildType: "https://rapids.ai/release-platform/catalog-record/v1",
           externalParameters: {release_catalog_key: env.RELEASE_CATALOG_KEY, package: $package},
           resolvedDependencies: [{
             uri: ("git+https://github.com/" + $repository + "@" + $source_sha),
@@ -353,7 +353,7 @@ jq -n -S \
     producer: "shared-workflows",
     release_catalog_key: $release_catalog_key,
     source_artifact: $artifact_name,
-    build_output_manifest: $manifest_name,
+    catalog_record_manifest: $manifest_name,
     build_environment: {
       repository: $repository,
       sha: $sha,

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-validator="${repository_root}/release-build-output/validate-config.sh"
+validator="${repository_root}/release-catalog/validate-config.sh"
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "${temporary_directory}"' EXIT
 
@@ -14,7 +14,7 @@ assert_invalid() {
   local expected="$3"
   local error_file="${temporary_directory}/${name}.error"
 
-  if RELEASE_BUILD_OUTPUT_CONFIG="${config}" GITHUB_OUTPUT="${temporary_directory}/${name}.output" \
+  if RELEASE_CATALOG_CONFIG="${config}" GITHUB_OUTPUT="${temporary_directory}/${name}.output" \
     "${validator}" 2>"${error_file}"; then
     echo "validate-config.sh unexpectedly accepted ${name}" >&2
     exit 1
@@ -27,7 +27,7 @@ assert_invalid() {
 }
 
 valid_output="${temporary_directory}/valid.output"
-RELEASE_BUILD_OUTPUT_CONFIG="$(<"${repository_root}/tests/release-build-output-config/package-file.json")" \
+RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/package-file.json")" \
   GITHUB_OUTPUT="${valid_output}" "${validator}"
 
 grep -Fx 'release_catalog_key=maven:cuvs-java' "${valid_output}"
@@ -38,7 +38,7 @@ grep -Fx 'package_file=cuvs-java.release-package.json' "${valid_output}"
 grep -Fx 'artifacts=[{"path":"cuvs-java-*-x86_64-cuda*.jar","sbom":"cuvs-java.spdx.json"}]' "${valid_output}"
 
 inline_output="${temporary_directory}/inline.output"
-RELEASE_BUILD_OUTPUT_CONFIG="$(<"${repository_root}/tests/release-build-output-config/inline-package.json")" \
+RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/inline-package.json")" \
   GITHUB_OUTPUT="${inline_output}" "${validator}"
 
 grep -Fx 'output_directory=.' "${inline_output}"
@@ -48,12 +48,12 @@ grep -Fx 'package_file=' "${inline_output}"
 assert_invalid \
   malformed-json \
   '{"release_catalog_key":' \
-  'release-build-output must be valid JSON'
+  'release catalog configuration must be valid JSON'
 
 assert_invalid \
   not-an-object \
   '[]' \
-  'release-build-output must be a JSON object'
+  'release catalog configuration must be a JSON object'
 
 assert_invalid \
   missing-fields \
@@ -95,7 +95,7 @@ assert_invalid \
   'artifacts, package, and package_file are only valid when artifact_type is custom'
 
 standard_output="${temporary_directory}/standard.output"
-RELEASE_BUILD_OUTPUT_CONFIG='{
+RELEASE_CATALOG_CONFIG='{
   "artifact_type": "wheel",
   "release_catalog_key": "wheel:kvikio",
   "output_directory": "dist"

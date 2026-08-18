@@ -26,7 +26,7 @@ RELEASE_PACKAGE=''
 RELEASE_PACKAGE_FILE=''
 export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_OUTPUT_DIRECTORY RELEASE_PACKAGE RELEASE_PACKAGE_FILE
 
-"${repository_root}/release-build-output/prepare.sh"
+"${repository_root}/release-catalog/prepare.sh"
 
 grep -Fx 'package={"ecosystem":"wheel","name":"bundle"}' "${GITHUB_OUTPUT}"
 artifacts="$(sed -n 's/^artifacts=//p' "${GITHUB_OUTPUT}")"
@@ -44,7 +44,7 @@ RELEASE_PACKAGE=''
 RELEASE_PACKAGE_FILE=release-package.json
 export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_TYPE RELEASE_PACKAGE RELEASE_PACKAGE_FILE
 
-"${repository_root}/release-build-output/prepare.sh"
+"${repository_root}/release-catalog/prepare.sh"
 
 grep -Fx 'artifacts=[{"path":"bundle.tar.gz","sbom":"bundle.spdx.json"}]' "${GITHUB_OUTPUT}"
 grep -Fx 'package=' "${GITHUB_OUTPUT}"
@@ -52,7 +52,7 @@ grep -Fx 'package=' "${GITHUB_OUTPUT}"
 GITHUB_OUTPUT="${temporary_directory}/invalid-output"
 RELEASE_ARTIFACT_TYPE=archive
 export GITHUB_OUTPUT RELEASE_ARTIFACT_TYPE
-if "${repository_root}/release-build-output/prepare.sh" 2>"${temporary_directory}/invalid-error"; then
+if "${repository_root}/release-catalog/prepare.sh" 2>"${temporary_directory}/invalid-error"; then
   echo "prepare.sh unexpectedly accepted an invalid artifact type" >&2
   exit 1
 fi

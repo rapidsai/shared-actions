@@ -1,11 +1,11 @@
-name: Dispatch release build output
-description: Create a release build-output companion from the selected shared-actions revision.
+name: Dispatch release catalog
+description: Create a release catalog companion from the selected shared-actions revision.
 
 inputs:
   config:
     description: >-
       JSON string with configuration for this action. Schema and field documentation:
-      https://github.com/rapidsai/shared-actions/blob/main/release-build-output/config.schema.json
+      https://github.com/rapidsai/shared-actions/blob/main/release-catalog/config.schema.json
     required: true
   source-artifact-name:
     description: Name of the GitHub Actions artifact bundle containing this output.
@@ -29,7 +29,7 @@ runs:
   using: composite
   steps:
     - id: implementation
-      name: Resolve release build-output implementation
+      name: Resolve release catalog implementation
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -41,18 +41,18 @@ runs:
         if [[ ! -d "${action_path}" && "${action_path}" == "${host_root}/"* ]]; then
           action_path="${container_root}/${action_path#"${host_root}/"}"
         fi
-        implementation_path="$(dirname "${action_path}")/release-build-output"
+        implementation_path="$(dirname "${action_path}")/release-catalog"
         if [[ ! -d "${implementation_path}" ]]; then
-          echo "release-build-output implementation not found at ${implementation_path}" >&2
+          echo "release-catalog implementation not found at ${implementation_path}" >&2
           exit 1
         fi
         echo "path=${implementation_path}" >>"${GITHUB_OUTPUT}"
     - id: configuration
-      name: Validate release build-output configuration
+      name: Validate release catalog configuration
       shell: bash
       env:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
-        RELEASE_BUILD_OUTPUT_CONFIG: ${{ inputs.config }}
+        RELEASE_CATALOG_CONFIG: ${{ inputs.config }}
       run: "${IMPLEMENTATION_PATH}/validate-config.sh"
     - id: prepare
       name: Describe release artifacts
@@ -66,13 +66,13 @@ runs:
         RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
       run: "${IMPLEMENTATION_PATH}/prepare.sh"
     - id: materialize
-      name: Materialize release build-output records
+      name: Materialize release catalog records
       shell: bash
       env:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         RELEASE_ARTIFACTS: ${{ steps.prepare.outputs.artifacts }}
-        RELEASE_MANIFEST_NAME: release-build-output.json
-        RELEASE_METADATA_NAME: release-build-metadata.json
+        RELEASE_MANIFEST_NAME: release-catalog-entries.json
+        RELEASE_METADATA_NAME: release-catalog-metadata.json
         RELEASE_OUTPUT_DIRECTORY: ${{ steps.configuration.outputs.output_directory }}
         RELEASE_PACKAGE: ${{ steps.prepare.outputs.package }}
         RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
@@ -85,13 +85,13 @@ runs:
       shell: bash
       env:
         SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
-      run: echo "name=release-build-output-${SOURCE_ARTIFACT_NAME}" >>"${GITHUB_OUTPUT}"
-    - name: Upload release build-output companion
+      run: echo "name=release-catalog-${SOURCE_ARTIFACT_NAME}" >>"${GITHUB_OUTPUT}"
+    - name: Upload release catalog companion
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         if-no-files-found: error
         name: ${{ steps.companion-name.outputs.name }}
         path: |
-          ${{ steps.configuration.outputs.output_directory }}/release-build-output.json
-          ${{ steps.configuration.outputs.output_directory }}/release-build-metadata.json
+          ${{ steps.configuration.outputs.output_directory }}/release-catalog-entries.json
+          ${{ steps.configuration.outputs.output_directory }}/release-catalog-metadata.json
           ${{ steps.configuration.outputs.output_directory }}/release-evidence/**

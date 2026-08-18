@@ -20,7 +20,7 @@ printf '%s\n' \
   zip -qr "${wheel_output_directory}/libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl" .
 )
 
-wheel_descriptors="$("${repository_root}/release-build-output/describe-wheels.sh" "${wheel_output_directory}")"
+wheel_descriptors="$("${repository_root}/release-catalog/describe-wheels.sh" "${wheel_output_directory}")"
 jq -e '
   . == [{
     path: "libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl",
@@ -57,7 +57,7 @@ zstd -q -f "${temporary_directory}/info-librmm.tar" -o "${temporary_directory}/i
     info-librmm.tar.zst
 )
 
-conda_descriptors="$("${repository_root}/release-build-output/describe-conda.sh" "${conda_output_directory}")"
+conda_descriptors="$("${repository_root}/release-catalog/describe-conda.sh" "${conda_output_directory}")"
 jq -e '
   length == 2
   and any(.[];

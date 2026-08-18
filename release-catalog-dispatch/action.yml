@@ -15,13 +15,10 @@ inputs:
     required: false
 
 outputs:
-  manifest-path:
-    description: Absolute path to the generated manifest.
-    value: ${{ steps.materialize.outputs.manifest-path }}
-  metadata-path:
-    description: Absolute path to the build metadata envelope.
-    value: ${{ steps.materialize.outputs.metadata-path }}
-  manifest-artifact-name:
+  entries-path:
+    description: Absolute path to the generated release catalog entries.
+    value: ${{ steps.materialize.outputs.entries-path }}
+  companion-artifact-name:
     description: Name of the uploaded GitHub Actions companion artifact.
     value: ${{ steps.companion-name.outputs.name }}
 
@@ -66,13 +63,12 @@ runs:
         RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
       run: "${IMPLEMENTATION_PATH}/prepare.sh"
     - id: materialize
-      name: Materialize release catalog records
+      name: Materialize release catalog entries
       shell: bash
       env:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         RELEASE_ARTIFACTS: ${{ steps.prepare.outputs.artifacts }}
-        RELEASE_MANIFEST_NAME: release-catalog-entries.json
-        RELEASE_METADATA_NAME: release-catalog-metadata.json
+        RELEASE_ENTRIES_NAME: release-catalog-entries.json
         RELEASE_OUTPUT_DIRECTORY: ${{ steps.configuration.outputs.output_directory }}
         RELEASE_PACKAGE: ${{ steps.prepare.outputs.package }}
         RELEASE_PACKAGE_FILE: ${{ steps.configuration.outputs.package_file }}
@@ -93,5 +89,4 @@ runs:
         name: ${{ steps.companion-name.outputs.name }}
         path: |
           ${{ steps.configuration.outputs.output_directory }}/release-catalog-entries.json
-          ${{ steps.configuration.outputs.output_directory }}/release-catalog-metadata.json
           ${{ steps.configuration.outputs.output_directory }}/release-evidence/**

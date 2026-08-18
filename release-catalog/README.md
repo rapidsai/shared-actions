@@ -10,12 +10,17 @@ The companion contains:
 
 ```text
 .
-├── release-catalog-metadata.json
 ├── release-catalog-entries.json
 └── release-evidence
     ├── <artifact evidence>.provenance.json
     └── <artifact evidence>.spdx.json
 ```
+
+`release-catalog-entries.json` is one atomic job-level envelope. Its `source`
+object records the source artifact and build context, while its `entries` array
+contains the release catalog entries produced by that job. The release platform
+validates and aggregates entry arrays from selected builds into the release
+catalog; there is no separate metadata document to keep synchronized.
 
 ## Configuration
 
@@ -29,7 +34,7 @@ The `artifact_type` field determines how the action discovers primary files:
 - `custom` requires explicit artifact descriptors and exactly one of `package`
   or `package_file`.
 
-`release_catalog_key` identifies the release-catalog entry that owns these
+`release_catalog_key` identifies the release catalog entry that owns these
 artifacts. Every file from every matrix variant in the same publishable artifact
 set uses the same key, and multiple files are aggregated. Standard RAPIDS Conda
 and wheel workflows construct it as `<ecosystem>:<repository-name>`, such as

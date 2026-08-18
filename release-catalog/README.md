@@ -3,8 +3,8 @@
 `release-catalog-dispatch` records the exact files produced by a package
 build and uploads a companion GitHub Actions artifact named
 `release-catalog-<source-artifact-name>`. Release tooling uses the
-companion to associate primary artifacts with their build identity and
-available evidence without reconstructing the build later.
+companion to associate primary artifacts with their build identity and generated
+identity evidence without reconstructing the build later.
 
 The companion contains:
 
@@ -31,8 +31,7 @@ When `artifacts` is omitted, the action discovers every Conda and wheel output
 in `artifact_directory` and extracts identity from each package independently.
 When `artifacts` is supplied, each descriptor is resolved independently:
 supported Conda and wheel files are parsed, while any other artifact requires
-its own `package_identity_file`. Evidence paths also belong to the individual
-artifact descriptor.
+its own `package_identity_file`.
 
 `release_catalog_key` identifies the release catalog entry that owns these
 artifacts. Every file from every matrix variant in the same publishable artifact
@@ -56,8 +55,7 @@ keys: for example, `cudf` and `dask-cudf` Conda packages remain part of
 
 The action validates the configuration before inspecting build outputs. It then
 verifies properties that depend on produced files, including the package
-identity contents and whether primary-artifact and evidence paths resolve
-unambiguously.
+identity contents and whether primary-artifact paths resolve unambiguously.
 
 ## Source revision
 
@@ -120,25 +118,14 @@ relative to `artifact_directory`. For example:
 }
 ```
 
-## Evidence semantics
+## Generated identity evidence
 
-A descriptor-selected producer SBOM is classified as `producer-dependency`.
-It is evidence supplied by the producer and may contain a dependency inventory.
+For every artifact, the action generates an SPDX artifact-identity envelope
+classified as `generated-identity` and a build-context provenance statement.
+They record the artifact SHA-256, package identity, source revision, and workflow
+context, but contain no dependency or source-license inventory. They must not be
+reported as producer-supplied dependency coverage.
 
-When no SBOM is selected, the action generates an SPDX artifact-identity
-envelope classified as `generated-identity`. It records package identity and
-the primary artifact SHA-256, but contains no dependency or source-license
-inventory. It must not be reported as producer-supplied dependency coverage.
-
-Producer-supplied SBOM, provenance, and signature sidecars are copied under
-`release-evidence/` so the companion remains independently consumable.
-
-Concrete producer-supplied evidence examples include:
-
-- an official [SPDX 2.3 dependency SBOM](https://github.com/spdx/spdx-examples/blob/2181917ef6ff74de89252ee785583c27a38d6199/presentations/OSS-NA-2023/SPDXVersion2.3/03-SBOMwDependency.json);
-- an official [SLSA provenance v1 statement](https://github.com/slsa-framework/github-actions-buildtypes/blob/5f855ef0106dad3ee0e0f1046dc31b3b65152956/workflow/v1/example.json);
-- a Maven Central [detached ASCII-armored signature](https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar.asc).
-
-These examples illustrate the expected purpose of the files, not required
-serialization formats. The action copies producer-supplied evidence as opaque
-sidecars and does not validate their contents or require these formats.
+Producer-supplied SBOM, provenance, and signature inputs are intentionally
+deferred until a future revision defines a generic, unambiguous way to associate
+them with detected artifacts.

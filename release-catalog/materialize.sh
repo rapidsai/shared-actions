@@ -260,20 +260,6 @@ generated_evidence_path() {
   printf 'release-evidence/%s.%s.%s.json\n' "${artifact_label}" "${artifact_digest}" "${kind}"
 }
 
-copy_supplied_evidence() {
-  local primary_path="$1"
-  local supplied_path="$2"
-  local kind="$3"
-  local artifact_digest
-  artifact_digest="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
-  local artifact_label="${primary_path//\//_}"
-  local destination
-  destination="release-evidence/${artifact_label}.${artifact_digest}/${kind}-$(basename "${supplied_path}")"
-  mkdir -p "$(dirname "${artifact_directory}/${destination}")"
-  cp "${artifact_directory}/${supplied_path}" "${artifact_directory}/${destination}"
-  printf '%s\n' "${destination}"
-}
-
 write_generated_sbom() {
   local primary_path="$1"
   local package="$2"
@@ -311,7 +297,7 @@ write_generated_sbom() {
         relationshipType: "DESCRIBES",
         relatedSpdxElement: "SPDXRef-Artifact"
       }],
-      comment: "Artifact-identity SBOM envelope. A producer-supplied dependency SBOM may replace this record."
+      comment: "Artifact-identity SBOM envelope. It does not contain a dependency inventory."
     }' >"${artifact_directory}/${destination}"
 }
 
@@ -356,22 +342,16 @@ shopt -s globstar nullglob
 while IFS= read -r descriptor; do
   if ! jq -e '
     type == "object"
-    and (keys - ["path", "package_identity_file", "sbom", "provenance", "signature", "package"] | length == 0)
+    and (keys - ["path", "package_identity_file", "package"] | length == 0)
     and (.path | type == "string" and length > 0)
     and ((.package_identity_file // "") | type == "string")
-    and ((.sbom // "") | type == "string")
-    and ((.provenance // "") | type == "string")
-    and ((.signature // "") | type == "string")
     and ([has("package"), has("package_identity_file")] | map(select(.)) | length == 1)
   ' <<<"${descriptor}" >/dev/null; then
-    echo "release artifact descriptor must contain path, exactly one package identity source, and optional evidence paths: ${descriptor}" >&2
+    echo "release artifact descriptor must contain path and exactly one package identity source: ${descriptor}" >&2
     exit 1
   fi
 
   primary_path="$(resolve_one_file path "$(jq -r '.path' <<<"${descriptor}")")"
-  sbom_pattern="$(jq -r '.sbom // empty' <<<"${descriptor}")"
-  provenance_pattern="$(jq -r '.provenance // empty' <<<"${descriptor}")"
-  signature_pattern="$(jq -r '.signature // empty' <<<"${descriptor}")"
   package_identity_file="$(jq -r '.package_identity_file // empty' <<<"${descriptor}")"
   if [[ -n "${package_identity_file}" ]]; then
     package_identity_path="$(resolve_one_file package_identity_file "${package_identity_file}")"
@@ -387,35 +367,20 @@ while IFS= read -r descriptor; do
     exit 1
   fi
 
-  if [[ -n "${sbom_pattern}" ]]; then
-    supplied_sbom_path="$(resolve_one_file sbom "${sbom_pattern}")"
-    sbom_path="$(copy_supplied_evidence "${primary_path}" "${supplied_sbom_path}" "sbom")"
-    sbom_kind="producer-dependency"
-  else
-    sbom_path="$(generated_evidence_path "${primary_path}" "spdx")"
-    write_generated_sbom "${primary_path}" "${package}" "${sbom_path}"
-    sbom_kind="generated-identity"
-  fi
-  if [[ -n "${provenance_pattern}" ]]; then
-    supplied_provenance_path="$(resolve_one_file provenance "${provenance_pattern}")"
-    provenance_path="$(copy_supplied_evidence "${primary_path}" "${supplied_provenance_path}" "provenance")"
-  else
-    provenance_path="$(generated_evidence_path "${primary_path}" "provenance")"
-    write_generated_provenance "${primary_path}" "${package}" "${provenance_path}"
-  fi
+  sbom_path="$(generated_evidence_path "${primary_path}" "spdx")"
+  write_generated_sbom "${primary_path}" "${package}" "${sbom_path}"
+  provenance_path="$(generated_evidence_path "${primary_path}" "provenance")"
+  write_generated_provenance "${primary_path}" "${package}" "${provenance_path}"
+
+  # TODO: Accept producer-supplied SBOM, provenance, and signature evidence after
+  # the release catalog defines a generic artifact-to-evidence association.
   entry="$(jq -cn \
     --arg release_catalog_key "${RELEASE_CATALOG_KEY}" \
     --arg path "${primary_path}" \
     --arg sbom "${sbom_path}" \
-    --arg sbom_kind "${sbom_kind}" \
     --arg provenance "${provenance_path}" \
     --argjson package "${package}" \
-    '{release_catalog_key: $release_catalog_key, path: $path, sbom: $sbom, sbom_kind: $sbom_kind, provenance: $provenance, package: $package}')"
-  if [[ -n "${signature_pattern}" ]]; then
-    supplied_signature_path="$(resolve_one_file signature "${signature_pattern}")"
-    signature_path="$(copy_supplied_evidence "${primary_path}" "${supplied_signature_path}" "signature")"
-    entry="$(jq -c --arg signature "${signature_path}" '. + {signature: $signature}' <<<"${entry}")"
-  fi
+    '{release_catalog_key: $release_catalog_key, path: $path, sbom: $sbom, sbom_kind: "generated-identity", provenance: $provenance, package: $package}')"
 
   jq --argjson entry "${entry}" '.entries += [$entry]' "${temporary_manifest}" >"${temporary_manifest}.next"
   mv "${temporary_manifest}.next" "${temporary_manifest}"

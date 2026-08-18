@@ -16,14 +16,14 @@
       "pattern": "^[^\\r\\n]+$"
     },
     "artifact_directory": {
-      "description": "Base directory for artifact and evidence paths. Defaults to the job working directory.",
+      "description": "Base directory for artifact paths. Defaults to the job working directory.",
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\r\\n]+$",
       "default": "."
     },
     "artifacts": {
-      "description": "Optional explicit primary release files and their identity or evidence sidecars. When omitted, Conda and wheel artifacts are discovered in artifact_directory.",
+      "description": "Optional explicit primary release files. When omitted, Conda and wheel artifacts are discovered in artifact_directory.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -46,24 +46,6 @@
         },
         "package_identity_file": {
           "description": "Path, relative to artifact_directory, to producer-created package identity JSON for this artifact. Required only when identity cannot be extracted from the artifact. The file must contain ecosystem, name, and version and may contain build and platform.",
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[^\\r\\n]+$"
-        },
-        "sbom": {
-          "description": "Dependency SBOM path or glob. Example file: https://github.com/spdx/spdx-examples/blob/2181917ef6ff74de89252ee785583c27a38d6199/presentations/OSS-NA-2023/SPDXVersion2.3/03-SBOMwDependency.json",
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[^\\r\\n]+$"
-        },
-        "provenance": {
-          "description": "Provenance path or glob. Example file: https://github.com/slsa-framework/github-actions-buildtypes/blob/5f855ef0106dad3ee0e0f1046dc31b3b65152956/workflow/v1/example.json",
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[^\\r\\n]+$"
-        },
-        "signature": {
-          "description": "Signature path or glob. Example file: https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar.asc",
           "type": "string",
           "minLength": 1,
           "pattern": "^[^\\r\\n]+$"

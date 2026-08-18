@@ -68,10 +68,9 @@ jq -e '
 
 RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
 printf '%s\n' bundle >"${temporary_directory}/bundle.tar.gz"
-printf '%s\n' sbom >"${temporary_directory}/bundle.spdx.json"
 jq -n '{ecosystem: "archive", name: "bundle", version: "1.0"}' \
   >"${temporary_directory}/release-package-identity.json"
-RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz", package_identity_file: "release-package-identity.json", sbom: "bundle.spdx.json"}]')"
+RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz", package_identity_file: "release-package-identity.json"}]')"
 export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 
 "${repository_root}/release-catalog/materialize.sh"
@@ -79,18 +78,17 @@ export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 jq -e '
   .entries[0].path == "bundle.tar.gz"
   and .entries[0].package == {ecosystem: "archive", name: "bundle", version: "1.0"}
-  and .entries[0].sbom_kind == "producer-dependency"
+  and .entries[0].sbom_kind == "generated-identity"
 ' "${temporary_directory}/release-catalog-entries.json" >/dev/null
 
 RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
-printf '%s\n' signature >"${temporary_directory}/libkvikio.sig"
-RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.whl", signature: "libkvikio.sig"}]')"
+RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.whl"}]')"
 export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 "${repository_root}/release-catalog/materialize.sh"
 jq -e '
   .entries[0].path == "libkvikio_cu12-26.8.0-py3-none-manylinux_2_28_x86_64.whl"
   and .entries[0].package == {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0"}
-  and (.entries[0].signature | startswith("release-evidence/"))
+  and .entries[0].sbom_kind == "generated-identity"
 ' "${temporary_directory}/release-catalog-entries.json" >/dev/null
 
 mixed_directory="${temporary_directory}/mixed"

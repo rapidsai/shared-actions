@@ -4,8 +4,7 @@
   "artifacts": [
     {
       "path": "cuvs-java-*-x86_64-cuda*.jar",
-      "package_identity_file": "cuvs-java.release-package-identity.json",
-      "sbom": "cuvs-java.spdx.json"
+      "package_identity_file": "cuvs-java.release-package-identity.json"
     }
   ]
 }

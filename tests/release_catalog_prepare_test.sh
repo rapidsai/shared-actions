@@ -20,8 +20,8 @@ printf '%s\n' \
 
 GITHUB_OUTPUT="${temporary_directory}/wheel-output"
 RELEASE_ARTIFACTS=''
-RELEASE_OUTPUT_DIRECTORY="${temporary_directory}"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY
+RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
+export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 
 "${repository_root}/release-catalog/prepare.sh"
 
@@ -45,8 +45,8 @@ tar -cjf \
   info/index.json
 
 GITHUB_OUTPUT="${temporary_directory}/conda-output"
-RELEASE_OUTPUT_DIRECTORY="${conda_output_directory}"
-export GITHUB_OUTPUT RELEASE_OUTPUT_DIRECTORY
+RELEASE_ARTIFACT_DIRECTORY="${conda_output_directory}"
+export GITHUB_OUTPUT RELEASE_ARTIFACT_DIRECTORY
 
 "${repository_root}/release-catalog/prepare.sh"
 
@@ -65,21 +65,21 @@ jq -e '
 ' <<<"${artifacts}" >/dev/null
 
 GITHUB_OUTPUT="${temporary_directory}/custom-output"
-RELEASE_OUTPUT_DIRECTORY="${temporary_directory}"
+RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
 printf '%s\n' bundle >"${temporary_directory}/bundle.tar.gz"
 jq -n '{ecosystem: "archive", name: "bundle", version: "1.0"}' \
   >"${temporary_directory}/release-package-identity.json"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz", package_identity_file: "release-package-identity.json", sbom: "bundle.spdx.json"}]')"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY
+export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 
 "${repository_root}/release-catalog/prepare.sh"
 
 grep -Fx 'artifacts=[{"path":"bundle.tar.gz","package_identity_file":"release-package-identity.json","sbom":"bundle.spdx.json"}]' "${GITHUB_OUTPUT}"
 
 GITHUB_OUTPUT="${temporary_directory}/explicit-wheel-output"
-RELEASE_OUTPUT_DIRECTORY="${temporary_directory}"
+RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.whl", signature: "libkvikio.sig"}]')"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY
+export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 "${repository_root}/release-catalog/prepare.sh"
 artifacts="$(sed -n 's/^artifacts=//p' "${GITHUB_OUTPUT}")"
 jq -e '
@@ -96,8 +96,8 @@ cp "${temporary_directory}/libkvikio_cu12-26.8.0-py3-none-manylinux_2_28_x86_64.
 cp "${conda_output_directory}/noarch/rapids-dask-dependency-26.08.0-py_0.tar.bz2" "${mixed_directory}/"
 GITHUB_OUTPUT="${temporary_directory}/mixed-output"
 RELEASE_ARTIFACTS=''
-RELEASE_OUTPUT_DIRECTORY="${mixed_directory}"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY
+RELEASE_ARTIFACT_DIRECTORY="${mixed_directory}"
+export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 "${repository_root}/release-catalog/prepare.sh"
 artifacts="$(sed -n 's/^artifacts=//p' "${GITHUB_OUTPUT}")"
 jq -e '
@@ -108,18 +108,18 @@ jq -e '
 empty_directory="${temporary_directory}/empty"
 mkdir -p "${empty_directory}"
 GITHUB_OUTPUT="${temporary_directory}/empty-output"
-RELEASE_OUTPUT_DIRECTORY="${empty_directory}"
-export GITHUB_OUTPUT RELEASE_OUTPUT_DIRECTORY
+RELEASE_ARTIFACT_DIRECTORY="${empty_directory}"
+export GITHUB_OUTPUT RELEASE_ARTIFACT_DIRECTORY
 if "${repository_root}/release-catalog/prepare.sh" 2>"${temporary_directory}/empty-error"; then
-  echo "prepare.sh unexpectedly accepted an output directory without detectable artifacts" >&2
+  echo "prepare.sh unexpectedly accepted an artifact directory without detectable artifacts" >&2
   exit 1
 fi
-grep -Fx 'output-directory contains no detectable Conda or wheel artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed' "${temporary_directory}/empty-error"
+grep -Fx 'artifact-directory contains no detectable Conda or wheel artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed' "${temporary_directory}/empty-error"
 
 GITHUB_OUTPUT="${temporary_directory}/unsupported-output"
-RELEASE_OUTPUT_DIRECTORY="${temporary_directory}"
+RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz"}]')"
-export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_OUTPUT_DIRECTORY
+export GITHUB_OUTPUT RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 if "${repository_root}/release-catalog/prepare.sh" 2>"${temporary_directory}/unsupported-error"; then
   echo "prepare.sh unexpectedly accepted an unsupported artifact without identity" >&2
   exit 1

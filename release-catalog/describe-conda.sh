@@ -4,11 +4,11 @@
 set -euo pipefail
 
 if [[ "$#" -lt 1 || ! -d "$1" ]]; then
-  echo "usage: $0 CONDA_OUTPUT_DIRECTORY [CONDA_PACKAGE ...]" >&2
+  echo "usage: $0 CONDA_ARTIFACT_DIRECTORY [CONDA_PACKAGE ...]" >&2
   exit 1
 fi
 
-output_directory="$(realpath "$1")"
+artifact_directory="$(realpath "$1")"
 descriptors='[]'
 package_count=0
 package_paths=()
@@ -18,16 +18,16 @@ if [[ "$#" -gt 1 ]]; then
 else
   while IFS= read -r package_path; do
     package_paths+=("${package_path}")
-  done < <(find "${output_directory}" -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print | sort)
+  done < <(find "${artifact_directory}" -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print | sort)
 fi
 
 for package_path in "${package_paths[@]}"; do
   package_path="$(realpath "${package_path}")"
-  if [[ "${package_path}" != "${output_directory}"/* ]]; then
-    echo "Conda package must resolve inside output directory: ${package_path}" >&2
+  if [[ "${package_path}" != "${artifact_directory}"/* ]]; then
+    echo "Conda package must resolve inside artifact directory: ${package_path}" >&2
     exit 1
   fi
-  relative_path="${package_path#"${output_directory}/"}"
+  relative_path="${package_path#"${artifact_directory}/"}"
 
   case "${package_path}" in
     *.conda)
@@ -71,7 +71,7 @@ for package_path in "${package_paths[@]}"; do
 done
 
 if [[ "${package_count}" -eq 0 ]]; then
-  echo "Conda output directory contains no .conda or .tar.bz2 packages: ${output_directory}" >&2
+  echo "Conda artifact directory contains no .conda or .tar.bz2 packages: ${artifact_directory}" >&2
   exit 1
 fi
 

@@ -13,7 +13,7 @@ require_nonempty() {
 }
 
 require_nonempty "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
-require_nonempty "RELEASE_OUTPUT_DIRECTORY" "${RELEASE_OUTPUT_DIRECTORY:-}"
+require_nonempty "RELEASE_ARTIFACT_DIRECTORY" "${RELEASE_ARTIFACT_DIRECTORY:-}"
 require_nonempty "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
 require_nonempty "RELEASE_ARTIFACTS" "${RELEASE_ARTIFACTS:-}"
 require_nonempty "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NAME:-}"
@@ -32,8 +32,8 @@ require_plain_filename() {
 
 require_plain_filename "entries-name" "${RELEASE_ENTRIES_NAME}"
 
-if [[ ! -d "${RELEASE_OUTPUT_DIRECTORY}" ]]; then
-  echo "output-directory does not exist or is not a directory: ${RELEASE_OUTPUT_DIRECTORY}" >&2
+if [[ ! -d "${RELEASE_ARTIFACT_DIRECTORY}" ]]; then
+  echo "artifact-directory does not exist or is not a directory: ${RELEASE_ARTIFACT_DIRECTORY}" >&2
   exit 1
 fi
 
@@ -41,20 +41,20 @@ ensure_relative_pattern() {
   local field="$1"
   local pattern="$2"
   if [[ "${pattern}" == /* || "${pattern}" == */../* || "${pattern}" == ../* || "${pattern}" == *"/.." ]]; then
-    echo "${field} must be a relative path inside output-directory: ${pattern}" >&2
+    echo "${field} must be a relative path inside artifact-directory: ${pattern}" >&2
     exit 1
   fi
 }
 
-output_directory="$(realpath "${RELEASE_OUTPUT_DIRECTORY}")"
+artifact_directory="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
 
 if ! jq -e 'type == "array" and length > 0' <<<"${RELEASE_ARTIFACTS}" >/dev/null; then
   echo "release-artifacts must be a non-empty JSON array" >&2
   exit 1
 fi
 
-entries_path="${output_directory}/${RELEASE_ENTRIES_NAME}"
-temporary_manifest="$(mktemp "${output_directory}/.release-catalog.XXXXXX")"
+entries_path="${artifact_directory}/${RELEASE_ENTRIES_NAME}"
+temporary_manifest="$(mktemp "${artifact_directory}/.release-catalog.XXXXXX")"
 trap 'rm -f "${temporary_manifest}"' EXIT
 
 printf '%s\n' '{"entries":[]}' >"${temporary_manifest}"
@@ -67,7 +67,7 @@ resolve_one_file() {
   ensure_relative_pattern "${field}" "${pattern}"
   while IFS= read -r match; do
     matches+=("${match}")
-  done < <(compgen -G "${output_directory}/${pattern}" || true)
+  done < <(compgen -G "${artifact_directory}/${pattern}" || true)
   if [[ "${#matches[@]}" -ne 1 || ! -f "${matches[0]:-}" ]]; then
     echo "${field} pattern must resolve to exactly one file: ${pattern}" >&2
     exit 1
@@ -75,11 +75,11 @@ resolve_one_file() {
 
   local resolved
   resolved="$(realpath "${matches[0]}")"
-  if [[ "${resolved}" != "${output_directory}"/* ]]; then
-    echo "${field} must resolve inside output-directory: ${pattern}" >&2
+  if [[ "${resolved}" != "${artifact_directory}"/* ]]; then
+    echo "${field} must resolve inside artifact-directory: ${pattern}" >&2
     exit 1
   fi
-  printf '%s\n' "${resolved#"${output_directory}/"}"
+  printf '%s\n' "${resolved#"${artifact_directory}/"}"
 }
 
 validate_package_identity() {
@@ -98,7 +98,7 @@ generated_evidence_path() {
   local primary_path="$1"
   local kind="$2"
   local artifact_digest
-  artifact_digest="$(sha256sum "${output_directory}/${primary_path}" | awk '{print $1}')"
+  artifact_digest="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
   local artifact_label="${primary_path//\//_}"
   printf 'release-evidence/%s.%s.%s.json\n' "${artifact_label}" "${artifact_digest}" "${kind}"
 }
@@ -108,12 +108,12 @@ copy_supplied_evidence() {
   local supplied_path="$2"
   local kind="$3"
   local artifact_digest
-  artifact_digest="$(sha256sum "${output_directory}/${primary_path}" | awk '{print $1}')"
+  artifact_digest="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
   local artifact_label="${primary_path//\//_}"
   local destination
   destination="release-evidence/${artifact_label}.${artifact_digest}/${kind}-$(basename "${supplied_path}")"
-  mkdir -p "$(dirname "${output_directory}/${destination}")"
-  cp "${output_directory}/${supplied_path}" "${output_directory}/${destination}"
+  mkdir -p "$(dirname "${artifact_directory}/${destination}")"
+  cp "${artifact_directory}/${supplied_path}" "${artifact_directory}/${destination}"
   printf '%s\n' "${destination}"
 }
 
@@ -122,8 +122,8 @@ write_generated_sbom() {
   local package="$2"
   local destination="$3"
   local artifact_digest
-  artifact_digest="$(sha256sum "${output_directory}/${primary_path}" | awk '{print $1}')"
-  mkdir -p "$(dirname "${output_directory}/${destination}")"
+  artifact_digest="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
+  mkdir -p "$(dirname "${artifact_directory}/${destination}")"
   jq -n -S \
     --arg artifact_digest "${artifact_digest}" \
     --arg artifact_path "${primary_path}" \
@@ -153,7 +153,7 @@ write_generated_sbom() {
         relatedSpdxElement: "SPDXRef-Artifact"
       }],
       comment: "Artifact-identity SBOM envelope. A producer-supplied dependency SBOM may replace this record."
-    }' >"${output_directory}/${destination}"
+    }' >"${artifact_directory}/${destination}"
 }
 
 write_generated_provenance() {
@@ -161,8 +161,8 @@ write_generated_provenance() {
   local package="$2"
   local destination="$3"
   local artifact_digest
-  artifact_digest="$(sha256sum "${output_directory}/${primary_path}" | awk '{print $1}')"
-  mkdir -p "$(dirname "${output_directory}/${destination}")"
+  artifact_digest="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
+  mkdir -p "$(dirname "${artifact_directory}/${destination}")"
   jq -n -S \
     --arg artifact_digest "${artifact_digest}" \
     --arg artifact_path "${primary_path}" \
@@ -190,7 +190,7 @@ write_generated_provenance() {
           metadata: {invocationId: ("https://github.com/" + $repository + "/actions/runs/" + $run_id + "/attempts/" + $run_attempt)}
         }
       }
-    }' >"${output_directory}/${destination}"
+    }' >"${artifact_directory}/${destination}"
 }
 
 shopt -s globstar nullglob
@@ -216,7 +216,7 @@ while IFS= read -r descriptor; do
   package_identity_file="$(jq -r '.package_identity_file // empty' <<<"${descriptor}")"
   if [[ -n "${package_identity_file}" ]]; then
     package_identity_path="$(resolve_one_file package_identity_file "${package_identity_file}")"
-    if ! package="$(jq -ce . "${output_directory}/${package_identity_path}" 2>/dev/null)"; then
+    if ! package="$(jq -ce . "${artifact_directory}/${package_identity_path}" 2>/dev/null)"; then
       echo "package_identity_file must contain valid JSON: ${package_identity_file}" >&2
       exit 1
     fi

@@ -52,10 +52,10 @@ safe_relative_path() {
 }
 
 base_key="${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${RELEASE_SOURCE_ARTIFACT_NAME}"
-# `signature` is optional, so select only declared string paths. Without the
-# filter, jq renders a missing optional value as the literal text `null` and
-# the uploader attempts to find a file with that name.
-mapfile -t bundle_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
+# `signature` is optional, so select only declared string paths. Upload the
+# manifest only after every declared payload and evidence object succeeds: it
+# is the S3 completion marker a collector may safely discover.
+mapfile -t bundle_paths < <(jq -r '([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
 head_metadata="$(mktemp)"
 trap 'rm -f "${head_metadata}"' EXIT
 
@@ -90,5 +90,6 @@ for relative_path in "${bundle_paths[@]}"; do
   fi
   upload_one "${relative_path}"
 done
+upload_one "release-catalog-entries.json"
 
 printf 'Release candidate bundle: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${base_key}" >>"${GITHUB_STEP_SUMMARY}"

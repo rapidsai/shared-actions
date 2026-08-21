@@ -50,6 +50,7 @@ jobs:
               }]
             }
           source-artifact-name: release-catalog-dispatch-smoke
+          candidate-train-sha256: ${{ github.sha }}
       - name: Verify release catalog dispatch smoke test
         run: |
           jq -e '

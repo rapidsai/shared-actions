@@ -1,5 +1,5 @@
 name: Dispatch release catalog
-description: Create a release catalog companion from the selected shared-actions revision.
+description: Write a release-candidate catalog bundle directly to the private S3 store.
 
 inputs:
   config:
@@ -8,8 +8,23 @@ inputs:
       https://github.com/rapidsai/shared-actions/blob/main/release-catalog/config.schema.json
     required: true
   source-artifact-name:
-    description: Name of the existing GitHub Actions artifact whose files are being cataloged.
+    description: Stable name of this producing artifact bundle.
     required: true
+  candidate-train-sha256:
+    description: Canonical SHA-256 of the immutable release-train JSON.
+    required: true
+  candidate-bucket:
+    description: Private S3 bucket that holds candidate-build bytes.
+    required: false
+    default: rapids-release-candidates
+  candidate-prefix:
+    description: Root prefix for train-scoped candidate-build bytes.
+    required: false
+    default: candidate-builds
+  upload-to-s3:
+    description: Whether to upload the generated bundle to the candidate store.
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
@@ -49,11 +64,14 @@ runs:
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
         RELEASE_CATALOG_KEY: ${{ steps.configuration.outputs.release_catalog_key }}
       run: "${IMPLEMENTATION_PATH}/materialize.sh"
-    - name: Upload release catalog companion
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      with:
-        if-no-files-found: error
-        name: release-catalog-${{ inputs.source-artifact-name }}
-        path: |
-          ${{ steps.configuration.outputs.artifact_directory }}/release-catalog-entries.json
-          ${{ steps.configuration.outputs.artifact_directory }}/release-evidence/**
+    - name: Write release-candidate bundle to S3
+      if: ${{ inputs.upload-to-s3 == 'true' }}
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
+        RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
+        RELEASE_CANDIDATE_PREFIX: ${{ inputs.candidate-prefix }}
+        RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
+        RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+      run: "${IMPLEMENTATION_PATH}/upload-s3.sh"

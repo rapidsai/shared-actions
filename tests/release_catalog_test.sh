@@ -47,6 +47,12 @@ jq -e '
   and .entries[0].sbom_kind == "generated-identity"
 ' "${entries_path}" >/dev/null
 
+# Optional signatures must not cause the S3 uploader to request a literal
+# `null` file. This mirrors its declared-file selection without requiring AWS.
+mapfile -t upload_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
+test "${upload_paths[*]}" = "release-catalog-entries.json cuvs-java-26.08.0.jar release-evidence/cuvs-java-26.08.0.jar.sbom.spdx.json release-evidence/cuvs-java-26.08.0.jar.provenance.json"
+! printf '%s\n' "${upload_paths[@]}" | grep -Fx null
+
 isolated_companion_directory="${temporary_directory}/isolated-companion"
 mkdir -p "${isolated_companion_directory}"
 cp "${entries_path}" "${isolated_companion_directory}/"

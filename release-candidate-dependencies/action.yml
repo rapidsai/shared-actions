@@ -33,6 +33,24 @@ inputs:
 runs:
   using: composite
   steps:
+    - id: implementation
+      name: Resolve candidate dependency implementation
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        HOST_WORKSPACE: ${{ github.workspace }}
+      run: |
+        host_root="$(dirname "$(dirname "${HOST_WORKSPACE}")")"
+        container_root="$(dirname "$(dirname "${PWD}")")"
+        action_path="${ACTION_PATH}"
+        if [[ ! -d "${action_path}" && "${action_path}" == "${host_root}/"* ]]; then
+          action_path="${container_root}/${action_path#"${host_root}/"}"
+        fi
+        if [[ ! -f "${action_path}/setup.sh" ]]; then
+          echo "release-candidate dependency implementation not found at ${action_path}" >&2
+          exit 1
+        fi
+        echo "path=${action_path}" >>"${GITHUB_OUTPUT}"
     - name: Prepare private candidate dependency views
       shell: bash
       env:
@@ -44,4 +62,5 @@ runs:
         RELEASE_CANDIDATE_ARCH: ${{ inputs.arch }}
         RELEASE_CANDIDATE_CUDA_VERSION: ${{ inputs.cuda-version }}
         RELEASE_CANDIDATE_PYTHON_VERSION: ${{ inputs.python-version }}
-      run: ${{ github.action_path }}/setup.sh
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+      run: ${IMPLEMENTATION_PATH}/setup.sh

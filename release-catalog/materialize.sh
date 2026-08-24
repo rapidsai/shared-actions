@@ -92,8 +92,20 @@ describe_wheel_package() {
     exit 1
   fi
 
-  jq -cn --arg name "${package_name}" --arg version "${package_version}" \
-    '{ecosystem: "wheel", name: $name, version: $version}'
+  # RAPIDS CUDA wheels use a distribution suffix such as rmm-cu12. Keep that
+  # artifact-level compatibility fact in the catalog; the producing job's
+  # matrix is not a reliable substitute for it.
+  local cuda_major=""
+  if [[ "${package_name}" =~ -cu([0-9]+)$ ]]; then
+    cuda_major="${BASH_REMATCH[1]}"
+  fi
+  if [[ -n "${cuda_major}" ]]; then
+    jq -cn --arg name "${package_name}" --arg version "${package_version}" --arg cuda_major "${cuda_major}" \
+      '{ecosystem: "wheel", name: $name, version: $version, cuda_major: $cuda_major}'
+  else
+    jq -cn --arg name "${package_name}" --arg version "${package_version}" \
+      '{ecosystem: "wheel", name: $name, version: $version}'
+  fi
 }
 
 describe_conda_package() {

@@ -200,7 +200,9 @@ set -euo pipefail
 artifact_name="${1:?artifact name is required}"
 destination="${RAPIDS_UNZIP_DIR:-$(mktemp -d)}"
 source_prefix="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${artifact_name}/"
-if ! aws s3 cp "${source_prefix}" "${destination}" --recursive; then
+# Callers capture this helper's stdout as the downloaded directory. Keep AWS
+# transfer diagnostics on stderr so they can never become part of a Conda URL.
+if ! aws s3 cp "${source_prefix}" "${destination}" --recursive >&2; then
   echo "candidate artifact is not available in this train: ${artifact_name}" >&2
   exit 1
 fi

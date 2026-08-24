@@ -77,7 +77,7 @@ dependency_count="$(jq -r --arg target "${target_unit}" '
       ($units[$id].dependencies // [])
       | map(select($units[.] != null and $units[.].artifact_family != "source") | ., closure(.))
       | flatten | unique;
-  | closure($target) | length
+  closure($target) | length
 ' "${workspace}/release-train.json")"
 if [[ "${#manifest_paths[@]}" -eq 0 ]]; then
   if [[ "${dependency_count}" -ne 0 ]]; then
@@ -109,7 +109,7 @@ jq -n \
         ($units[$id].dependencies // [])
         | map(select($units[.] != null and $units[.].artifact_family != "source") | ., closure(.))
         | flatten | unique;
-    | closure($target) as $dependencies
+    closure($target) as $dependencies
     | [ $dependencies[] | select(startswith($family + ":")) ] as $family_dependencies
     | [ $records[0][]
         | select(.source.matrix.arch == $arch)

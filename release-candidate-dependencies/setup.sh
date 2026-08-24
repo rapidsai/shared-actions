@@ -206,6 +206,14 @@ if ! aws s3 cp "${source_prefix}" "${destination}" --recursive >&2; then
   echo "candidate artifact is not available in this train: ${artifact_name}" >&2
   exit 1
 fi
+if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]] \
+  && find "${destination}" -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print -quit | grep -q .; then
+  # C++ outputs are also an input to the repository's Python build. That
+  # temporary same-job directory is a Conda channel too, so it needs empty
+  # noarch and platform indexes in addition to the downloaded package files.
+  mkdir -p "${destination}"/{linux-64,linux-aarch64,noarch}
+  conda index "${destination}" >&2
+fi
 printf '%s' "${destination}"
 EOF
 chmod +x "${tools}/rapids-download-from-github"

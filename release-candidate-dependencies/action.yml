@@ -1,0 +1,47 @@
+name: Prepare release-candidate dependencies
+description: Materialize only this release train's private S3 outputs for a candidate build.
+
+inputs:
+  candidate-train-sha256:
+    description: Canonical SHA-256 of the immutable release train.
+    required: true
+  candidate-bucket:
+    description: Private S3 bucket holding candidate build bundles.
+    required: false
+    default: rapids-release-candidates
+  candidate-prefix:
+    description: Root prefix for train-scoped candidate build bundles.
+    required: false
+    default: candidate-builds
+  prepare-conda-channel:
+    description: Whether this job needs a local Conda channel for build dependencies.
+    required: false
+    default: "false"
+  artifact-family:
+    description: Release-unit family that this job is building.
+    required: true
+  arch:
+    description: Canonical RAPIDS architecture for this job matrix.
+    required: true
+  cuda-version:
+    description: CUDA version for this job matrix.
+    required: true
+  python-version:
+    description: Python version for this job matrix.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare private candidate dependency views
+      shell: bash
+      env:
+        RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
+        RELEASE_CANDIDATE_PREFIX: ${{ inputs.candidate-prefix }}
+        RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
+        RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL: ${{ inputs.prepare-conda-channel }}
+        RELEASE_CANDIDATE_ARTIFACT_FAMILY: ${{ inputs.artifact-family }}
+        RELEASE_CANDIDATE_ARCH: ${{ inputs.arch }}
+        RELEASE_CANDIDATE_CUDA_VERSION: ${{ inputs.cuda-version }}
+        RELEASE_CANDIDATE_PYTHON_VERSION: ${{ inputs.python-version }}
+      run: ${{ github.action_path }}/setup.sh

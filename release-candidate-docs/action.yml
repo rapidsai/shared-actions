@@ -1,0 +1,45 @@
+name: Stage release-candidate documentation
+description: Replace public documentation publication with train-scoped private S3 staging.
+
+inputs:
+  candidate-train-sha256:
+    description: Canonical SHA-256 of the immutable release train.
+    required: true
+  candidate-bucket:
+    description: Private S3 bucket holding candidate outputs.
+    required: false
+    default: rapids-release-candidates
+  candidate-prefix:
+    description: Root prefix for candidate outputs.
+    required: false
+    default: candidate-builds
+
+runs:
+  using: composite
+  steps:
+    - id: implementation
+      name: Resolve candidate documentation implementation
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        HOST_WORKSPACE: ${{ github.workspace }}
+      run: |
+        host_root="$(dirname "$(dirname "${HOST_WORKSPACE}")")"
+        container_root="$(dirname "$(dirname "${PWD}")")"
+        action_path="${ACTION_PATH}"
+        if [[ ! -d "${action_path}" && "${action_path}" == "${host_root}/"* ]]; then
+          action_path="${container_root}/${action_path#"${host_root}/"}"
+        fi
+        if [[ ! -f "${action_path}/stage.sh" ]]; then
+          echo "release-candidate documentation implementation not found at ${action_path}" >&2
+          exit 1
+        fi
+        echo "path=${action_path}" >>"${GITHUB_OUTPUT}"
+    - name: Replace public docs uploader with candidate staging
+      shell: bash
+      env:
+        RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
+        RELEASE_CANDIDATE_PREFIX: ${{ inputs.candidate-prefix }}
+        RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+      run: bash "${IMPLEMENTATION_PATH}/stage.sh"

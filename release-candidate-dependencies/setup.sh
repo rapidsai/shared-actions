@@ -55,7 +55,10 @@ fi
 
 # Catalog envelopes are metadata, not package payloads.  Downloading them is
 # deliberately cheap and lets the runner resolve exact S3 object keys below.
-aws s3 cp "${root}/" "${manifests}" --recursive --exclude '*' --include 'release-catalog-entries.json'
+# The catalog lives below repository/run/artifact directories. The leading
+# wildcard is required by AWS CLI's include matching; without it, only a
+# hypothetical train-root manifest would be copied.
+aws s3 cp "${root}/" "${manifests}" --recursive --exclude '*' --include '*release-catalog-entries.json'
 
 repository="${GITHUB_REPOSITORY##*/}"
 target_unit="${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${repository}"

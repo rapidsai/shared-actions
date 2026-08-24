@@ -194,9 +194,12 @@ fi
 
 # Repository build scripts already name their same-run intermediate artifact.
 # Preserve that interface, but resolve only that exact bundle from candidate S3.
-cat >"${tools}/rapids-download-from-github" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
+# Capture the family decision now: the generated helper runs later and should
+# not need a Conda-only setup variable in a wheel job.
+{
+  printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
+  printf 'prepare_conda_channel=%q\n' "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}"
+  cat <<'EOF'
 artifact_name="${1:?artifact name is required}"
 destination="${RAPIDS_UNZIP_DIR:-$(mktemp -d)}"
 source_prefix="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${artifact_name}/"
@@ -206,7 +209,7 @@ if ! aws s3 cp "${source_prefix}" "${destination}" --recursive >&2; then
   echo "candidate artifact is not available in this train: ${artifact_name}" >&2
   exit 1
 fi
-if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]] \
+if [[ "${prepare_conda_channel}" == "true" ]] \
   && find "${destination}" -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print -quit | grep -q .; then
   # C++ outputs are also an input to the repository's Python build. That
   # temporary same-job directory is a Conda channel too, so it needs empty
@@ -216,6 +219,7 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]] \
 fi
 printf '%s' "${destination}"
 EOF
+} >"${tools}/rapids-download-from-github"
 chmod +x "${tools}/rapids-download-from-github"
 
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then

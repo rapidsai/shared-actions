@@ -133,7 +133,29 @@ describe_conda_package() {
     exit 1
   fi
 
-  jq -c '{ecosystem: "conda", name, version, build, platform: .subdir}' <<<"${index_json}"
+  # The embedded package dependency is the compatibility contract. The build
+  # matrix is only how this package was produced; it must not prevent a
+  # CUDA-independent package from serving another CUDA build in the train.
+  local cuda_major
+  cuda_major="$(jq -r '
+    [
+      .depends[]?
+      | select(type == "string" and startswith("cuda-version"))
+      | capture("(?<major>[0-9]+)").major
+    ]
+    | unique
+    | if length == 0 then ""
+      elif length == 1 then .[0]
+      else error("Conda package has conflicting cuda-version dependencies")
+      end
+  ' <<<"${index_json}")"
+  if [[ -n "${cuda_major}" ]]; then
+    jq -c --arg cuda_major "${cuda_major}" \
+      '{ecosystem: "conda", name, version, build, platform: .subdir, cuda_major: $cuda_major}' \
+      <<<"${index_json}"
+  else
+    jq -c '{ecosystem: "conda", name, version, build, platform: .subdir}' <<<"${index_json}"
+  fi
 }
 
 prepare_artifacts() {
@@ -242,12 +264,13 @@ printf '%s\n' '{"entries":[]}' >"${temporary_manifest}"
 validate_package_identity() {
   jq -e '
     type == "object"
-    and (keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
+    and (keys - ["ecosystem", "name", "version", "build", "platform", "cuda_major"] | length == 0)
     and (.ecosystem | type == "string" and length > 0)
     and (.name | type == "string" and length > 0)
     and (.version | type == "string" and length > 0)
     and ((has("build") | not) or (.build | type == "string" and length > 0))
     and ((has("platform") | not) or (.platform | type == "string" and length > 0))
+    and ((has("cuda_major") | not) or (.cuda_major | type == "string" and test("^[0-9]+$")))
   ' >/dev/null
 }
 

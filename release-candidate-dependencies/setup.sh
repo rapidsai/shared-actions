@@ -89,11 +89,10 @@ else
   jq -s '.' "${manifest_paths[@]}" >"${workspace}/catalog-records.json"
 fi
 
-# A producer records its matrix with the catalog envelope. Exact arch and
-# CUDA-major matching avoids copying every variant; package platform narrows
-# Conda further. Python is intentionally not used to reject wheels here: wheel
-# compatibility is defined by its published tag, and pip enforces that standard
-# compatibility when it resolves from this small wheelhouse.
+# Package metadata determines compatibility. A producing job's matrix only
+# describes how the package was made: rapids-logger, for example, can be built
+# in a CUDA 13 job but has no CUDA dependency and is valid for CUDA 12. Python
+# compatibility is intentionally left to the published wheel tag and pip.
 jq -n \
   --slurpfile train "${workspace}/release-train.json" \
   --arg target "${target_unit}" \
@@ -112,11 +111,13 @@ jq -n \
     closure($target) as $dependencies
     | [ $dependencies[] | select(startswith($family + ":")) ] as $family_dependencies
     | [ $records[0][]
-        | select(.source.matrix.arch == $arch)
-        | select((.source.matrix.cuda_version | tostring | split(".")[0]) == $cuda_major)
         | . as $record
         | .entries[]
         | select(.release_catalog_key as $key | $family_dependencies | index($key))
+        # Older envelopes have no cuda_major. Treating that as compatible is a
+        # deliberate transition rule; new Conda envelopes set it only when the
+        # package declares a cuda-version dependency in info/index.json.
+        | select((.package.cuda_major // $cuda_major) == $cuda_major)
         | select(
             $family != "conda"
             or (.package.platform == "noarch" or .package.platform == $conda_platform)
@@ -128,7 +129,7 @@ jq -n \
           }
       ]
     | sort_by([.package.name, .package.version, if .source.matrix.python_version == $python_version then 0 else 1 end])
-    | group_by([.package.name, .package.version])
+    | group_by([.package.name, .package.version, .package.build, .package.platform, .path])
     | map(.[0])
   ' >"${selected}"
 

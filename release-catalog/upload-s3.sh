@@ -51,18 +51,35 @@ safe_relative_path() {
   [[ -n "${path}" && "${path}" != /* && "${path}" != ../* && "${path}" != */../* && "${path}" != *'/..' ]]
 }
 
-# A repository build is keyed by its generated catalog record, excluding the
-# GitHub run identity. This includes the frozen source/workflow plus final
-# package identity and matrix in the catalog entries. Preserve the exact
-# canonical record at the resulting key so a human can explain or compare two
-# digests without access to the original GitHub run.
+# A reusable repository build is keyed only by its declared inputs. In
+# particular, package build strings often contain a CI timestamp, so the full
+# generated catalog is an *output* record and must not determine this key.
+# Preserve that complete catalog separately for people comparing attempts.
 build_record_path="$(mktemp)"
-jq -cS 'del(.source.run_id, .source.run_attempt)' "${entries_path}" >"${build_record_path}"
+jq -cS '
+  {
+    schema_version,
+    producer,
+    source: (.source | {artifact, repository, sha, workflow_ref, matrix}),
+    packages: [
+      .entries[]
+      | {
+          release_catalog_key,
+          package: (.package | {ecosystem, name, version, platform})
+        }
+    ] | sort_by(.release_catalog_key, .package.ecosystem, .package.name, .package.version, .package.platform)
+  }
+' "${entries_path}" >"${build_record_path}"
 build_input_digest="$(sha256sum "${build_record_path}" | awk '{print $1}')"
-content_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${GITHUB_REPOSITORY}/${build_input_digest}/${RELEASE_SOURCE_ARTIFACT_NAME}"
+attempt_id="${GITHUB_RUN_ID:-}.${GITHUB_RUN_ATTEMPT:-}"
+if [[ ! "${attempt_id}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  echo "GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be numeric for a candidate upload" >&2
+  exit 1
+fi
+content_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${GITHUB_REPOSITORY}/${build_input_digest}/attempts/${attempt_id}/${RELEASE_SOURCE_ARTIFACT_NAME}"
 build_record_key="${content_key}/build-record.json"
 bundle_key="${content_key}/release-catalog-entries.json"
-train_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${RELEASE_SOURCE_ARTIFACT_NAME}/bundle-reference.json"
+train_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${RELEASE_SOURCE_ARTIFACT_NAME}/${attempt_id}/bundle-reference.json"
 # `signature` is optional, so select only declared string paths. Upload the
 # manifest only after every declared payload and evidence object succeeds: it
 # is the S3 completion marker a collector may safely discover.
@@ -124,11 +141,13 @@ jq -n \
   --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
   --arg repository "${GITHUB_REPOSITORY}" \
   --arg source_artifact "${RELEASE_SOURCE_ARTIFACT_NAME}" \
+  --arg source_run_id "${GITHUB_RUN_ID}" \
+  --arg source_run_attempt "${GITHUB_RUN_ATTEMPT}" \
   --arg build_input_digest "${build_input_digest}" \
   --arg content_key "${content_key}" \
   --arg build_record_key "${build_record_key}" \
   --arg bundle_key "${bundle_key}" \
-  '{schema_version: 1, producer: "shared-workflows", train_sha256: $train_sha256, repository: $repository, source_artifact: $source_artifact, build_input_digest: $build_input_digest, content_key: $content_key, build_record_key: $build_record_key, bundle_key: $bundle_key}' \
+  '{schema_version: 2, producer: "shared-workflows", train_sha256: $train_sha256, repository: $repository, source_artifact: $source_artifact, source_run_id: $source_run_id, source_run_attempt: $source_run_attempt, build_input_digest: $build_input_digest, content_key: $content_key, build_record_key: $build_record_key, bundle_key: $bundle_key}' \
   >"${reference_path}"
 
 upload_reference() {

@@ -52,6 +52,13 @@ if [[ "${actual_train_sha256}" != "${RELEASE_CANDIDATE_TRAIN_SHA256}" ]]; then
   echo "stored release train does not match RELEASE_CANDIDATE_TRAIN_SHA256" >&2
   exit 1
 fi
+# The scheduler binds each repository to one exact GitHub run.  Candidate
+# references are append-only across retries, so consuming that binding avoids
+# accidentally mixing a prior failed attempt into this build's dependencies.
+scheduler_state="${workspace}/scheduler-state.json"
+if ! aws s3 cp "${root}/scheduler-state.json" "${scheduler_state}" 2>/dev/null; then
+  printf '{"workflow_runs":{}}\n' >"${scheduler_state}"
+fi
 
 # Train records are metadata, not package payloads. Each one names an
 # immutable repository content area. Resolve its bundle descriptors before
@@ -59,7 +66,36 @@ fi
 aws s3 cp "${root}/" "${manifests}" --recursive --exclude '*' --include '*/bundle-reference.json'
 shopt -s globstar nullglob
 reference_paths=("${manifests}"/**/bundle-reference.json)
+declare -A selected_attempts=()
+declare -A selected_reference_paths=()
 for reference_path in "${reference_paths[@]}"; do
+  source_repository="$(jq -r '.repository // empty' "${reference_path}")"
+  source_artifact="$(jq -r '.source_artifact // empty' "${reference_path}")"
+  source_run_id="$(jq -r '.source_run_id // empty' "${reference_path}")"
+  source_run_attempt="$(jq -r '.source_run_attempt // empty' "${reference_path}")"
+  repository_name="${source_repository##*/}"
+  selected_run_id="$(jq -r --arg repository "${repository_name}" '.workflow_runs[$repository] // empty' "${scheduler_state}")"
+  if [[ -n "${selected_run_id}" && "${source_run_id}" != "${selected_run_id}" ]]; then
+    rm -f "${reference_path}"
+    continue
+  fi
+  reference_identity="${source_repository}/${source_artifact}"
+  if [[ -n "${selected_run_id}" ]]; then
+    if [[ ! "${source_run_attempt}" =~ ^[0-9]+$ ]]; then
+      echo "candidate train has an invalid selected run attempt" >&2
+      exit 1
+    fi
+    if [[ -n "${selected_attempts[${reference_identity}]:-}" ]] \
+      && (( source_run_attempt < selected_attempts[${reference_identity}] )); then
+      rm -f "${reference_path}"
+      continue
+    fi
+    if [[ -n "${selected_reference_paths[${reference_identity}]:-}" ]]; then
+      rm -f "${selected_reference_paths[${reference_identity}]}"
+    fi
+    selected_attempts[${reference_identity}]="${source_run_attempt}"
+    selected_reference_paths[${reference_identity}]="${reference_path}"
+  fi
   content_key="$(jq -r '.content_key // empty' "${reference_path}")"
   if [[ -z "${content_key}" || "${content_key}" != artifacts/* || "${content_key}" == *".."* ]]; then
     echo "candidate train contains an unsafe content reference" >&2
@@ -219,10 +255,13 @@ fi
   cat <<'EOF'
 artifact_name="${1:?artifact name is required}"
 destination="${RAPIDS_UNZIP_DIR:-$(mktemp -d)}"
-reference="$(mktemp)"
-trap 'rm -f "${reference}"' EXIT
-reference_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${artifact_name}/bundle-reference.json"
-aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${reference_key}" "${reference}" >&2
+reference_root="${RELEASE_CANDIDATE_DEPENDENCY_MANIFESTS:?candidate dependency manifests are required}/${GITHUB_REPOSITORY}/${artifact_name}"
+mapfile -t references < <(find "${reference_root}" -type f -name bundle-reference.json -print | sort)
+if [[ "${#references[@]}" -ne 1 ]]; then
+  echo "candidate artifact must have exactly one selected train reference: ${artifact_name}" >&2
+  exit 1
+fi
+reference="${references[0]}"
 content_key="$(jq -r '.content_key // empty' "${reference}")"
 if [[ -z "${content_key}" || "${content_key}" != artifacts/* || "${content_key}" == *".."* ]]; then
   echo "candidate artifact has an unsafe content reference: ${artifact_name}" >&2
@@ -247,6 +286,8 @@ printf '%s' "${destination}"
 EOF
 } >"${tools}/rapids-download-from-github"
 chmod +x "${tools}/rapids-download-from-github"
+
+printf 'RELEASE_CANDIDATE_DEPENDENCY_MANIFESTS=%s\n' "${manifests}" >>"${GITHUB_ENV}"
 
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
 cat >"${tools}/rapids-rattler-channel-string" <<'EOF'

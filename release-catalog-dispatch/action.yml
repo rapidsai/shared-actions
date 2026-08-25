@@ -17,10 +17,14 @@ inputs:
     description: Private S3 bucket that holds candidate-build bytes.
     required: false
     default: rapids-release-candidates
-  candidate-prefix:
-    description: Root prefix for train-scoped candidate-build bytes.
+  candidate-content-prefix:
+    description: Root prefix for reusable, immutable candidate build bundles.
     required: false
-    default: candidate-builds
+    default: artifacts
+  candidate-train-prefix:
+    description: Root prefix for immutable train membership records.
+    required: false
+    default: trains
   upload-to-s3:
     description: Whether to upload the generated bundle to the candidate store.
     required: false
@@ -86,7 +90,8 @@ runs:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
         RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
-        RELEASE_CANDIDATE_PREFIX: ${{ inputs.candidate-prefix }}
+        RELEASE_CANDIDATE_CONTENT_PREFIX: ${{ inputs.candidate-content-prefix }}
+        RELEASE_CANDIDATE_TRAIN_PREFIX: ${{ inputs.candidate-train-prefix }}
         RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
       run: "${IMPLEMENTATION_PATH}/upload-s3.sh"

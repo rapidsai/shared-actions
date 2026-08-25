@@ -16,7 +16,7 @@ require_value() {
   fi
 }
 
-for value in GITHUB_ENV GITHUB_PATH RUNNER_TEMP GITHUB_REPOSITORY GITHUB_RUN_ID RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL RELEASE_CANDIDATE_ARTIFACT_FAMILY RELEASE_CANDIDATE_ARCH RELEASE_CANDIDATE_CUDA_VERSION RELEASE_CANDIDATE_PYTHON_VERSION; do
+for value in GITHUB_ENV GITHUB_PATH RUNNER_TEMP GITHUB_REPOSITORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL RELEASE_CANDIDATE_ARTIFACT_FAMILY RELEASE_CANDIDATE_ARCH RELEASE_CANDIDATE_CUDA_VERSION RELEASE_CANDIDATE_PYTHON_VERSION; do
   require_value "${value}" "${!value:-}"
 done
 if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
@@ -32,7 +32,7 @@ if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "conda" && "${RELEASE_CANDIDATE_
   exit 1
 fi
 
-root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
+root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
 workspace="${RUNNER_TEMP}/release-candidate-dependencies"
 channel="${workspace}/conda-channel"
 wheelhouse="${workspace}/wheelhouse"
@@ -53,12 +53,28 @@ if [[ "${actual_train_sha256}" != "${RELEASE_CANDIDATE_TRAIN_SHA256}" ]]; then
   exit 1
 fi
 
-# Catalog envelopes are metadata, not package payloads.  Downloading them is
-# deliberately cheap and lets the runner resolve exact S3 object keys below.
-# The catalog lives below repository/run/artifact directories. The leading
-# wildcard is required by AWS CLI's include matching; without it, only a
-# hypothetical train-root manifest would be copied.
-aws s3 cp "${root}/" "${manifests}" --recursive --exclude '*' --include '*release-catalog-entries.json'
+# Train records are metadata, not package payloads. Each one names an
+# immutable repository content area. Resolve its bundle descriptors before
+# downloading only the catalog envelopes needed to choose build dependencies.
+aws s3 cp "${root}/" "${manifests}" --recursive --exclude '*' --include '*/bundle-reference.json'
+shopt -s globstar nullglob
+reference_paths=("${manifests}"/**/bundle-reference.json)
+for reference_path in "${reference_paths[@]}"; do
+  content_key="$(jq -r '.content_key // empty' "${reference_path}")"
+  if [[ -z "${content_key}" || "${content_key}" != artifacts/* || "${content_key}" == *".."* ]]; then
+    echo "candidate train contains an unsafe content reference" >&2
+    exit 1
+  fi
+  bundle_key="$(jq -r '.bundle_key // empty' "${reference_path}")"
+  if [[ -z "${bundle_key}" || "${bundle_key}" != "${content_key}"/bundles/*.json || "${bundle_key}" == *".."* ]]; then
+    echo "candidate train contains an unsafe catalog bundle reference" >&2
+    exit 1
+  fi
+  manifest_path="${reference_path%/bundle-reference.json}/release-catalog-entries.json"
+  aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${bundle_key}" "${manifest_path}"
+  jq --arg content_key "${content_key}" '. + {content_key: $content_key}' "${manifest_path}" >"${manifest_path}.tmp"
+  mv "${manifest_path}.tmp" "${manifest_path}"
+done
 
 repository="${GITHUB_REPOSITORY##*/}"
 target_unit="${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${repository}"
@@ -72,7 +88,6 @@ fi
 
 # Shell globstar has a clear, portable meaning here and keeps the jq program
 # focused on schema fields rather than filesystem traversal.
-shopt -s globstar nullglob
 manifest_paths=("${manifests}"/**/release-catalog-entries.json)
 dependency_count="$(jq -r --arg target "${target_unit}" '
   (.release_units | map({key: .id, value: .}) | from_entries) as $units
@@ -127,6 +142,7 @@ jq -n \
           )
         | {
             source: $record.source,
+            content_key: $record.content_key,
             path: .path,
             package: .package
           }
@@ -143,15 +159,23 @@ if [[ "$(jq 'length' "${selected}")" -eq 0 ]]; then
 fi
 
 while IFS= read -r selection; do
-  source_artifact="$(jq -r '.source.artifact' <<<"${selection}")"
-  source_repository="$(jq -r '.source.repository' <<<"${selection}")"
-  source_run_id="$(jq -r '.source.run_id' <<<"${selection}")"
+  content_key="$(jq -r '.content_key // empty' <<<"${selection}")"
   artifact_path="$(jq -r '.path' <<<"${selection}")"
-  if [[ -z "${source_artifact}" || -z "${source_repository}" || -z "${source_run_id}" || "${artifact_path}" == /* || "${artifact_path}" == *".."* ]]; then
+  if [[ -z "${content_key}" || "${content_key}" != artifacts/* || "${content_key}" == *".."* || "${artifact_path}" == /* || "${artifact_path}" == *".."* ]]; then
     echo "candidate catalog contains an unsafe dependency location" >&2
     exit 1
   fi
-  source="${root}/${source_repository}/${source_run_id}/${source_artifact}/${artifact_path}"
+  storage_platform="$(jq -r '.package.platform // "generic"' <<<"${selection}")"
+  case "${storage_platform}" in
+    linux-64|amd64|x86_64) storage_platform="x86_64" ;;
+    linux-aarch64|aarch64|arm64) storage_platform="arm64" ;;
+    noarch) storage_platform="noarch" ;;
+    *) storage_platform="generic" ;;
+  esac
+  # The producer stores payloads directly below their normalized architecture.
+  # Logical catalog paths may contain directories, but the repository-build
+  # digest and architecture make their file names unique.
+  source="s3://${RELEASE_CANDIDATE_BUCKET}/${content_key}/${storage_platform}/$(basename "${artifact_path}")"
   case "${artifact_path}" in
     *.conda|*.tar.bz2)
       [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]] || continue
@@ -202,7 +226,16 @@ fi
   cat <<'EOF'
 artifact_name="${1:?artifact name is required}"
 destination="${RAPIDS_UNZIP_DIR:-$(mktemp -d)}"
-source_prefix="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${artifact_name}/"
+reference="$(mktemp)"
+trap 'rm -f "${reference}"' EXIT
+reference_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${artifact_name}/bundle-reference.json"
+aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${reference_key}" "${reference}" >&2
+content_key="$(jq -r '.content_key // empty' "${reference}")"
+if [[ -z "${content_key}" || "${content_key}" != artifacts/* || "${content_key}" == *".."* ]]; then
+  echo "candidate artifact has an unsafe content reference: ${artifact_name}" >&2
+  exit 1
+fi
+source_prefix="s3://${RELEASE_CANDIDATE_BUCKET}/${content_key}/"
 # Callers capture this helper's stdout as the downloaded directory. Keep AWS
 # transfer diagnostics on stderr so they can never become part of a Conda URL.
 if ! aws s3 cp "${source_prefix}" "${destination}" --recursive >&2; then
@@ -233,7 +266,7 @@ fi
 
 {
   printf 'RELEASE_CANDIDATE_BUCKET=%s\n' "${RELEASE_CANDIDATE_BUCKET}"
-  printf 'RELEASE_CANDIDATE_PREFIX=%s\n' "${RELEASE_CANDIDATE_PREFIX}"
+  printf 'RELEASE_CANDIDATE_TRAIN_PREFIX=%s\n' "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
   printf 'RELEASE_CANDIDATE_TRAIN_SHA256=%s\n' "${RELEASE_CANDIDATE_TRAIN_SHA256}"
   if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     printf 'RAPIDS_CANDIDATE_CONDA_CHANNEL=%s\n' "${channel}"

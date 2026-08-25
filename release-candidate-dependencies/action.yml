@@ -9,10 +9,10 @@ inputs:
     description: Private S3 bucket holding candidate build bundles.
     required: false
     default: rapids-release-candidates
-  candidate-prefix:
-    description: Root prefix for train-scoped candidate build bundles.
+  candidate-train-prefix:
+    description: Root prefix for immutable candidate train membership records.
     required: false
-    default: candidate-builds
+    default: trains
   prepare-conda-channel:
     description: Whether this job needs a local Conda channel for build dependencies.
     required: false
@@ -55,7 +55,7 @@ runs:
       shell: bash
       env:
         RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
-        RELEASE_CANDIDATE_PREFIX: ${{ inputs.candidate-prefix }}
+        RELEASE_CANDIDATE_TRAIN_PREFIX: ${{ inputs.candidate-train-prefix }}
         RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
         RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL: ${{ inputs.prepare-conda-channel }}
         RELEASE_CANDIDATE_ARTIFACT_FAMILY: ${{ inputs.artifact-family }}

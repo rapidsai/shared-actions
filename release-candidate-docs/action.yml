@@ -9,10 +9,10 @@ inputs:
     description: Private S3 bucket holding candidate outputs.
     required: false
     default: rapids-release-candidates
-  candidate-prefix:
-    description: Root prefix for candidate outputs.
+  candidate-train-prefix:
+    description: Root prefix for immutable candidate train records and documentation.
     required: false
-    default: candidate-builds
+    default: trains
 
 runs:
   using: composite
@@ -39,7 +39,7 @@ runs:
       shell: bash
       env:
         RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
-        RELEASE_CANDIDATE_PREFIX: ${{ inputs.candidate-prefix }}
+        RELEASE_CANDIDATE_TRAIN_PREFIX: ${{ inputs.candidate-train-prefix }}
         RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
       run: bash "${IMPLEMENTATION_PATH}/stage.sh"

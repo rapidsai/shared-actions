@@ -21,7 +21,7 @@ safe_prefix() {
   [[ "${prefix}" != /* && "${prefix}" != */ && "${prefix}" != *'//' && "${prefix}" != *'..'* ]]
 }
 
-for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY GITHUB_RUN_ID; do
+for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
   require_value "${value}" "${!value:-}"
 done
 if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
@@ -32,8 +32,8 @@ if [[ "${RELEASE_SOURCE_ARTIFACT_NAME}" == */* || "${RELEASE_SOURCE_ARTIFACT_NAM
   echo "RELEASE_SOURCE_ARTIFACT_NAME must be a plain bundle name" >&2
   exit 1
 fi
-if ! safe_prefix "${RELEASE_CANDIDATE_PREFIX}"; then
-  echo "RELEASE_CANDIDATE_PREFIX must be a safe, relative S3 prefix" >&2
+if ! safe_prefix "${RELEASE_CANDIDATE_CONTENT_PREFIX}" || ! safe_prefix "${RELEASE_CANDIDATE_TRAIN_PREFIX}"; then
+  echo "candidate content and train prefixes must be safe, relative S3 prefixes" >&2
   exit 1
 fi
 
@@ -51,18 +51,28 @@ safe_relative_path() {
   [[ -n "${path}" && "${path}" != /* && "${path}" != ../* && "${path}" != */../* && "${path}" != *'/..' ]]
 }
 
-base_key="${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${RELEASE_SOURCE_ARTIFACT_NAME}"
+# A repository build is keyed by its generated catalog record, excluding the
+# GitHub run identity. This includes the frozen source/workflow plus final
+# package identity and matrix in the catalog entries. Preserve the exact
+# canonical record at the resulting key so a human can explain or compare two
+# digests without access to the original GitHub run.
+build_record_path="$(mktemp)"
+jq -cS 'del(.source.run_id, .source.run_attempt)' "${entries_path}" >"${build_record_path}"
+build_input_digest="$(sha256sum "${build_record_path}" | awk '{print $1}')"
+content_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${GITHUB_REPOSITORY}/${build_input_digest}"
+build_record_key="${content_key}/build-record.json"
+bundle_key="${content_key}/bundles/${RELEASE_SOURCE_ARTIFACT_NAME}.json"
+train_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${RELEASE_SOURCE_ARTIFACT_NAME}/bundle-reference.json"
 # `signature` is optional, so select only declared string paths. Upload the
 # manifest only after every declared payload and evidence object succeeds: it
 # is the S3 completion marker a collector may safely discover.
 mapfile -t bundle_paths < <(jq -r '([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
 head_metadata="$(mktemp)"
-trap 'rm -f "${head_metadata}"' EXIT
+trap 'rm -f "${head_metadata}" "${build_record_path}"' EXIT
 
-upload_one() {
-  local relative_path="$1"
-  local local_path="${bundle_root}/${relative_path}"
-  local object_key="${base_key}/${relative_path}"
+upload_immutable() {
+  local local_path="$1"
+  local object_key="$2"
   local checksum
   checksum="$(openssl dgst -sha256 -binary "${local_path}" | base64)"
 
@@ -83,6 +93,25 @@ upload_one() {
   fi
 }
 
+upload_one() {
+  local relative_path="$1"
+  local local_path="${bundle_root}/${relative_path}"
+  local platform object_key
+  if [[ "${relative_path}" == "release-catalog-entries.json" ]]; then
+    object_key="${bundle_key}"
+  else
+    platform="$(jq -r --arg path "${relative_path}" '[.entries[] | select(.path == $path or .sbom == $path or .provenance == $path or .signature == $path) | .package.platform] | first // "generic"' "${entries_path}")"
+    case "${platform}" in
+      linux-64|amd64|x86_64) platform="x86_64" ;;
+      linux-aarch64|aarch64|arm64) platform="arm64" ;;
+      noarch) platform="noarch" ;;
+      *) platform="generic" ;;
+    esac
+    object_key="${content_key}/${platform}/$(basename "${relative_path}")"
+  fi
+  upload_immutable "${local_path}" "${object_key}"
+}
+
 for relative_path in "${bundle_paths[@]}"; do
   if ! safe_relative_path "${relative_path}" || [[ ! -f "${bundle_root}/${relative_path}" ]]; then
     echo "catalog declares a missing or unsafe candidate file: ${relative_path}" >&2
@@ -90,6 +119,41 @@ for relative_path in "${bundle_paths[@]}"; do
   fi
   upload_one "${relative_path}"
 done
+upload_immutable "${build_record_path}" "${build_record_key}"
 upload_one "release-catalog-entries.json"
 
-printf 'Release candidate bundle: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${base_key}" >>"${GITHUB_STEP_SUMMARY}"
+reference_path="$(mktemp)"
+trap 'rm -f "${head_metadata}" "${build_record_path}" "${reference_path}"' EXIT
+jq -n \
+  --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
+  --arg repository "${GITHUB_REPOSITORY}" \
+  --arg source_artifact "${RELEASE_SOURCE_ARTIFACT_NAME}" \
+  --arg build_input_digest "${build_input_digest}" \
+  --arg content_key "${content_key}" \
+  --arg build_record_key "${build_record_key}" \
+  --arg bundle_key "${bundle_key}" \
+  '{schema_version: 1, producer: "shared-workflows", train_sha256: $train_sha256, repository: $repository, source_artifact: $source_artifact, build_input_digest: $build_input_digest, content_key: $content_key, build_record_key: $build_record_key, bundle_key: $bundle_key}' \
+  >"${reference_path}"
+
+upload_reference() {
+  local checksum
+  checksum="$(openssl dgst -sha256 -binary "${reference_path}" | base64)"
+  if aws s3api head-object --bucket "${RELEASE_CANDIDATE_BUCKET}" --key "${train_key}" --checksum-mode ENABLED >"${head_metadata}" 2>/dev/null; then
+    if [[ "$(jq -r '.ChecksumSHA256 // empty' "${head_metadata}")" != "${checksum}" ]]; then
+      echo "existing train reference has different bytes: ${train_key}" >&2
+      exit 1
+    fi
+    return
+  fi
+  if ! aws s3api put-object --bucket "${RELEASE_CANDIDATE_BUCKET}" --key "${train_key}" --body "${reference_path}" --checksum-algorithm SHA256 --checksum-sha256 "${checksum}" --if-none-match '*' --tagging 'release-candidate-status=candidate' >/dev/null 2>&1; then
+    aws s3api head-object --bucket "${RELEASE_CANDIDATE_BUCKET}" --key "${train_key}" --checksum-mode ENABLED >"${head_metadata}"
+    if [[ "$(jq -r '.ChecksumSHA256 // empty' "${head_metadata}")" != "${checksum}" ]]; then
+      echo "candidate train reference could not be written immutably: ${train_key}" >&2
+      exit 1
+    fi
+  fi
+}
+
+upload_reference
+printf 'Reusable candidate bundle: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${content_key}" >>"${GITHUB_STEP_SUMMARY}"
+printf 'Candidate train reference: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${train_key}" >>"${GITHUB_STEP_SUMMARY}"

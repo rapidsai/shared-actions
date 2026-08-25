@@ -50,8 +50,16 @@ jq -e '
 # Optional signatures must not cause the S3 uploader to request a literal
 # `null` file. This mirrors its declared-file selection without requiring AWS.
 mapfile -t upload_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
-test "${upload_paths[*]}" = "release-catalog-entries.json cuvs-java-26.08.0.jar release-evidence/cuvs-java-26.08.0.jar.sbom.spdx.json release-evidence/cuvs-java-26.08.0.jar.provenance.json"
-! printf '%s\n' "${upload_paths[@]}" | grep -Fx null
+test "${upload_paths[0]}" = "release-catalog-entries.json"
+test "${upload_paths[1]}" = "cuvs-java-26.08.0.jar"
+test "${#upload_paths[@]}" -eq 4
+for upload_path in "${upload_paths[@]}"; do
+  test -f "${canonical_bundle_directory}/${upload_path}"
+done
+if printf '%s\n' "${upload_paths[@]}" | grep -Fx null; then
+  echo "release catalog uploader must not request a literal null file" >&2
+  exit 1
+fi
 
 isolated_companion_directory="${temporary_directory}/isolated-companion"
 mkdir -p "${isolated_companion_directory}"

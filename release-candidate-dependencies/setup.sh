@@ -66,7 +66,7 @@ for reference_path in "${reference_paths[@]}"; do
     exit 1
   fi
   bundle_key="$(jq -r '.bundle_key // empty' "${reference_path}")"
-  if [[ -z "${bundle_key}" || "${bundle_key}" != "${content_key}"/bundles/*.json || "${bundle_key}" == *".."* ]]; then
+  if [[ "${bundle_key}" != "${content_key}"/release-catalog-entries.json || "${bundle_key}" == *".."* ]]; then
     echo "candidate train contains an unsafe catalog bundle reference" >&2
     exit 1
   fi
@@ -165,17 +165,10 @@ while IFS= read -r selection; do
     echo "candidate catalog contains an unsafe dependency location" >&2
     exit 1
   fi
-  storage_platform="$(jq -r '.package.platform // "generic"' <<<"${selection}")"
-  case "${storage_platform}" in
-    linux-64|amd64|x86_64) storage_platform="x86_64" ;;
-    linux-aarch64|aarch64|arm64) storage_platform="arm64" ;;
-    noarch) storage_platform="noarch" ;;
-    *) storage_platform="generic" ;;
-  esac
-  # The producer stores payloads directly below their normalized architecture.
-  # Logical catalog paths may contain directories, but the repository-build
-  # digest and architecture make their file names unique.
-  source="s3://${RELEASE_CANDIDATE_BUCKET}/${content_key}/${storage_platform}/$(basename "${artifact_path}")"
+  # Candidate storage preserves the producer's bundle-relative layout. This
+  # lets the dependency view and the same-repository download wrapper consume
+  # the exact paths already expected by RAPIDS build tooling.
+  source="s3://${RELEASE_CANDIDATE_BUCKET}/${content_key}/${artifact_path}"
   case "${artifact_path}" in
     *.conda|*.tar.bz2)
       [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]] || continue

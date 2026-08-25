@@ -59,9 +59,9 @@ safe_relative_path() {
 build_record_path="$(mktemp)"
 jq -cS 'del(.source.run_id, .source.run_attempt)' "${entries_path}" >"${build_record_path}"
 build_input_digest="$(sha256sum "${build_record_path}" | awk '{print $1}')"
-content_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${GITHUB_REPOSITORY}/${build_input_digest}"
+content_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${GITHUB_REPOSITORY}/${build_input_digest}/${RELEASE_SOURCE_ARTIFACT_NAME}"
 build_record_key="${content_key}/build-record.json"
-bundle_key="${content_key}/bundles/${RELEASE_SOURCE_ARTIFACT_NAME}.json"
+bundle_key="${content_key}/release-catalog-entries.json"
 train_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${RELEASE_SOURCE_ARTIFACT_NAME}/bundle-reference.json"
 # `signature` is optional, so select only declared string paths. Upload the
 # manifest only after every declared payload and evidence object succeeds: it
@@ -96,18 +96,14 @@ upload_immutable() {
 upload_one() {
   local relative_path="$1"
   local local_path="${bundle_root}/${relative_path}"
-  local platform object_key
+  local object_key
   if [[ "${relative_path}" == "release-catalog-entries.json" ]]; then
     object_key="${bundle_key}"
   else
-    platform="$(jq -r --arg path "${relative_path}" '[.entries[] | select(.path == $path or .sbom == $path or .provenance == $path or .signature == $path) | .package.platform] | first // "generic"' "${entries_path}")"
-    case "${platform}" in
-      linux-64|amd64|x86_64) platform="x86_64" ;;
-      linux-aarch64|aarch64|arm64) platform="arm64" ;;
-      noarch) platform="noarch" ;;
-      *) platform="generic" ;;
-    esac
-    object_key="${content_key}/${platform}/$(basename "${relative_path}")"
+    # Keep the exact bundle-relative path expected by existing RAPIDS build
+    # tools. The source-artifact directory is the collision boundary, so no
+    # architecture-specific storage translation is needed.
+    object_key="${content_key}/${relative_path}"
   fi
   upload_immutable "${local_path}" "${object_key}"
 }

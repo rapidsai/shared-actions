@@ -81,7 +81,7 @@ def test_recipe_patcher_injects_locks_only_into_multi_output_build_targets():
         ],
     }
 
-    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", set())
+    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
 
     if "requirements" in recipe:
         pytest.fail("multi-output recipe retained a forbidden top-level requirements field")
@@ -100,9 +100,13 @@ def test_recipe_patcher_injects_locks_only_into_multi_output_build_targets():
 
 
 def test_recipe_patcher_injects_locks_into_single_output_root():
-    recipe = {"requirements": {"build": ["cmake"], "host": ["zlib"]}}
+    recipe = {
+        "build": {"script": "cmake -S . -B build"},
+        "requirements": {"build": ["cmake"], "host": ["zlib"]},
+        "tests": [{"script": "cmake -S tests -B build"}],
+    }
 
-    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", set())
+    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
 
     expected_requirements = {
         "build": ["cmake", "candidate-build-lock"],
@@ -110,6 +114,33 @@ def test_recipe_patcher_injects_locks_into_single_output_root():
     }
     if recipe["requirements"] != expected_requirements:
         pytest.fail("single-output root did not receive candidate requirements")
+    if recipe["tests"][0]["requirements"] != {
+        "build": ["candidate-build-lock"],
+        "run": ["candidate-host-lock"],
+    }:
+        pytest.fail("package test did not receive the candidate CMake activation lock")
+    if "-Drapids-cmake-sha=deadbeef" not in recipe["build"]["script"]:
+        pytest.fail("package build script did not pin RAPIDS CMake")
+    if "-Drapids-cmake-sha=deadbeef" not in recipe["tests"][0]["script"]:
+        pytest.fail("package test script did not pin RAPIDS CMake")
+
+
+def test_recipe_patcher_injects_test_lock_into_each_multi_output_test():
+    recipe = {
+        "outputs": [
+            {"package": {"name": "library"}, "tests": [{"script": "ctest"}]},
+            {"package": {"name": "bindings"}, "tests": [{"python": {"imports": ["bindings"]}}]},
+        ]
+    }
+
+    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
+
+    for output in recipe["outputs"]:
+        if output["tests"][0]["requirements"] != {
+            "build": ["candidate-build-lock"],
+            "run": ["candidate-host-lock"],
+        }:
+            pytest.fail("multi-output package test did not receive the candidate CMake activation lock")
 
 
 def test_recipe_patcher_adapts_exact_variant_spelling_from_local_config(tmp_path):

@@ -552,7 +552,8 @@ if [[ "${arguments[0]:-}" == "build" ]]; then
       arguments[$((index + 1))]="$(python3 "${RAPIDS_CANDIDATE_RECIPE_PATCHER}" \
         --recipe "${arguments[$((index + 1))]}" \
         --build-lock "${RAPIDS_CANDIDATE_BUILD_LOCK_PACKAGE}" \
-        --host-lock "${RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE}")"
+        --host-lock "${RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE}" \
+        --rapids-cmake-sha "${RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA}")"
       arguments+=(--ignore-recipe-variants --variant-config "${RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG}")
       break
     fi

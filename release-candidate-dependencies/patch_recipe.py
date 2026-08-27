@@ -19,6 +19,7 @@ def main() -> int:
     parser.add_argument("--recipe", type=Path, required=True)
     parser.add_argument("--build-lock", required=True)
     parser.add_argument("--host-lock", required=True)
+    parser.add_argument("--rapids-cmake-sha", required=True)
     arguments = parser.parse_args()
 
     source_is_directory = arguments.recipe.is_dir()
@@ -36,7 +37,13 @@ def main() -> int:
         for output in outputs:
             if not isinstance(output, dict):
                 parser.error(f"recipe output must be a mapping: {recipe}")
-    _prepare_recipe_documents(document, arguments.build_lock, arguments.host_lock, exact_variant_keys)
+    _prepare_recipe_documents(
+        document,
+        arguments.build_lock,
+        arguments.host_lock,
+        arguments.rapids_cmake_sha,
+        exact_variant_keys,
+    )
 
     destination_recipe.write_text(yaml.safe_dump(document, sort_keys=False))
     print(destination_directory if source_is_directory else destination_recipe)
@@ -53,6 +60,76 @@ def _add_requirements(document: dict, build_lock: str, host_lock: str) -> None:
             raise ValueError(f"recipe requirements.{section} must be a list")
         if lock not in values:
             values.append(lock)
+
+
+def _add_test_requirements(document: dict, build_lock: str, host_lock: str) -> None:
+    """Install lock packages in each isolated package test prefix.
+
+    Rattler-Build creates a new prefix to test the package it just produced.
+    That prefix does not inherit build or host requirements, so the lock
+    package that supplies candidate constraints and the RAPIDS CMake hook must
+    be a test-only requirement. Keeping it on the test object avoids changing
+    the output package's runtime metadata.
+    """
+    tests = document.get("tests", [])
+    if tests is None:
+        return
+    if not isinstance(tests, list):
+        raise ValueError("recipe tests must be a list")
+    for test in tests:
+        if not isinstance(test, dict):
+            raise ValueError("recipe test must be a mapping")
+        requirements = test.setdefault("requirements", {})
+        if not isinstance(requirements, dict):
+            raise ValueError("recipe test requirements must be a mapping")
+        for section, lock in (("build", build_lock), ("run", host_lock)):
+            values = requirements.setdefault(section, [])
+            if not isinstance(values, list):
+                raise ValueError(f"recipe test requirements.{section} must be a list")
+            if lock not in values:
+                values.append(lock)
+
+
+def _candidate_cmake_preamble(rapids_cmake_sha: str) -> str:
+    """Return Bash setup that pins configure-mode CMake and scikit-build."""
+    return f"""# Release candidates must never fetch RAPIDS CMake from a moving branch.
+cmake() {{
+  case "${{1:-}}" in
+    --build|--install|--open|-E|-P|--help|--version) command cmake "$@" ;;
+    *) command cmake "-Drapids-cmake-sha={rapids_cmake_sha}" "$@" ;;
+  esac
+}}
+export -f cmake
+export SKBUILD_CMAKE_DEFINE="${{SKBUILD_CMAKE_DEFINE:+${{SKBUILD_CMAKE_DEFINE}};}}rapids-cmake-sha={rapids_cmake_sha}"
+"""
+
+
+def _prepend_cmake_preamble(script: object, rapids_cmake_sha: str) -> object:
+    preamble = _candidate_cmake_preamble(rapids_cmake_sha)
+    if isinstance(script, str):
+        return f"{preamble}\n{script}"
+    if isinstance(script, list):
+        return [preamble, *script]
+    raise ValueError("release-candidate recipe script must be a string or list")
+
+
+def _pin_cmake_in_scripts(document: dict, rapids_cmake_sha: str) -> None:
+    """Place the exact CMake definition inside Rattler's isolated shells.
+
+    Rattler does not inherit the workflow PATH into its build or test shells,
+    so a workflow-level CMake wrapper cannot protect scripts that invoke
+    ``cmake`` directly.  Patch only the disposable recipe copy and leave the
+    package metadata untouched.
+    """
+    build = document.get("build")
+    if isinstance(build, dict) and "script" in build:
+        build["script"] = _prepend_cmake_preamble(build["script"], rapids_cmake_sha)
+    tests = document.get("tests", [])
+    if tests is None:
+        return
+    for test in tests:
+        if isinstance(test, dict) and "script" in test:
+            test["script"] = _prepend_cmake_preamble(test["script"], rapids_cmake_sha)
 
 
 def _resolve_recipe(candidate: Path, parser: argparse.ArgumentParser) -> Path:
@@ -74,7 +151,9 @@ def _copy_recipe_directory(recipe: Path, build_lock: str, host_lock: str) -> Pat
     return destination
 
 
-def _prepare_recipe_documents(document: dict, build_lock: str, host_lock: str, exact_variant_keys: set[str]) -> None:
+def _prepare_recipe_documents(
+    document: dict, build_lock: str, host_lock: str, rapids_cmake_sha: str, exact_variant_keys: set[str]
+) -> None:
     """Inject locks into the actual build target of a Rattler recipe.
 
     A recipe without outputs produces its root package, while every member of
@@ -82,6 +161,8 @@ def _prepare_recipe_documents(document: dict, build_lock: str, host_lock: str, e
     not permit top-level requirements for the latter, so first distribute the
     shared requirements into every output and remove the root field.
     """
+    _add_test_requirements(document, build_lock, host_lock)
+    _pin_cmake_in_scripts(document, rapids_cmake_sha)
     outputs = document.get("outputs")
     if not outputs:
         _prepare_document(document, build_lock, host_lock, exact_variant_keys, add_locks=True)
@@ -89,6 +170,8 @@ def _prepare_recipe_documents(document: dict, build_lock: str, host_lock: str, e
 
     _move_root_requirements_to_outputs(document, outputs)
     for output in outputs:
+        _add_test_requirements(output, build_lock, host_lock)
+        _pin_cmake_in_scripts(output, rapids_cmake_sha)
         _prepare_document(output, build_lock, host_lock, exact_variant_keys, add_locks=True)
 
 

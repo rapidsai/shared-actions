@@ -345,7 +345,10 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
       --argjson constraints "${constraints}" \
       '{schema_version: 1, package: {name: $name, version: "0"}, build: {number: 0, noarch: "generic"}, requirements: {run_constraints: $constraints}}' \
       >"${recipe}"
-    "${original_rattler_build}" build --recipe "${recipe}" --output-dir "${channel}" --color never
+    # This function is called through command substitution. Keep Rattler's
+    # human build log on stderr so the captured value is exactly the package
+    # name, which can safely be written as one GITHUB_ENV assignment.
+    "${original_rattler_build}" build --recipe "${recipe}" --output-dir "${channel}" --color never >&2
     printf '%s' "${package_name}"
   }
 

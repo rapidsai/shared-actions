@@ -571,10 +571,13 @@ fi
   printf 'RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS=%s\n' "${build_implementation_revisions}"
   printf 'RELEASE_CANDIDATE_GHA_TOOLS_REVISION=%s\n' "${actual_gha_tools_revision}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
+  # Rattler installs CMake in its isolated prefixes, so this train value must
+  # be available to the recipe patcher even when CMake is absent from the
+  # outer workflow container at setup time.
+  printf 'RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA=%s\n' "${rapids_cmake_sha}"
   printf 'SKBUILD_CMAKE_DEFINE=%s\n' "${skbuild_cmake_define}"
   if [[ -n "${original_cmake}" ]]; then
     printf 'RAPIDS_CANDIDATE_ORIGINAL_CMAKE=%s\n' "${original_cmake}"
-    printf 'RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA=%s\n' "${rapids_cmake_sha}"
   fi
   if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     printf 'RAPIDS_CANDIDATE_CONDA_CHANNEL=%s\n' "${channel}"

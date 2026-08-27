@@ -62,5 +62,9 @@ runs:
         RELEASE_CANDIDATE_ARCH: ${{ inputs.arch }}
         RELEASE_CANDIDATE_CUDA_VERSION: ${{ inputs.cuda-version }}
         RELEASE_CANDIDATE_PYTHON_VERSION: ${{ inputs.python-version }}
+        RELEASE_CANDIDATE_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
+        RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION: ${{ github.action_ref }}
+        RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY: ${{ job.workflow_repository }}
+        RELEASE_CANDIDATE_SHARED_WORKFLOWS_REVISION: ${{ job.workflow_sha }}
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
       run: ${IMPLEMENTATION_PATH}/setup.sh

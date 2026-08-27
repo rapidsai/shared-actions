@@ -157,6 +157,14 @@ necessarily distinct when an upstream package byte, selected upstream build, or
 shared build implementation changes. The lock intentionally omits GitHub run
 and attempt IDs.
 
+Before a candidate job can use this mechanism, its dependency setup compares
+the running reusable workflow SHA and composite-action SHA with the train's
+`shared-workflows` and `shared-actions` entries. It also installs `gha-tools`
+at the train's exact SHA and makes that checkout the job's tool path. The
+catalog uploader repeats the `shared-actions` and `gha-tools` comparison before
+writing S3 content. A mismatch is a build error, not an informational warning:
+one train must not combine artifacts produced by different shared build logic.
+
 ## Generated identity evidence
 
 For every artifact, the action generates an SPDX artifact-identity envelope

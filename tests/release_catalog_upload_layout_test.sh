@@ -78,6 +78,12 @@ printf '{"schema_version":1,"dependencies":[]}\n' >"${temporary_directory}/upstr
 
 run_upload() {
   local implementation_revisions="$2"
+  local gha_tools_revision
+  local shared_actions_revision
+  gha_tools_revision="$(jq -r '."gha-tools"' <<<"${implementation_revisions}")"
+  shared_actions_revision="$(jq -r '."shared-actions"' <<<"${implementation_revisions}")"
+  gha_tools_revision="${3:-${gha_tools_revision}}"
+  shared_actions_revision="${4:-${shared_actions_revision}}"
   GITHUB_RUN_ATTEMPT="$1" \
     PATH="${temporary_directory}/bin:${PATH}" \
     FAKE_S3="${temporary_directory}/s3" \
@@ -91,6 +97,9 @@ run_upload() {
     GITHUB_RUN_ID="101" \
     GITHUB_STEP_SUMMARY="${temporary_directory}/summary" \
     RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS="${implementation_revisions}" \
+    RELEASE_CANDIDATE_GHA_TOOLS_REVISION="${gha_tools_revision}" \
+    RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY="rapidsai/shared-actions" \
+    RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION="${shared_actions_revision}" \
     RELEASE_CANDIDATE_UPSTREAM_INPUTS="${temporary_directory}/upstream-inputs.json" \
     "${repository_root}/release-catalog/upload-s3.sh"
 }
@@ -116,6 +125,14 @@ if jq -e 'tostring | test("run_id|run_attempt")' "${canonical}/artifact-index.js
 fi
 jq -e '.source_run_id == "101" and .source_run_attempt == "1"' \
   "${train}/101.1/bundle-reference.json" >/dev/null
+if run_upload 9 "${base_implementation_revisions}" "dddddddddddddddddddddddddddddddddddddddd" >/dev/null 2>&1; then
+  echo "upload accepted a gha-tools revision that does not match the release train" >&2
+  exit 1
+fi
+if run_upload 9 "${base_implementation_revisions}" "" "dddddddddddddddddddddddddddddddddddddddd" >/dev/null 2>&1; then
+  echo "upload accepted a shared-actions revision that does not match the release train" >&2
+  exit 1
+fi
 
 run_upload 2 "${changed_implementation_revisions}"
 test -f "${train}/101.2/bundle-reference.json"

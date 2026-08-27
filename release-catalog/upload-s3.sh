@@ -21,11 +21,15 @@ safe_prefix() {
   [[ "${prefix}" != /* && "${prefix}" != */ && "${prefix}" != *'//' && "${prefix}" != *'..'* ]]
 }
 
-for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
+for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
   require_value "${value}" "${!value:-}"
 done
 if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
   echo "RELEASE_CANDIDATE_TRAIN_SHA256 must be a SHA-256 hex digest" >&2
+  exit 1
+fi
+if [[ "${RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY}" != "rapidsai/shared-actions" ]]; then
+  echo "release catalog action must execute from rapidsai/shared-actions" >&2
   exit 1
 fi
 build_implementation_revisions="$(jq -ceS '
@@ -41,6 +45,14 @@ build_implementation_revisions="$(jq -ceS '
   echo "RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS is invalid" >&2
   exit 1
 }
+if [[ "${RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION}" != "$(jq -r '."shared-actions"' <<<"${build_implementation_revisions}")" ]]; then
+  echo "release catalog shared-actions revision does not match the frozen release train" >&2
+  exit 1
+fi
+if [[ "${RELEASE_CANDIDATE_GHA_TOOLS_REVISION}" != "$(jq -r '."gha-tools"' <<<"${build_implementation_revisions}")" ]]; then
+  echo "gha-tools revision does not match the frozen release train" >&2
+  exit 1
+fi
 if [[ "${RELEASE_SOURCE_ARTIFACT_NAME}" == */* || "${RELEASE_SOURCE_ARTIFACT_NAME}" == *".."* ]]; then
   echo "RELEASE_SOURCE_ARTIFACT_NAME must be a plain bundle name" >&2
   exit 1

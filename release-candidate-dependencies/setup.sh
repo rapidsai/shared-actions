@@ -78,6 +78,50 @@ build_implementation_revisions="$(jq -ceS '
   echo "release train must lock shared-workflows, shared-actions, and gha-tools; regenerate the train" >&2
   exit 1
 }
+gha_tools_revision="$(jq -r '."gha-tools"' <<<"${build_implementation_revisions}")"
+shared_actions_revision="$(jq -r '."shared-actions"' <<<"${build_implementation_revisions}")"
+shared_workflows_revision="$(jq -r '."shared-workflows"' <<<"${build_implementation_revisions}")"
+
+require_expected_revision() {
+  local label="$1"
+  local expected_repository="$2"
+  local expected_revision="$3"
+  local actual_repository="$4"
+  local actual_revision="$5"
+  if [[ "${actual_repository}" != "${expected_repository}" || "${actual_revision}" != "${expected_revision}" ]]; then
+    echo "${label} does not match the frozen release train: expected ${expected_repository}@${expected_revision}, got ${actual_repository}@${actual_revision}" >&2
+    exit 1
+  fi
+}
+
+require_expected_revision \
+  "shared-actions" \
+  "rapidsai/shared-actions" \
+  "${shared_actions_revision}" \
+  "${RELEASE_CANDIDATE_SHARED_ACTIONS_REPOSITORY:-}" \
+  "${RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION:-}"
+require_expected_revision \
+  "shared-workflows" \
+  "rapidsai/shared-workflows" \
+  "${shared_workflows_revision}" \
+  "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY:-}" \
+  "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REVISION:-}"
+
+if ! command -v git >/dev/null; then
+  echo "git is required to install the train-locked gha-tools revision" >&2
+  exit 1
+fi
+gha_tools_directory="${workspace}/gha-tools"
+git init --quiet "${gha_tools_directory}"
+git -C "${gha_tools_directory}" remote add origin https://github.com/rapidsai/gha-tools.git
+git -C "${gha_tools_directory}" fetch --quiet --depth 1 origin "${gha_tools_revision}"
+git -C "${gha_tools_directory}" checkout --quiet --detach FETCH_HEAD
+actual_gha_tools_revision="$(git -C "${gha_tools_directory}" rev-parse HEAD)"
+if [[ "${actual_gha_tools_revision}" != "${gha_tools_revision}" ]]; then
+  echo "gha-tools checkout does not match the frozen release train: expected ${gha_tools_revision}, got ${actual_gha_tools_revision}" >&2
+  exit 1
+fi
+PATH="${gha_tools_directory}/tools:${PATH}"
 # scikit-build-core may use the CMake wheel rather than resolving `cmake` from
 # PATH, so its configure call can bypass the candidate CMake wrapper below.
 # Its supported environment configuration is additive and reaches both the
@@ -524,6 +568,7 @@ fi
   printf 'RELEASE_CANDIDATE_TRAIN_PREFIX=%s\n' "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
   printf 'RELEASE_CANDIDATE_TRAIN_SHA256=%s\n' "${RELEASE_CANDIDATE_TRAIN_SHA256}"
   printf 'RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS=%s\n' "${build_implementation_revisions}"
+  printf 'RELEASE_CANDIDATE_GHA_TOOLS_REVISION=%s\n' "${actual_gha_tools_revision}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
   printf 'SKBUILD_CMAKE_DEFINE=%s\n' "${skbuild_cmake_define}"
   if [[ -n "${original_cmake}" ]]; then
@@ -541,4 +586,5 @@ fi
   fi
   printf 'PIP_FIND_LINKS=%s\n' "${wheelhouse}${PIP_FIND_LINKS:+ ${PIP_FIND_LINKS}}"
 } >>"${GITHUB_ENV}"
+printf '%s\n' "${gha_tools_directory}/tools" >>"${GITHUB_PATH}"
 printf '%s\n' "${tools}" >>"${GITHUB_PATH}"

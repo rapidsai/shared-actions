@@ -93,5 +93,7 @@ runs:
         RELEASE_CANDIDATE_CONTENT_PREFIX: ${{ inputs.candidate-content-prefix }}
         RELEASE_CANDIDATE_TRAIN_PREFIX: ${{ inputs.candidate-train-prefix }}
         RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
+        RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
+        RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION: ${{ github.action_ref }}
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
       run: "${IMPLEMENTATION_PATH}/upload-s3.sh"

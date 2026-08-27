@@ -2,6 +2,7 @@
 
 import argparse
 import importlib.util
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -116,3 +117,35 @@ def test_recipe_patcher_copies_recipe_directory_with_recipe_yaml(tmp_path):
         pytest.fail("disposable recipe directory did not retain recipe.yaml")
     if not (destination / "build.sh").is_file():
         pytest.fail("disposable recipe directory did not retain recipe-local files")
+
+
+@pytest.mark.parametrize(
+    ("architecture", "platform"),
+    [("amd64", "linux-64"), ("x86_64", "linux-64"), ("arm64", "linux-aarch64"), ("aarch64", "linux-aarch64")],
+)
+def test_candidate_conda_platform_normalizes_ci_architecture_names(architecture, platform):
+    script = Path(__file__).parents[1] / "release-candidate-dependencies" / "platform.sh"
+    # The command runs the repository-local helper with a fixed shell program.
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", "-c", 'source "$1"; conda_platform_for_arch "$2"', "bash", str(script), architecture],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.stdout.strip() != platform:
+        pytest.fail(f"expected {architecture} to normalize to {platform}")
+
+
+def test_candidate_conda_platform_rejects_unknown_architecture():
+    script = Path(__file__).parents[1] / "release-candidate-dependencies" / "platform.sh"
+    # The command runs the repository-local helper with a fixed shell program.
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", "-c", 'source "$1"; conda_platform_for_arch "$2"', "bash", str(script), "not-an-arch"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0 or "unsupported candidate architecture" not in result.stderr:
+        pytest.fail("unknown candidate architecture was accepted")

@@ -7,6 +7,11 @@
 # never turn all completed candidate outputs into a shared package channel.
 set -euo pipefail
 
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The helper is adjacent to this script but its absolute action path is dynamic.
+# shellcheck disable=SC1091
+source "${script_directory}/platform.sh"
+
 require_value() {
   local name="$1"
   local value="$2"
@@ -34,6 +39,8 @@ fi
 
 root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
 train_key_prefix="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
+cuda_major="${RELEASE_CANDIDATE_CUDA_VERSION%%.*}"
+conda_platform="$(conda_platform_for_arch "${RELEASE_CANDIDATE_ARCH}")"
 workspace="${RUNNER_TEMP}/release-candidate-dependencies"
 channel="${workspace}/conda-channel"
 wheelhouse="${workspace}/wheelhouse"
@@ -149,7 +156,6 @@ done
 
 repository="${GITHUB_REPOSITORY##*/}"
 target_unit="${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${repository}"
-cuda_major="${RELEASE_CANDIDATE_CUDA_VERSION%%.*}"
 selected="${workspace}/selected-artifacts.json"
 resolved_inputs="${workspace}/resolved-upstream-inputs.jsonl"
 upstream_inputs="${workspace}/upstream-inputs.json"
@@ -192,7 +198,7 @@ jq -n \
   --arg arch "${RELEASE_CANDIDATE_ARCH}" \
   --arg cuda_major "${cuda_major}" \
   --arg python_version "${RELEASE_CANDIDATE_PYTHON_VERSION}" \
-  --arg conda_platform "$([[ "${RELEASE_CANDIDATE_ARCH}" == "aarch64" ]] && printf linux-aarch64 || printf linux-64)" \
+  --arg conda_platform "${conda_platform}" \
   --slurpfile records "${workspace}/catalog-records.json" \
   '
     ($train[0].release_units | map({key: .id, value: .}) | from_entries) as $units
@@ -334,7 +340,6 @@ fi
 # of the build/host solve once this package is injected into a recipe. Keeping
 # it in the job-local candidate channel avoids publishing CI-only lock packages.
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
-  conda_platform="$([[ "${RELEASE_CANDIDATE_ARCH}" == "aarch64" ]] && printf linux-aarch64 || printf linux-64)"
   lock_workspace="${workspace}/train-locks"
   mkdir -p "${lock_workspace}"
 

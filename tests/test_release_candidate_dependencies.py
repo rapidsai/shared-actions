@@ -142,12 +142,14 @@ def test_recipe_patcher_injects_test_lock_into_each_multi_output_test():
 
     _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
 
-    for output in recipe["outputs"]:
-        if output["tests"][0]["requirements"] != {
-            "build": ["candidate-build-lock"],
-            "run": ["candidate-host-lock"],
-        }:
-            pytest.fail("multi-output package test did not receive the candidate CMake activation lock")
+    script_test = recipe["outputs"][0]["tests"][0]
+    if script_test["requirements"] != {
+        "build": ["candidate-build-lock"],
+        "run": ["candidate-host-lock"],
+    }:
+        pytest.fail("multi-output script test did not receive the candidate CMake activation lock")
+    if "requirements" in recipe["outputs"][1]["tests"][0]:
+        pytest.fail("non-script package test received incompatible candidate requirements")
 
 
 def test_recipe_patcher_pins_and_locks_shared_cache_build():

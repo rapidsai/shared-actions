@@ -79,6 +79,12 @@ def _add_test_requirements(document: dict, build_lock: str, host_lock: str) -> N
     for test in tests:
         if not isinstance(test, dict):
             raise ValueError("recipe test must be a mapping")
+        # Python/import, downstream, and package-content tests do not accept
+        # arbitrary requirements in Rattler's schema. They also do not run
+        # CMake directly, so only script tests need the candidate build and
+        # host lock packages.
+        if "script" not in test:
+            continue
         requirements = test.setdefault("requirements", {})
         if not isinstance(requirements, dict):
             raise ValueError("recipe test requirements must be a mapping")

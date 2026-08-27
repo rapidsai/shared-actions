@@ -65,6 +65,19 @@ if [[ ! "${rapids_cmake_sha}" =~ ^[[:xdigit:]]{40}$ ]]; then
   echo "release train must lock rapids-cmake with build_tool_revisions.rapids-cmake; regenerate the train" >&2
   exit 1
 fi
+build_implementation_revisions="$(jq -ceS '
+  .build_implementation_revisions as $revisions
+  | if ($revisions | type) != "object" then error("build implementation revisions must be an object")
+    elif (["gha-tools", "shared-actions", "shared-workflows"] | all(.[]; . as $name | $revisions | has($name))) | not
+      then error("missing required build implementation revision")
+    elif ($revisions | all(to_entries[]; (.key | type) == "string" and (.value | type) == "string" and (.value | test("^[0-9a-f]{40}$"))))
+      then $revisions
+    else error("invalid build implementation revision")
+    end
+' "${workspace}/release-train.json")" || {
+  echo "release train must lock shared-workflows, shared-actions, and gha-tools; regenerate the train" >&2
+  exit 1
+}
 # scikit-build-core may use the CMake wheel rather than resolving `cmake` from
 # PATH, so its configure call can bypass the candidate CMake wrapper below.
 # Its supported environment configuration is additive and reaches both the
@@ -510,6 +523,7 @@ fi
   printf 'RELEASE_CANDIDATE_BUCKET=%s\n' "${RELEASE_CANDIDATE_BUCKET}"
   printf 'RELEASE_CANDIDATE_TRAIN_PREFIX=%s\n' "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
   printf 'RELEASE_CANDIDATE_TRAIN_SHA256=%s\n' "${RELEASE_CANDIDATE_TRAIN_SHA256}"
+  printf 'RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS=%s\n' "${build_implementation_revisions}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
   printf 'SKBUILD_CMAKE_DEFINE=%s\n' "${skbuild_cmake_define}"
   if [[ -n "${original_cmake}" ]]; then

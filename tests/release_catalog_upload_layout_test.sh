@@ -77,6 +77,7 @@ printf '{"run":"101"}\n' >"${temporary_directory}/bundle/release-evidence/exampl
 printf '{"schema_version":1,"dependencies":[]}\n' >"${temporary_directory}/upstream-inputs.json"
 
 run_upload() {
+  local implementation_revisions="$2"
   GITHUB_RUN_ATTEMPT="$1" \
     PATH="${temporary_directory}/bin:${PATH}" \
     FAKE_S3="${temporary_directory}/s3" \
@@ -89,11 +90,15 @@ run_upload() {
     GITHUB_REPOSITORY="rapidsai/example" \
     GITHUB_RUN_ID="101" \
     GITHUB_STEP_SUMMARY="${temporary_directory}/summary" \
+    RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS="${implementation_revisions}" \
     RELEASE_CANDIDATE_UPSTREAM_INPUTS="${temporary_directory}/upstream-inputs.json" \
     "${repository_root}/release-catalog/upload-s3.sh"
 }
 
-run_upload 1
+base_implementation_revisions='{"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shared-actions":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","shared-workflows":"cccccccccccccccccccccccccccccccccccccccc"}'
+changed_implementation_revisions='{"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shared-actions":"dddddddddddddddddddddddddddddddddddddddd","shared-workflows":"cccccccccccccccccccccccccccccccccccccccc"}'
+
+run_upload 1 "${base_implementation_revisions}"
 artifact_root="${temporary_directory}/s3/candidate-store/artifacts/rapidsai/example"
 artifact_digest="$(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)"
 canonical="${artifact_root}/${artifact_digest}/conda"
@@ -104,6 +109,7 @@ test -f "${train}/101.1/release-catalog-entries.json"
 test -f "${train}/101.1/release-evidence/example.intoto.jsonl"
 test ! -d "${artifact_root}/${artifact_digest}/attempts"
 jq -e '.upstream_dependencies == []' "${canonical}/build-record.json" >/dev/null
+jq -e '.build_implementation_revisions == {"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shared-actions":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","shared-workflows":"cccccccccccccccccccccccccccccccccccccccc"}' "${canonical}/build-record.json" >/dev/null
 if jq -e 'tostring | test("run_id|run_attempt")' "${canonical}/artifact-index.json" >/dev/null; then
   echo "canonical artifact index contains GitHub execution metadata" >&2
   exit 1
@@ -111,8 +117,13 @@ fi
 jq -e '.source_run_id == "101" and .source_run_attempt == "1"' \
   "${train}/101.1/bundle-reference.json" >/dev/null
 
-run_upload 2
+run_upload 2 "${changed_implementation_revisions}"
 test -f "${train}/101.2/bundle-reference.json"
+mapfile -t artifact_digests < <(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+if [[ "${#artifact_digests[@]}" -ne 2 || "${artifact_digests[0]}" == "${artifact_digests[1]}" ]]; then
+  echo "shared build implementation change did not create a distinct build-input digest" >&2
+  exit 1
+fi
 cat >"${temporary_directory}/upstream-inputs.json" <<'EOF'
 {
   "schema_version": 1,
@@ -130,16 +141,24 @@ cat >"${temporary_directory}/upstream-inputs.json" <<'EOF'
   }]
 }
 EOF
-run_upload 3
+run_upload 3 "${base_implementation_revisions}"
 mapfile -t artifact_digests < <(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
-if [[ "${#artifact_digests[@]}" -ne 2 || "${artifact_digests[0]}" == "${artifact_digests[1]}" ]]; then
+if [[ "${#artifact_digests[@]}" -ne 3 ]]; then
   echo "upstream input change did not create a distinct build-input digest" >&2
   exit 1
 fi
 test -f "${train}/101.3/bundle-reference.json"
-upstream_digest="${artifact_digests[0]}"
-if [[ "${upstream_digest}" == "${artifact_digest}" ]]; then
-  upstream_digest="${artifact_digests[1]}"
+upstream_digest=""
+for candidate_digest in "${artifact_digests[@]}"; do
+  candidate_record="${artifact_root}/${candidate_digest}/conda/build-record.json"
+  if jq -e '.upstream_dependencies | length == 1' "${candidate_record}" >/dev/null; then
+    upstream_digest="${candidate_digest}"
+    break
+  fi
+done
+if [[ -z "${upstream_digest}" ]]; then
+  echo "unable to find the canonical artifact record with the upstream dependency" >&2
+  exit 1
 fi
 jq -e '
   .upstream_dependencies == [{
@@ -158,7 +177,7 @@ jq -e '
   }]
 ' "${artifact_root}/${upstream_digest}/conda/build-record.json" >/dev/null
 printf 'different bytes\n' >"${temporary_directory}/bundle/linux-64/example-26.10.00.conda"
-if run_upload 4 >/dev/null 2>&1; then
+if run_upload 4 "${base_implementation_revisions}" >/dev/null 2>&1; then
   echo "upload accepted different canonical package bytes" >&2
   exit 1
 fi

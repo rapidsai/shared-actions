@@ -21,13 +21,26 @@ safe_prefix() {
   [[ "${prefix}" != /* && "${prefix}" != */ && "${prefix}" != *'//' && "${prefix}" != *'..'* ]]
 }
 
-for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
+for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
   require_value "${value}" "${!value:-}"
 done
 if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
   echo "RELEASE_CANDIDATE_TRAIN_SHA256 must be a SHA-256 hex digest" >&2
   exit 1
 fi
+build_implementation_revisions="$(jq -ceS '
+  . as $revisions
+  | if ($revisions | type) != "object" then error("build implementation revisions must be an object")
+  elif (["gha-tools", "shared-actions", "shared-workflows"] | all(.[]; . as $name | $revisions | has($name))) | not
+    then error("missing required build implementation revision")
+  elif ($revisions | all(to_entries[]; (.key | type) == "string" and (.value | type) == "string" and (.value | test("^[0-9a-f]{40}$"))))
+    then $revisions
+  else error("invalid build implementation revision")
+  end
+' <<<"${RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS}")" || {
+  echo "RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS is invalid" >&2
+  exit 1
+}
 if [[ "${RELEASE_SOURCE_ARTIFACT_NAME}" == */* || "${RELEASE_SOURCE_ARTIFACT_NAME}" == *".."* ]]; then
   echo "RELEASE_SOURCE_ARTIFACT_NAME must be a plain bundle name" >&2
   exit 1
@@ -98,11 +111,13 @@ else
 fi
 
 build_record_path="$(mktemp)"
-jq -cS --argjson upstream_dependencies "${upstream_dependencies}" '
+jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
+  --argjson build_implementation_revisions "${build_implementation_revisions}" '
   {
     schema_version,
     producer,
     source: (.source | {artifact, repository, sha, workflow_ref, matrix}),
+    build_implementation_revisions: $build_implementation_revisions,
     upstream_dependencies: $upstream_dependencies,
     packages: [
       .entries[]

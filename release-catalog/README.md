@@ -149,11 +149,13 @@ For a release-candidate build, `release-candidate-dependencies` writes
 exact upstream Conda and wheel files actually materialized for the current job
 matrix. Each entry contains the file SHA-256 plus the producing RAPIDS
 repository SHA and build-input digest. `release-catalog` incorporates that lock
-into `build-record.json`, whose SHA-256 determines the canonical artifact
-location. Therefore an unchanged build can be reused across candidate trains
-and GitHub retries, while a downstream build is necessarily distinct when any
-upstream package byte or selected upstream build changes. The lock intentionally
-omits GitHub run and attempt IDs.
+into `build-record.json`, along with the train's frozen `shared-workflows`,
+`shared-actions`, and `gha-tools` revisions. The record's SHA-256 determines
+the canonical artifact location. Therefore an unchanged build can be reused
+across candidate trains and GitHub retries, while a downstream build is
+necessarily distinct when an upstream package byte, selected upstream build, or
+shared build implementation changes. The lock intentionally omits GitHub run
+and attempt IDs.
 
 ## Generated identity evidence
 

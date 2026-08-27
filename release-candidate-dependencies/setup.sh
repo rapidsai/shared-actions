@@ -393,7 +393,8 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     # package's late-named activation script so ordinary Conda CMake builds
     # receive it as well as scikit-build-core and PATH-based invocations.
     activation_script="if [[ \" \${CMAKE_ARGS:-} \" != *\" -Drapids-cmake-sha=${rapids_cmake_sha} \"* ]]; then export CMAKE_ARGS=\"\${CMAKE_ARGS:+\${CMAKE_ARGS} }-Drapids-cmake-sha=${rapids_cmake_sha}\"; fi"
-    package_script="mkdir -p \"\${PREFIX}/etc/conda/activate.d\"\nprintf '%s\\n' '${activation_script}' > \"\${PREFIX}/etc/conda/activate.d/zz-rapids-release-cmake.sh\""
+    package_script=$'mkdir -p "${PREFIX}/etc/conda/activate.d"\n'
+    package_script+="printf '%s\\n' '${activation_script}' > \"\${PREFIX}/etc/conda/activate.d/zz-rapids-release-cmake.sh\""
     jq -n \
       --arg name "${package_name}" \
       --argjson constraints "${constraints}" \

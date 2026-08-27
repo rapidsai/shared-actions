@@ -54,13 +54,56 @@ safe_relative_path() {
 # A reusable repository build is keyed only by its declared inputs. In
 # particular, package build strings often contain a CI timestamp, so the full
 # generated catalog is an *output* record and must not determine this key.
-# Preserve that complete catalog separately for people comparing attempts.
+# A digest names canonical, reusable release bytes. Execution-specific catalog
+# context and provenance stay with the train attempt instead of duplicating
+# payloads below the canonical artifact namespace.
+# The dependency action writes this lock after resolving only the upstream
+# package bytes used by the current matrix. Keep run/attempt metadata out of
+# it: a downstream rebuild is required when an actual input changes, not when
+# an equivalent upstream job is retried.
+upstream_inputs_path="${RELEASE_CANDIDATE_UPSTREAM_INPUTS:-}"
+if [[ -z "${upstream_inputs_path}" ]]; then
+  upstream_dependencies='[]'
+elif [[ ! -f "${upstream_inputs_path}" ]]; then
+  echo "RELEASE_CANDIDATE_UPSTREAM_INPUTS does not name a readable input lock" >&2
+  exit 1
+else
+  upstream_dependencies="$(jq -ceS '
+    if .schema_version != 1 or (.dependencies | type) != "array" then
+      error("upstream input lock must contain schema_version 1 and dependencies")
+    else
+      [.dependencies[]
+       | if (((.artifact_key | type) == "string")
+            and ((.path | type) == "string")
+            and ((.release_catalog_key | type) == "string")
+            and ((.sha256 | type) == "string")
+            and ((.sha256 | test("^[0-9a-f]{64}$")))
+            and ((.producer | type) == "object")
+            and ((.producer.repository | type) == "string")
+            and ((.producer.sha | type) == "string")
+            and ((.producer.sha | test("^[0-9a-f]{40}$")))
+            and ((.producer.build_input_digest | type) == "string")
+            and ((.producer.build_input_digest | test("^[0-9a-f]{64}$")))
+            and ((.package | type) == "object"))
+         then {artifact_key, path, release_catalog_key, producer, sha256, package}
+         else error("upstream dependency has invalid identity")
+         end]
+      | unique_by([.release_catalog_key, .artifact_key, .path, .sha256])
+      | sort_by(.release_catalog_key, .artifact_key, .path, .sha256)
+    end
+  ' "${upstream_inputs_path}")" || {
+    echo "RELEASE_CANDIDATE_UPSTREAM_INPUTS is invalid" >&2
+    exit 1
+  }
+fi
+
 build_record_path="$(mktemp)"
-jq -cS '
+jq -cS --argjson upstream_dependencies "${upstream_dependencies}" '
   {
     schema_version,
     producer,
     source: (.source | {artifact, repository, sha, workflow_ref, matrix}),
+    upstream_dependencies: $upstream_dependencies,
     packages: [
       .entries[]
       | {
@@ -76,16 +119,22 @@ if [[ ! "${attempt_id}" =~ ^[0-9]+\.[0-9]+$ ]]; then
   echo "GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be numeric for a candidate upload" >&2
   exit 1
 fi
-content_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${GITHUB_REPOSITORY}/${build_input_digest}/attempts/${attempt_id}/${RELEASE_SOURCE_ARTIFACT_NAME}"
-build_record_key="${content_key}/build-record.json"
-bundle_key="${content_key}/release-catalog-entries.json"
-train_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${RELEASE_SOURCE_ARTIFACT_NAME}/${attempt_id}/bundle-reference.json"
-# `signature` is optional, so select only declared string paths. Upload the
-# manifest only after every declared payload and evidence object succeeds: it
-# is the S3 completion marker a collector may safely discover.
-mapfile -t bundle_paths < <(jq -r '([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
+artifact_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${GITHUB_REPOSITORY}/${build_input_digest}/${RELEASE_SOURCE_ARTIFACT_NAME}"
+build_record_key="${artifact_key}/build-record.json"
+artifact_index_key="${artifact_key}/artifact-index.json"
+train_bundle_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${RELEASE_SOURCE_ARTIFACT_NAME}/${attempt_id}"
+bundle_key="${train_bundle_key}/release-catalog-entries.json"
+train_key="${train_bundle_key}/bundle-reference.json"
+# Primary package bytes and deterministic SBOMs are canonical release content.
+# Generated provenance identifies a specific GitHub execution, so it remains
+# under the train attempt alongside the execution catalog. A signature is kept
+# there as well until its determinism contract is defined.
+mapfile -t artifact_paths < <(jq -r '([.entries[] | .path, .sbom | strings] | unique) | .[]' "${entries_path}")
+mapfile -t execution_paths < <(jq -r '([.entries[] | .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
 head_metadata="$(mktemp)"
-trap 'rm -f "${head_metadata}" "${build_record_path}"' EXIT
+artifact_index_entries="$(mktemp)"
+artifact_index_path="$(mktemp)"
+trap 'rm -f "${head_metadata}" "${build_record_path}" "${artifact_index_entries}" "${artifact_index_path}"' EXIT
 
 upload_immutable() {
   local local_path="$1"
@@ -110,30 +159,70 @@ upload_immutable() {
   fi
 }
 
-upload_one() {
+upload_artifact() {
   local relative_path="$1"
   local local_path="${bundle_root}/${relative_path}"
-  local object_key
-  if [[ "${relative_path}" == "release-catalog-entries.json" ]]; then
-    object_key="${bundle_key}"
-  else
-    # Keep the exact bundle-relative path expected by existing RAPIDS build
-    # tools. The source-artifact directory is the collision boundary, so no
-    # architecture-specific storage translation is needed.
-    object_key="${content_key}/${relative_path}"
-  fi
-  upload_immutable "${local_path}" "${object_key}"
+  upload_immutable "${local_path}" "${artifact_key}/${relative_path}"
 }
 
-for relative_path in "${bundle_paths[@]}"; do
+upload_execution() {
+  local relative_path="$1"
+  local local_path="${bundle_root}/${relative_path}"
+  upload_immutable "${local_path}" "${train_bundle_key}/${relative_path}"
+}
+
+for relative_path in "${artifact_paths[@]}"; do
   if ! safe_relative_path "${relative_path}" || [[ ! -f "${bundle_root}/${relative_path}" ]]; then
     echo "catalog declares a missing or unsafe candidate file: ${relative_path}" >&2
     exit 1
   fi
-  upload_one "${relative_path}"
 done
+for relative_path in "${execution_paths[@]}"; do
+  if ! safe_relative_path "${relative_path}" || [[ ! -f "${bundle_root}/${relative_path}" ]]; then
+    echo "catalog declares a missing or unsafe candidate file: ${relative_path}" >&2
+    exit 1
+  fi
+done
+
+# This is the stable artifact receipt: it identifies the canonical package
+# bytes without carrying GitHub run/attempt data. A retry with different bytes
+# for these declared inputs must fail the immutable write rather than create a
+# second implicit release candidate.
+while IFS= read -r entry; do
+  primary_path="$(jq -r '.path' <<<"${entry}")"
+  package="$(jq -c '.package' <<<"${entry}")"
+  primary_sha256="$(sha256sum "${bundle_root}/${primary_path}" | awk '{print $1}')"
+  sbom_path="$(jq -r '.sbom // empty' <<<"${entry}")"
+  if [[ -n "${sbom_path}" ]]; then
+    sbom_sha256="$(sha256sum "${bundle_root}/${sbom_path}" | awk '{print $1}')"
+  else
+    sbom_sha256=""
+  fi
+  jq -cn \
+    --arg release_catalog_key "$(jq -r '.release_catalog_key' <<<"${entry}")" \
+    --arg path "${primary_path}" \
+    --arg sha256 "${primary_sha256}" \
+    --arg sbom_path "${sbom_path}" \
+    --arg sbom_sha256 "${sbom_sha256}" \
+    --argjson package "${package}" \
+    '{release_catalog_key: $release_catalog_key, path: $path, sha256: $sha256, package: $package}
+     + if $sbom_path == "" then {} else {sbom: {path: $sbom_path, sha256: $sbom_sha256}} end'
+done < <(jq -c '.entries[]' "${entries_path}") >"${artifact_index_entries}"
+jq -csS \
+  --arg build_input_digest "${build_input_digest}" \
+  '{schema_version: 1, producer: "shared-workflows", build_input_digest: $build_input_digest,
+    entries: sort_by(.release_catalog_key, .path)}' \
+  "${artifact_index_entries}" >"${artifact_index_path}"
+
 upload_immutable "${build_record_path}" "${build_record_key}"
-upload_one "release-catalog-entries.json"
+upload_immutable "${artifact_index_path}" "${artifact_index_key}"
+for relative_path in "${artifact_paths[@]}"; do
+  upload_artifact "${relative_path}"
+done
+for relative_path in "${execution_paths[@]}"; do
+  upload_execution "${relative_path}"
+done
+upload_immutable "${entries_path}" "${bundle_key}"
 
 reference_path="$(mktemp)"
 trap 'rm -f "${head_metadata}" "${build_record_path}" "${reference_path}"' EXIT
@@ -144,10 +233,11 @@ jq -n \
   --arg source_run_id "${GITHUB_RUN_ID}" \
   --arg source_run_attempt "${GITHUB_RUN_ATTEMPT}" \
   --arg build_input_digest "${build_input_digest}" \
-  --arg content_key "${content_key}" \
+  --arg artifact_key "${artifact_key}" \
   --arg build_record_key "${build_record_key}" \
+  --arg artifact_index_key "${artifact_index_key}" \
   --arg bundle_key "${bundle_key}" \
-  '{schema_version: 2, producer: "shared-workflows", train_sha256: $train_sha256, repository: $repository, source_artifact: $source_artifact, source_run_id: $source_run_id, source_run_attempt: $source_run_attempt, build_input_digest: $build_input_digest, content_key: $content_key, build_record_key: $build_record_key, bundle_key: $bundle_key}' \
+  '{schema_version: 3, producer: "shared-workflows", train_sha256: $train_sha256, repository: $repository, source_artifact: $source_artifact, source_run_id: $source_run_id, source_run_attempt: $source_run_attempt, build_input_digest: $build_input_digest, artifact_key: $artifact_key, build_record_key: $build_record_key, artifact_index_key: $artifact_index_key, bundle_key: $bundle_key}' \
   >"${reference_path}"
 
 upload_reference() {
@@ -170,5 +260,5 @@ upload_reference() {
 }
 
 upload_reference
-printf 'Reusable candidate bundle: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${content_key}" >>"${GITHUB_STEP_SUMMARY}"
+printf 'Reusable candidate artifacts: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${artifact_key}" >>"${GITHUB_STEP_SUMMARY}"
 printf 'Candidate train reference: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${train_key}" >>"${GITHUB_STEP_SUMMARY}"

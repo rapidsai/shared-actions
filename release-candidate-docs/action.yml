@@ -12,7 +12,7 @@ inputs:
   candidate-train-prefix:
     description: Root prefix for immutable candidate train records and documentation.
     required: false
-    default: trains
+    default: train-state
 
 runs:
   using: composite

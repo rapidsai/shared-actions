@@ -142,6 +142,19 @@ revision different from the workflow event. Direct callers must likewise set
 names the built source. Variables written to `GITHUB_ENV` are available to the
 action when it runs as a subsequent job step.
 
+## Candidate build reuse
+
+For a release-candidate build, `release-candidate-dependencies` writes
+`RELEASE_CANDIDATE_UPSTREAM_INPUTS` to `GITHUB_ENV`. It is a sorted lock of the
+exact upstream Conda and wheel files actually materialized for the current job
+matrix. Each entry contains the file SHA-256 plus the producing RAPIDS
+repository SHA and build-input digest. `release-catalog` incorporates that lock
+into `build-record.json`, whose SHA-256 determines the canonical artifact
+location. Therefore an unchanged build can be reused across candidate trains
+and GitHub retries, while a downstream build is necessarily distinct when any
+upstream package byte or selected upstream build changes. The lock intentionally
+omits GitHub run and attempt IDs.
+
 ## Generated identity evidence
 
 For every artifact, the action generates an SPDX artifact-identity envelope

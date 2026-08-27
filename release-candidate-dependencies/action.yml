@@ -12,7 +12,7 @@ inputs:
   candidate-train-prefix:
     description: Root prefix for immutable candidate train membership records.
     required: false
-    default: trains
+    default: train-state
   prepare-conda-channel:
     description: Whether this job needs a local Conda channel for build dependencies.
     required: false

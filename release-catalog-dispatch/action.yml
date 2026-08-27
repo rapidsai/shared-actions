@@ -24,7 +24,7 @@ inputs:
   candidate-train-prefix:
     description: Root prefix for immutable train membership records.
     required: false
-    default: trains
+    default: train-state
   upload-to-s3:
     description: Whether to upload the generated bundle to the candidate store.
     required: false

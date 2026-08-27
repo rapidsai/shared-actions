@@ -33,6 +33,7 @@ if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "conda" && "${RELEASE_CANDIDATE_
 fi
 
 root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
+train_key_prefix="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
 workspace="${RUNNER_TEMP}/release-candidate-dependencies"
 channel="${workspace}/conda-channel"
 wheelhouse="${workspace}/wheelhouse"
@@ -60,9 +61,10 @@ if ! aws s3 cp "${root}/scheduler-state.json" "${scheduler_state}" 2>/dev/null; 
   printf '{"workflow_runs":{}}\n' >"${scheduler_state}"
 fi
 
-# Train records are metadata, not package payloads. Each one names an
-# immutable repository content area. Resolve its bundle descriptors before
-# downloading only the catalog envelopes needed to choose build dependencies.
+# Train records are metadata, not package payloads. Each one names canonical
+# reusable release bytes plus an attempt-specific catalog/provenance envelope.
+# Resolve its bundle descriptors before downloading only the catalog envelopes
+# needed to choose build dependencies.
 aws s3 cp "${root}/" "${manifests}" --recursive --exclude '*' --include '*/bundle-reference.json'
 shopt -s globstar nullglob
 reference_paths=("${manifests}"/**/bundle-reference.json)
@@ -96,19 +98,28 @@ for reference_path in "${reference_paths[@]}"; do
     selected_attempts[${reference_identity}]="${source_run_attempt}"
     selected_reference_paths[${reference_identity}]="${reference_path}"
   fi
-  content_key="$(jq -r '.content_key // empty' "${reference_path}")"
-  if [[ -z "${content_key}" || "${content_key}" != artifacts/* || "${content_key}" == *".."* ]]; then
-    echo "candidate train contains an unsafe content reference" >&2
+  artifact_key="$(jq -r '.artifact_key // .content_key // empty' "${reference_path}")"
+  if [[ -z "${artifact_key}" || "${artifact_key}" != artifacts/* || "${artifact_key}" == *".."* ]]; then
+    echo "candidate train contains an unsafe artifact reference" >&2
+    exit 1
+  fi
+  build_input_digest="$(jq -r '.build_input_digest // empty' "${reference_path}")"
+  if [[ -z "${build_input_digest}" || ! "${build_input_digest}" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "candidate train contains a missing or unsafe producer build-input digest" >&2
     exit 1
   fi
   bundle_key="$(jq -r '.bundle_key // empty' "${reference_path}")"
-  if [[ "${bundle_key}" != "${content_key}"/release-catalog-entries.json || "${bundle_key}" == *".."* ]]; then
+  if [[ ( "${bundle_key}" != "${artifact_key}"/release-catalog-entries.json && "${bundle_key}" != "${train_key_prefix}"/*/release-catalog-entries.json ) || "${bundle_key}" == *".."* ]]; then
     echo "candidate train contains an unsafe catalog bundle reference" >&2
     exit 1
   fi
   manifest_path="${reference_path%/bundle-reference.json}/release-catalog-entries.json"
   aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${bundle_key}" "${manifest_path}"
-  jq --arg content_key "${content_key}" '. + {content_key: $content_key}' "${manifest_path}" >"${manifest_path}.tmp"
+  jq \
+    --arg artifact_key "${artifact_key}" \
+    --arg build_input_digest "${build_input_digest}" \
+    '. + {artifact_key: $artifact_key, build_input_digest: $build_input_digest}' \
+    "${manifest_path}" >"${manifest_path}.tmp"
   mv "${manifest_path}.tmp" "${manifest_path}"
 done
 
@@ -116,6 +127,9 @@ repository="${GITHUB_REPOSITORY##*/}"
 target_unit="${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${repository}"
 cuda_major="${RELEASE_CANDIDATE_CUDA_VERSION%%.*}"
 selected="${workspace}/selected-artifacts.json"
+resolved_inputs="${workspace}/resolved-upstream-inputs.jsonl"
+upstream_inputs="${workspace}/upstream-inputs.json"
+: >"${resolved_inputs}"
 if ! jq -e --arg target "${target_unit}" '.release_units[] | select(.id == $target and .artifact_family != "source")' \
   "${workspace}/release-train.json" >/dev/null; then
   echo "release train has no candidate build unit for ${target_unit}" >&2
@@ -177,8 +191,10 @@ jq -n \
             or (.package.platform == "noarch" or .package.platform == $conda_platform)
           )
         | {
+          release_catalog_key: .release_catalog_key,
             source: $record.source,
-            content_key: $record.content_key,
+            artifact_key: $record.artifact_key,
+            producer_build_input_digest: $record.build_input_digest,
             path: .path,
             package: .package
           }
@@ -194,17 +210,44 @@ if [[ "$(jq 'length' "${selected}")" -eq 0 ]]; then
   echo "no upstream candidate package dependencies declared for ${target_unit}"
 fi
 
-while IFS= read -r selection; do
-  content_key="$(jq -r '.content_key // empty' <<<"${selection}")"
+record_resolved_input() {
+  local selection="$1"
+  local downloaded_path="$2"
+  local artifact_key artifact_path release_catalog_key package sha256
+  local producer_repository producer_sha producer_build_input_digest
+  artifact_key="$(jq -r '.artifact_key' <<<"${selection}")"
   artifact_path="$(jq -r '.path' <<<"${selection}")"
-  if [[ -z "${content_key}" || "${content_key}" != artifacts/* || "${content_key}" == *".."* || "${artifact_path}" == /* || "${artifact_path}" == *".."* ]]; then
+  release_catalog_key="$(jq -r '.release_catalog_key // empty' <<<"${selection}")"
+  producer_repository="$(jq -r '.source.repository // empty' <<<"${selection}")"
+  producer_sha="$(jq -r '.source.sha // empty' <<<"${selection}")"
+  producer_build_input_digest="$(jq -r '.producer_build_input_digest // empty' <<<"${selection}")"
+  package="$(jq -c '.package' <<<"${selection}")"
+  sha256="$(sha256sum "${downloaded_path}" | awk '{print $1}')"
+  jq -cn \
+    --arg artifact_key "${artifact_key}" \
+    --arg path "${artifact_path}" \
+    --arg release_catalog_key "${release_catalog_key}" \
+    --arg producer_repository "${producer_repository}" \
+    --arg producer_sha "${producer_sha}" \
+    --arg producer_build_input_digest "${producer_build_input_digest}" \
+    --arg sha256 "${sha256}" \
+    --argjson package "${package}" \
+    '{artifact_key: $artifact_key, path: $path, release_catalog_key: $release_catalog_key,
+      producer: {repository: $producer_repository, sha: $producer_sha,
+        build_input_digest: $producer_build_input_digest},
+      sha256: $sha256, package: $package}' >>"${resolved_inputs}"
+}
+
+while IFS= read -r selection; do
+  artifact_key="$(jq -r '.artifact_key // empty' <<<"${selection}")"
+  artifact_path="$(jq -r '.path' <<<"${selection}")"
+  if [[ -z "${artifact_key}" || "${artifact_key}" != artifacts/* || "${artifact_key}" == *".."* || "${artifact_path}" == /* || "${artifact_path}" == *".."* ]]; then
     echo "candidate catalog contains an unsafe dependency location" >&2
     exit 1
   fi
-  # Candidate storage preserves the producer's bundle-relative layout. This
-  # lets the dependency view and the same-repository download wrapper consume
-  # the exact paths already expected by RAPIDS build tooling.
-  source="s3://${RELEASE_CANDIDATE_BUCKET}/${content_key}/${artifact_path}"
+  # Canonical candidate storage preserves the producer's bundle-relative
+  # layout without tying dependency retrieval to a GitHub run attempt.
+  source="s3://${RELEASE_CANDIDATE_BUCKET}/${artifact_key}/${artifact_path}"
   case "${artifact_path}" in
     *.conda|*.tar.bz2)
       [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]] || continue
@@ -214,6 +257,7 @@ while IFS= read -r selection; do
         *) echo "candidate Conda package has unsupported platform: ${platform}" >&2; exit 1 ;;
       esac
       aws s3 cp "${source}" "${destination}/$(basename "${artifact_path}")"
+      record_resolved_input "${selection}" "${destination}/$(basename "${artifact_path}")"
       ;;
     *.whl)
       if ! python3 "$(dirname "$0")/select_wheel.py" \
@@ -221,10 +265,22 @@ while IFS= read -r selection; do
         continue
       fi
       aws s3 cp "${source}" "${wheelhouse}/$(basename "${artifact_path}")"
+      record_resolved_input "${selection}" "${wheelhouse}/$(basename "${artifact_path}")"
       ;;
     *) echo "candidate catalog has unsupported package type: ${artifact_path}" >&2; exit 1 ;;
   esac
 done < <(jq -c '.[]' "${selected}")
+
+# The uploader uses this lock as part of the repository build-input digest. It
+# records only the exact upstream package bytes materialized for this matrix,
+# never their GitHub execution IDs. Sorting makes the lock independent of S3
+# listing order and avoids rebuilding when an equivalent dependency view is
+# prepared again.
+jq -sS \
+  '{schema_version: 1,
+    dependencies: (unique_by([.release_catalog_key, .artifact_key, .path, .sha256])
+      | sort_by(.release_catalog_key, .artifact_key, .path, .sha256))}' \
+  "${resolved_inputs}" >"${upstream_inputs}"
 
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
   if ! command -v conda >/dev/null; then
@@ -236,6 +292,7 @@ fi
 
 original_download="$(command -v rapids-download-from-github || true)"
 original_rattler="$(command -v rapids-rattler-channel-string || true)"
+original_rattler_build="$(command -v rattler-build || true)"
 if [[ -z "${original_download}" ]]; then
   echo "RAPIDS gha-tools must be installed before candidate dependency setup" >&2
   exit 1
@@ -243,6 +300,71 @@ fi
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" && -z "${original_rattler}" ]]; then
   echo "rapids-rattler-channel-string is required for a candidate Conda build" >&2
   exit 1
+fi
+if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" && -z "${original_rattler_build}" ]]; then
+  echo "rattler-build is required for a candidate Conda build" >&2
+  exit 1
+fi
+
+# A lock metapackage has no payload. Its run constraints are nevertheless part
+# of the build/host solve once this package is injected into a recipe. Keeping
+# it in the job-local candidate channel avoids publishing CI-only lock packages.
+if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
+  conda_platform="$([[ "${RELEASE_CANDIDATE_ARCH}" == "aarch64" ]] && printf linux-aarch64 || printf linux-64)"
+  lock_workspace="${workspace}/train-locks"
+  mkdir -p "${lock_workspace}"
+
+  prepare_lock_metapackage() {
+    local section="$1"
+    local record relative_path expected_sha256 lock_path actual_sha256 constraints package_name recipe
+    record="$(jq -cer \
+      --arg platform "${conda_platform}" \
+      --arg cuda "${cuda_major}" \
+      --arg environment "${section}" \
+      '.input_locks.conda[]
+       | select(.scope.platform == $platform and .scope.cuda == $cuda and .scope.environment == $environment)' \
+      "${workspace}/release-train.json")"
+    relative_path="$(jq -r '.path' <<<"${record}")"
+    expected_sha256="$(jq -r '.sha256' <<<"${record}")"
+    if [[ "${relative_path}" == /* || "${relative_path}" == *".."* || ! "${expected_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
+      echo "release train contains an unsafe ${section} lock reference" >&2
+      exit 1
+    fi
+    lock_path="${lock_workspace}/${section}-constraints.txt"
+    aws s3 cp "${root}/inputs/${relative_path}" "${lock_path}"
+    actual_sha256="$(sha256sum "${lock_path}" | awk '{print $1}')"
+    if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
+      echo "stored ${section} lock does not match the release train" >&2
+      exit 1
+    fi
+    constraints="$(jq -Rsc 'split("\n") | map(select(length > 0))' "${lock_path}")"
+    package_name="rapids-release-lock-${RELEASE_CANDIDATE_TRAIN_SHA256:0:12}-${conda_platform}-cuda${cuda_major}-${section}"
+    recipe="${lock_workspace}/${section}-recipe.yaml"
+    jq -n \
+      --arg name "${package_name}" \
+      --argjson constraints "${constraints}" \
+      '{schema_version: 1, package: {name: $name, version: "0"}, build: {number: 0, noarch: "generic"}, requirements: {run_constraints: $constraints}}' \
+      >"${recipe}"
+    "${original_rattler_build}" build --recipe "${recipe}" --output-dir "${channel}" --color never
+    printf '%s' "${package_name}"
+  }
+
+  lock_build_package="$(prepare_lock_metapackage build)"
+  lock_host_package="$(prepare_lock_metapackage host)"
+  variant_record="$(jq -cer '.input_variants | {path: .configuration_path, sha256: .configuration_sha256}' "${workspace}/release-train.json")"
+  variant_path="$(jq -r '.path' <<<"${variant_record}")"
+  variant_sha256="$(jq -r '.sha256' <<<"${variant_record}")"
+  if [[ "${variant_path}" == /* || "${variant_path}" == *".."* || ! "${variant_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
+    echo "release train contains an unsafe variant configuration reference" >&2
+    exit 1
+  fi
+  variant_config="${lock_workspace}/train-variants.yaml"
+  aws s3 cp "${root}/inputs/${variant_path}" "${variant_config}"
+  if [[ "$(sha256sum "${variant_config}" | awk '{print $1}')" != "${variant_sha256}" ]]; then
+    echo "stored variant configuration does not match the release train" >&2
+    exit 1
+  fi
+  conda index "${channel}"
 fi
 
 # Repository build scripts already name their same-run intermediate artifact.
@@ -262,12 +384,12 @@ if [[ "${#references[@]}" -ne 1 ]]; then
   exit 1
 fi
 reference="${references[0]}"
-content_key="$(jq -r '.content_key // empty' "${reference}")"
-if [[ -z "${content_key}" || "${content_key}" != artifacts/* || "${content_key}" == *".."* ]]; then
-  echo "candidate artifact has an unsafe content reference: ${artifact_name}" >&2
+artifact_key="$(jq -r '.artifact_key // .content_key // empty' "${reference}")"
+if [[ -z "${artifact_key}" || "${artifact_key}" != artifacts/* || "${artifact_key}" == *".."* ]]; then
+  echo "candidate artifact has an unsafe artifact reference: ${artifact_name}" >&2
   exit 1
 fi
-source_prefix="s3://${RELEASE_CANDIDATE_BUCKET}/${content_key}/"
+source_prefix="s3://${RELEASE_CANDIDATE_BUCKET}/${artifact_key}/"
 # Callers capture this helper's stdout as the downloaded directory. Keep AWS
 # transfer diagnostics on stderr so they can never become part of a Conda URL.
 if ! aws s3 cp "${source_prefix}" "${destination}" --recursive >&2; then
@@ -296,15 +418,40 @@ RAPIDS_PREPENDED_CONDA_CHANNELS=("${RAPIDS_CANDIDATE_CONDA_CHANNEL}" "${RAPIDS_P
 source "${RAPIDS_CANDIDATE_ORIGINAL_RATTLER_CHANNEL_STRING}"
 EOF
 chmod +x "${tools}/rapids-rattler-channel-string"
+cat >"${tools}/rattler-build" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+arguments=("$@")
+if [[ "${arguments[0]:-}" == "build" ]]; then
+  for index in "${!arguments[@]}"; do
+    if [[ "${arguments[${index}]}" == "--recipe" && -n "${arguments[$((index + 1))]:-}" ]]; then
+      arguments[$((index + 1))]="$(python3 "${RAPIDS_CANDIDATE_RECIPE_PATCHER}" \
+        --recipe "${arguments[$((index + 1))]}" \
+        --build-lock "${RAPIDS_CANDIDATE_BUILD_LOCK_PACKAGE}" \
+        --host-lock "${RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE}")"
+      arguments+=(--ignore-recipe-variants --variant-config "${RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG}")
+      break
+    fi
+  done
+fi
+exec "${RAPIDS_CANDIDATE_ORIGINAL_RATTLER_BUILD}" "${arguments[@]}"
+EOF
+chmod +x "${tools}/rattler-build"
 fi
 
 {
   printf 'RELEASE_CANDIDATE_BUCKET=%s\n' "${RELEASE_CANDIDATE_BUCKET}"
   printf 'RELEASE_CANDIDATE_TRAIN_PREFIX=%s\n' "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
   printf 'RELEASE_CANDIDATE_TRAIN_SHA256=%s\n' "${RELEASE_CANDIDATE_TRAIN_SHA256}"
+  printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
   if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     printf 'RAPIDS_CANDIDATE_CONDA_CHANNEL=%s\n' "${channel}"
     printf 'RAPIDS_CANDIDATE_ORIGINAL_RATTLER_CHANNEL_STRING=%s\n' "${original_rattler}"
+    printf 'RAPIDS_CANDIDATE_ORIGINAL_RATTLER_BUILD=%s\n' "${original_rattler_build}"
+    printf 'RAPIDS_CANDIDATE_RECIPE_PATCHER=%s\n' "${IMPLEMENTATION_PATH}/patch_recipe.py"
+    printf 'RAPIDS_CANDIDATE_BUILD_LOCK_PACKAGE=%s\n' "${lock_build_package}"
+    printf 'RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE=%s\n' "${lock_host_package}"
+    printf 'RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG=%s\n' "${variant_config}"
   fi
   printf 'PIP_FIND_LINKS=%s\n' "${wheelhouse}${PIP_FIND_LINKS:+ ${PIP_FIND_LINKS}}"
 } >>"${GITHUB_ENV}"

@@ -360,7 +360,7 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
 
   prepare_lock_metapackage() {
     local section="$1"
-    local record relative_path expected_sha256 lock_path actual_sha256 constraints package_name recipe
+    local record relative_path expected_sha256 lock_path actual_sha256 constraints package_name recipe activation_script package_script
     record="$(jq -cer \
       --arg platform "${conda_platform}" \
       --arg cuda "${cuda_major}" \
@@ -387,10 +387,18 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     constraints="$(jq -Rsc 'split("\n") | map(select(length > 0))' "${lock_path}")"
     package_name="rapids-release-lock-${RELEASE_CANDIDATE_TRAIN_SHA256:0:12}-${conda_platform}-cuda${cuda_major}-${section}"
     recipe="${lock_workspace}/${section}-recipe.yaml"
+    # Rattler-Build activates build and host prefixes in an isolated shell.
+    # Compiler activation creates CMAKE_ARGS there, after the outer candidate
+    # action has finished. Put the frozen RAPIDS CMake definition in each lock
+    # package's late-named activation script so ordinary Conda CMake builds
+    # receive it as well as scikit-build-core and PATH-based invocations.
+    activation_script="if [[ \" \${CMAKE_ARGS:-} \" != *\" -Drapids-cmake-sha=${rapids_cmake_sha} \"* ]]; then export CMAKE_ARGS=\"\${CMAKE_ARGS:+\${CMAKE_ARGS} }-Drapids-cmake-sha=${rapids_cmake_sha}\"; fi"
+    package_script="mkdir -p \"\${PREFIX}/etc/conda/activate.d\"\nprintf '%s\\n' '${activation_script}' > \"\${PREFIX}/etc/conda/activate.d/zz-rapids-release-cmake.sh\""
     jq -n \
       --arg name "${package_name}" \
       --argjson constraints "${constraints}" \
-      '{schema_version: 1, package: {name: $name, version: "0"}, build: {number: 0, noarch: "generic"}, requirements: {run_constraints: $constraints}}' \
+      --arg script "${package_script}" \
+      '{schema_version: 1, package: {name: $name, version: "0"}, build: {number: 0, noarch: "generic", script: $script}, requirements: {run_constraints: $constraints}}' \
       >"${recipe}"
     # This function is called through command substitution. Keep Rattler's
     # human build log on stderr so the captured value is exactly the package

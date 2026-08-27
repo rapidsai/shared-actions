@@ -29,7 +29,6 @@ def main() -> int:
     if not isinstance(document, dict):
         parser.error(f"recipe must be a YAML mapping: {recipe}")
     exact_variant_keys = _local_exact_variant_keys(recipe)
-    _prepare_document(document, arguments.build_lock, arguments.host_lock, exact_variant_keys)
     outputs = document.get("outputs", [])
     if outputs is not None:
         if not isinstance(outputs, list):
@@ -37,7 +36,7 @@ def main() -> int:
         for output in outputs:
             if not isinstance(output, dict):
                 parser.error(f"recipe output must be a mapping: {recipe}")
-            _prepare_document(output, arguments.build_lock, arguments.host_lock, exact_variant_keys)
+    _prepare_recipe_documents(document, arguments.build_lock, arguments.host_lock, exact_variant_keys)
 
     destination_recipe.write_text(yaml.safe_dump(document, sort_keys=False))
     print(destination_directory if source_is_directory else destination_recipe)
@@ -75,13 +74,54 @@ def _copy_recipe_directory(recipe: Path, build_lock: str, host_lock: str) -> Pat
     return destination
 
 
-def _prepare_document(document: dict, build_lock: str, host_lock: str, exact_variant_keys: set[str]) -> None:
-    _add_requirements(document, build_lock, host_lock)
+def _prepare_recipe_documents(document: dict, build_lock: str, host_lock: str, exact_variant_keys: set[str]) -> None:
+    """Inject locks into the actual build target of a Rattler recipe.
+
+    A recipe without outputs produces its root package, while every member of
+    a multi-output recipe is an independent build target. Rattler-Build does
+    not permit top-level requirements for the latter, so first distribute the
+    shared requirements into every output and remove the root field.
+    """
+    outputs = document.get("outputs")
+    if not outputs:
+        _prepare_document(document, build_lock, host_lock, exact_variant_keys, add_locks=True)
+        return
+
+    _move_root_requirements_to_outputs(document, outputs)
+    for output in outputs:
+        _prepare_document(output, build_lock, host_lock, exact_variant_keys, add_locks=True)
+
+
+def _prepare_document(
+    document: dict, build_lock: str, host_lock: str, exact_variant_keys: set[str], *, add_locks: bool
+) -> None:
+    if add_locks:
+        _add_requirements(document, build_lock, host_lock)
     requirements = document["requirements"]
     for section, values in requirements.items():
         if not isinstance(values, list):
             continue
         requirements[section] = [_add_exact_operator(value, exact_variant_keys) for value in values]
+
+
+def _move_root_requirements_to_outputs(document: dict, outputs: list[dict]) -> None:
+    """Copy shared requirements into every output before removing the root field."""
+    root_requirements = document.pop("requirements", None)
+    if root_requirements is None:
+        return
+    if not isinstance(root_requirements, dict):
+        raise ValueError("recipe requirements must be a mapping")
+    for section, shared_values in root_requirements.items():
+        if not isinstance(shared_values, list):
+            raise ValueError(f"recipe requirements.{section} must be a list")
+        for output in outputs:
+            requirements = output.setdefault("requirements", {})
+            if not isinstance(requirements, dict):
+                raise ValueError("recipe output requirements must be a mapping")
+            values = requirements.setdefault(section, [])
+            if not isinstance(values, list):
+                raise ValueError(f"recipe output requirements.{section} must be a list")
+            requirements[section] = [*shared_values, *(value for value in values if value not in shared_values)]
 
 
 def _local_exact_variant_keys(recipe: Path) -> set[str]:

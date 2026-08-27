@@ -72,6 +72,46 @@ def test_recipe_patcher_adds_lock_metapackages_to_root_and_outputs():
         pytest.fail("output requirements did not receive both lock metapackages")
 
 
+def test_recipe_patcher_injects_locks_only_into_multi_output_build_targets():
+    recipe = {
+        "requirements": {"build": ["cmake"], "host": ["zlib"]},
+        "outputs": [
+            {"package": {"name": "library"}, "requirements": {"host": ["python"]}},
+            {"package": {"name": "tests"}, "requirements": {"build": ["ninja"]}},
+        ],
+    }
+
+    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", set())
+
+    if "requirements" in recipe:
+        pytest.fail("multi-output recipe retained a forbidden top-level requirements field")
+    expected_library_requirements = {
+        "build": ["cmake", "candidate-build-lock"],
+        "host": ["zlib", "python", "candidate-host-lock"],
+    }
+    if recipe["outputs"][0]["requirements"] != expected_library_requirements:
+        pytest.fail("library output did not inherit shared and candidate requirements")
+    expected_test_requirements = {
+        "build": ["cmake", "ninja", "candidate-build-lock"],
+        "host": ["zlib", "candidate-host-lock"],
+    }
+    if recipe["outputs"][1]["requirements"] != expected_test_requirements:
+        pytest.fail("test output did not inherit shared and candidate requirements")
+
+
+def test_recipe_patcher_injects_locks_into_single_output_root():
+    recipe = {"requirements": {"build": ["cmake"], "host": ["zlib"]}}
+
+    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", set())
+
+    expected_requirements = {
+        "build": ["cmake", "candidate-build-lock"],
+        "host": ["zlib", "candidate-host-lock"],
+    }
+    if recipe["requirements"] != expected_requirements:
+        pytest.fail("single-output root did not receive candidate requirements")
+
+
 def test_recipe_patcher_adapts_exact_variant_spelling_from_local_config(tmp_path):
     recipe = tmp_path / "recipe.yaml"
     recipe.write_text("package:\n  name: example\n  version: 1\n")

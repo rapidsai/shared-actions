@@ -76,7 +76,11 @@ def test_recipe_patcher_injects_locks_only_into_multi_output_build_targets():
     recipe = {
         "requirements": {"build": ["cmake"], "host": ["zlib"]},
         "outputs": [
-            {"package": {"name": "library"}, "requirements": {"host": ["python"]}},
+            {
+                "package": {"name": "library"},
+                "build": {"script": {"content": "cmake --install build", "env": {"KEEP": "true"}}},
+                "requirements": {"host": ["python"]},
+            },
             {"package": {"name": "tests"}, "requirements": {"build": ["ninja"]}},
         ],
     }
@@ -91,6 +95,9 @@ def test_recipe_patcher_injects_locks_only_into_multi_output_build_targets():
     }
     if recipe["outputs"][0]["requirements"] != expected_library_requirements:
         pytest.fail("library output did not inherit shared and candidate requirements")
+    output_script = recipe["outputs"][0]["build"]["script"]
+    if output_script["env"] != {"KEEP": "true"} or "-Drapids-cmake-sha=deadbeef" not in output_script["content"]:
+        pytest.fail("script-object content was not pinned without losing its environment")
     expected_test_requirements = {
         "build": ["cmake", "ninja", "candidate-build-lock"],
         "host": ["zlib", "candidate-host-lock"],
@@ -141,6 +148,27 @@ def test_recipe_patcher_injects_test_lock_into_each_multi_output_test():
             "run": ["candidate-host-lock"],
         }:
             pytest.fail("multi-output package test did not receive the candidate CMake activation lock")
+
+
+def test_recipe_patcher_pins_and_locks_shared_cache_build():
+    recipe = {
+        "cache": {
+            "build": {"script": {"content": "./build.sh", "secrets": ["AWS_TOKEN"]}},
+            "requirements": {"build": ["cmake"], "host": ["zlib"]},
+        },
+        "outputs": [{"package": {"name": "library"}}],
+    }
+
+    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
+
+    if recipe["cache"]["requirements"] != {
+        "build": ["cmake", "candidate-build-lock"],
+        "host": ["zlib", "candidate-host-lock"],
+    }:
+        pytest.fail("shared cache build did not receive candidate lock packages")
+    cache_script = recipe["cache"]["build"]["script"]
+    if cache_script["secrets"] != ["AWS_TOKEN"] or "-Drapids-cmake-sha=deadbeef" not in cache_script["content"]:
+        pytest.fail("shared cache build script was not pinned without losing its configuration")
 
 
 def test_recipe_patcher_adapts_exact_variant_spelling_from_local_config(tmp_path):

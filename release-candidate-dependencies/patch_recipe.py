@@ -110,7 +110,14 @@ def _prepend_cmake_preamble(script: object, rapids_cmake_sha: str) -> object:
         return f"{preamble}\n{script}"
     if isinstance(script, list):
         return [preamble, *script]
-    raise ValueError("release-candidate recipe script must be a string or list")
+    if isinstance(script, dict):
+        content = script.get("content")
+        if content is None:
+            raise ValueError("release-candidate recipe script object must define content")
+        patched = dict(script)
+        patched["content"] = _prepend_cmake_preamble(content, rapids_cmake_sha)
+        return patched
+    raise ValueError("release-candidate recipe script must be a string, list, or content object")
 
 
 def _pin_cmake_in_scripts(document: dict, rapids_cmake_sha: str) -> None:
@@ -163,6 +170,15 @@ def _prepare_recipe_documents(
     """
     _add_test_requirements(document, build_lock, host_lock)
     _pin_cmake_in_scripts(document, rapids_cmake_sha)
+    cache = document.get("cache")
+    if cache is not None:
+        if not isinstance(cache, dict):
+            raise ValueError("recipe cache must be a mapping")
+        # Cache recipes have a shared build phase before output packages are
+        # assembled. Its solve and shell are just as much part of the
+        # candidate build as an output's own requirements and script.
+        _add_requirements(cache, build_lock, host_lock)
+        _pin_cmake_in_scripts(cache, rapids_cmake_sha)
     outputs = document.get("outputs")
     if not outputs:
         _prepare_document(document, build_lock, host_lock, exact_variant_keys, add_locks=True)

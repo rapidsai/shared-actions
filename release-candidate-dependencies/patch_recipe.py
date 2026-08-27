@@ -20,7 +20,7 @@ def main() -> int:
     parser.add_argument("--host-lock", required=True)
     arguments = parser.parse_args()
 
-    recipe = arguments.recipe.resolve()
+    recipe = _resolve_recipe(arguments.recipe, parser)
     document = yaml.safe_load(recipe.read_text())
     if not isinstance(document, dict):
         parser.error(f"recipe must be a YAML mapping: {recipe}")
@@ -52,6 +52,15 @@ def _add_requirements(document: dict, build_lock: str, host_lock: str) -> None:
             raise ValueError(f"recipe requirements.{section} must be a list")
         if lock not in values:
             values.append(lock)
+
+
+def _resolve_recipe(candidate: Path, parser: argparse.ArgumentParser) -> Path:
+    recipe = candidate.resolve()
+    if recipe.is_dir():
+        recipe = recipe / "recipe.yaml"
+    if not recipe.is_file():
+        parser.error(f"recipe must be a file or a directory containing recipe.yaml: {candidate}")
+    return recipe
 
 
 def _prepare_document(document: dict, build_lock: str, host_lock: str, exact_variant_keys: set[str]) -> None:

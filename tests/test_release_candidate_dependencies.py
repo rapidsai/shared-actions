@@ -1,5 +1,6 @@
 # Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import argparse
 import importlib.util
 from pathlib import Path
 
@@ -82,3 +83,15 @@ def test_recipe_patcher_adapts_exact_variant_spelling_from_local_config(tmp_path
         pytest.fail("recipe patcher did not add the local exact MatchSpec operator")
     if _PATCHER_MODULE._add_exact_operator(expected, keys) != expected:
         pytest.fail("recipe patcher duplicated the local exact MatchSpec operator")
+
+
+def test_recipe_patcher_accepts_recipe_directory(tmp_path):
+    recipe = tmp_path / "recipe"
+    recipe.mkdir()
+    expected = recipe / "recipe.yaml"
+    expected.write_text("package:\n  name: example\n  version: 1\n")
+
+    resolved = _PATCHER_MODULE._resolve_recipe(recipe, argparse.ArgumentParser())
+
+    if resolved != expected:
+        pytest.fail("recipe patcher did not resolve a recipe directory to recipe.yaml")

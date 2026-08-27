@@ -62,40 +62,6 @@ def _add_requirements(document: dict, build_lock: str, host_lock: str) -> None:
             values.append(lock)
 
 
-def _add_test_requirements(document: dict, build_lock: str, host_lock: str) -> None:
-    """Install lock packages in each isolated package test prefix.
-
-    Rattler-Build creates a new prefix to test the package it just produced.
-    That prefix does not inherit build or host requirements, so the lock
-    package that supplies candidate constraints and the RAPIDS CMake hook must
-    be a test-only requirement. Keeping it on the test object avoids changing
-    the output package's runtime metadata.
-    """
-    tests = document.get("tests", [])
-    if tests is None:
-        return
-    if not isinstance(tests, list):
-        raise ValueError("recipe tests must be a list")
-    for test in tests:
-        if not isinstance(test, dict):
-            raise ValueError("recipe test must be a mapping")
-        # Python/import, downstream, and package-content tests do not accept
-        # arbitrary requirements in Rattler's schema. They also do not run
-        # CMake directly, so only script tests need the candidate build and
-        # host lock packages.
-        if "script" not in test:
-            continue
-        requirements = test.setdefault("requirements", {})
-        if not isinstance(requirements, dict):
-            raise ValueError("recipe test requirements must be a mapping")
-        for section, lock in (("build", build_lock), ("run", host_lock)):
-            values = requirements.setdefault(section, [])
-            if not isinstance(values, list):
-                raise ValueError(f"recipe test requirements.{section} must be a list")
-            if lock not in values:
-                values.append(lock)
-
-
 def _candidate_cmake_preamble(rapids_cmake_sha: str) -> str:
     """Return Bash setup that pins configure-mode CMake and scikit-build."""
     return f"""# Release candidates must never fetch RAPIDS CMake from a moving branch.
@@ -126,23 +92,17 @@ def _prepend_cmake_preamble(script: object, rapids_cmake_sha: str) -> object:
     raise ValueError("release-candidate recipe script must be a string, list, or content object")
 
 
-def _pin_cmake_in_scripts(document: dict, rapids_cmake_sha: str) -> None:
+def _pin_cmake_in_build_script(document: dict, rapids_cmake_sha: str) -> None:
     """Place the exact CMake definition inside Rattler's isolated shells.
 
-    Rattler does not inherit the workflow PATH into its build or test shells,
-    so a workflow-level CMake wrapper cannot protect scripts that invoke
-    ``cmake`` directly.  Patch only the disposable recipe copy and leave the
-    package metadata untouched.
+    Rattler does not inherit the workflow PATH into its build shell, so a
+    workflow-level CMake wrapper cannot protect scripts that invoke ``cmake``
+    directly. Package tests intentionally remain unmodified: they validate
+    the produced package rather than the candidate build environment.
     """
     build = document.get("build")
     if isinstance(build, dict) and "script" in build:
         build["script"] = _prepend_cmake_preamble(build["script"], rapids_cmake_sha)
-    tests = document.get("tests", [])
-    if tests is None:
-        return
-    for test in tests:
-        if isinstance(test, dict) and "script" in test:
-            test["script"] = _prepend_cmake_preamble(test["script"], rapids_cmake_sha)
 
 
 def _resolve_recipe(candidate: Path, parser: argparse.ArgumentParser) -> Path:
@@ -174,8 +134,7 @@ def _prepare_recipe_documents(
     not permit top-level requirements for the latter, so first distribute the
     shared requirements into every output and remove the root field.
     """
-    _add_test_requirements(document, build_lock, host_lock)
-    _pin_cmake_in_scripts(document, rapids_cmake_sha)
+    _pin_cmake_in_build_script(document, rapids_cmake_sha)
     cache = document.get("cache")
     if cache is not None:
         if not isinstance(cache, dict):
@@ -184,7 +143,7 @@ def _prepare_recipe_documents(
         # assembled. Its solve and shell are just as much part of the
         # candidate build as an output's own requirements and script.
         _add_requirements(cache, build_lock, host_lock)
-        _pin_cmake_in_scripts(cache, rapids_cmake_sha)
+        _pin_cmake_in_build_script(cache, rapids_cmake_sha)
     outputs = document.get("outputs")
     if not outputs:
         _prepare_document(document, build_lock, host_lock, exact_variant_keys, add_locks=True)
@@ -192,8 +151,7 @@ def _prepare_recipe_documents(
 
     _move_root_requirements_to_outputs(document, outputs)
     for output in outputs:
-        _add_test_requirements(output, build_lock, host_lock)
-        _pin_cmake_in_scripts(output, rapids_cmake_sha)
+        _pin_cmake_in_build_script(output, rapids_cmake_sha)
         _prepare_document(output, build_lock, host_lock, exact_variant_keys, add_locks=True)
 
 

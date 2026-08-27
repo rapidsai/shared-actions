@@ -121,18 +121,13 @@ def test_recipe_patcher_injects_locks_into_single_output_root():
     }
     if recipe["requirements"] != expected_requirements:
         pytest.fail("single-output root did not receive candidate requirements")
-    if recipe["tests"][0]["requirements"] != {
-        "build": ["candidate-build-lock"],
-        "run": ["candidate-host-lock"],
-    }:
-        pytest.fail("package test did not receive the candidate CMake activation lock")
     if "-Drapids-cmake-sha=deadbeef" not in recipe["build"]["script"]:
         pytest.fail("package build script did not pin RAPIDS CMake")
-    if "-Drapids-cmake-sha=deadbeef" not in recipe["tests"][0]["script"]:
-        pytest.fail("package test script did not pin RAPIDS CMake")
+    if "-Drapids-cmake-sha=deadbeef" in recipe["tests"][0]["script"]:
+        pytest.fail("package test script unexpectedly pinned RAPIDS CMake")
 
 
-def test_recipe_patcher_injects_test_lock_into_each_multi_output_test():
+def test_recipe_patcher_leaves_multi_output_tests_unmodified():
     recipe = {
         "outputs": [
             {"package": {"name": "library"}, "tests": [{"script": "ctest"}]},
@@ -142,14 +137,9 @@ def test_recipe_patcher_injects_test_lock_into_each_multi_output_test():
 
     _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
 
-    script_test = recipe["outputs"][0]["tests"][0]
-    if script_test["requirements"] != {
-        "build": ["candidate-build-lock"],
-        "run": ["candidate-host-lock"],
-    }:
-        pytest.fail("multi-output script test did not receive the candidate CMake activation lock")
-    if "requirements" in recipe["outputs"][1]["tests"][0]:
-        pytest.fail("non-script package test received incompatible candidate requirements")
+    for output in recipe["outputs"]:
+        if "requirements" in output["tests"][0]:
+            pytest.fail("candidate recipe patcher modified a package test")
 
 
 def test_recipe_patcher_pins_and_locks_shared_cache_build():

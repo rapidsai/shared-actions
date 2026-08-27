@@ -65,6 +65,16 @@ if [[ ! "${rapids_cmake_sha}" =~ ^[[:xdigit:]]{40}$ ]]; then
   echo "release train must lock rapids-cmake with build_tool_revisions.rapids-cmake; regenerate the train" >&2
   exit 1
 fi
+# scikit-build-core may use the CMake wheel rather than resolving `cmake` from
+# PATH, so its configure call can bypass the candidate CMake wrapper below.
+# Its supported environment configuration is additive and reaches both the
+# bundled and system CMake implementations.  Put the immutable train value
+# last so it wins over an inherited generic definition of the same cache key.
+skbuild_cmake_define="rapids-cmake-sha=${rapids_cmake_sha}"
+if [[ -n "${SKBUILD_CMAKE_DEFINE:-}" ]]; then
+  require_value "SKBUILD_CMAKE_DEFINE" "${SKBUILD_CMAKE_DEFINE}"
+  skbuild_cmake_define="${SKBUILD_CMAKE_DEFINE};${skbuild_cmake_define}"
+fi
 
 # Schema-2 trains keep generated input evidence in compact, checksum-addressed
 # receipts. Download those before resolving this job's lock packages. Older
@@ -492,6 +502,7 @@ fi
   printf 'RELEASE_CANDIDATE_TRAIN_PREFIX=%s\n' "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
   printf 'RELEASE_CANDIDATE_TRAIN_SHA256=%s\n' "${RELEASE_CANDIDATE_TRAIN_SHA256}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
+  printf 'SKBUILD_CMAKE_DEFINE=%s\n' "${skbuild_cmake_define}"
   if [[ -n "${original_cmake}" ]]; then
     printf 'RAPIDS_CANDIDATE_ORIGINAL_CMAKE=%s\n' "${original_cmake}"
     printf 'RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA=%s\n' "${rapids_cmake_sha}"

@@ -331,7 +331,10 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
       exit 1
     fi
     lock_path="${lock_workspace}/${section}-constraints.txt"
-    aws s3 cp "${root}/inputs/${relative_path}" "${lock_path}"
+    # The enclosing function is called through command substitution. AWS also
+    # writes transfer progress to stdout, so keep it out of the captured
+    # package name for the later one-line GITHUB_ENV assignment.
+    aws s3 cp "${root}/inputs/${relative_path}" "${lock_path}" >&2
     actual_sha256="$(sha256sum "${lock_path}" | awk '{print $1}')"
     if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
       echo "stored ${section} lock does not match the release train" >&2

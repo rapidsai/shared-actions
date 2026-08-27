@@ -341,11 +341,6 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" && -z "${original_r
   echo "rattler-build is required for a candidate Conda build" >&2
   exit 1
 fi
-if [[ -z "${original_cmake}" ]]; then
-  echo "cmake is required to enforce the release train's rapids-cmake revision" >&2
-  exit 1
-fi
-
 # A lock metapackage has no payload. Its run constraints are nevertheless part
 # of the build/host solve once this package is injected into a recipe. Keeping
 # it in the job-local candidate channel avoids publishing CI-only lock packages.
@@ -454,8 +449,13 @@ EOF
 } >"${tools}/rapids-download-from-github"
 chmod +x "${tools}/rapids-download-from-github"
 
-cp "${script_directory}/cmake.sh" "${tools}/cmake"
-chmod +x "${tools}/cmake"
+# Not every release unit uses CMake.  When it does, shadow `cmake` so the
+# repository's existing RAPIDS.cmake bootstrap receives the train-locked
+# revision.  Pure-Python jobs remain independent of a CMake installation.
+if [[ -n "${original_cmake}" ]]; then
+  cp "${script_directory}/cmake.sh" "${tools}/cmake"
+  chmod +x "${tools}/cmake"
+fi
 
 printf 'RELEASE_CANDIDATE_DEPENDENCY_MANIFESTS=%s\n' "${manifests}" >>"${GITHUB_ENV}"
 
@@ -492,8 +492,10 @@ fi
   printf 'RELEASE_CANDIDATE_TRAIN_PREFIX=%s\n' "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
   printf 'RELEASE_CANDIDATE_TRAIN_SHA256=%s\n' "${RELEASE_CANDIDATE_TRAIN_SHA256}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
-  printf 'RAPIDS_CANDIDATE_ORIGINAL_CMAKE=%s\n' "${original_cmake}"
-  printf 'RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA=%s\n' "${rapids_cmake_sha}"
+  if [[ -n "${original_cmake}" ]]; then
+    printf 'RAPIDS_CANDIDATE_ORIGINAL_CMAKE=%s\n' "${original_cmake}"
+    printf 'RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA=%s\n' "${rapids_cmake_sha}"
+  fi
   if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     printf 'RAPIDS_CANDIDATE_CONDA_CHANNEL=%s\n' "${channel}"
     printf 'RAPIDS_CANDIDATE_ORIGINAL_RATTLER_CHANNEL_STRING=%s\n' "${original_rattler}"

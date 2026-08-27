@@ -60,6 +60,11 @@ if [[ "${actual_train_sha256}" != "${RELEASE_CANDIDATE_TRAIN_SHA256}" ]]; then
   echo "stored release train does not match RELEASE_CANDIDATE_TRAIN_SHA256" >&2
   exit 1
 fi
+rapids_cmake_sha="$(jq -r '.build_tool_revisions["rapids-cmake"] // empty' "${workspace}/release-train.json")"
+if [[ ! "${rapids_cmake_sha}" =~ ^[[:xdigit:]]{40}$ ]]; then
+  echo "release train must lock rapids-cmake with build_tool_revisions.rapids-cmake; regenerate the train" >&2
+  exit 1
+fi
 
 # Schema-2 trains keep generated input evidence in compact, checksum-addressed
 # receipts. Download those before resolving this job's lock packages. Older
@@ -323,6 +328,7 @@ fi
 original_download="$(command -v rapids-download-from-github || true)"
 original_rattler="$(command -v rapids-rattler-channel-string || true)"
 original_rattler_build="$(command -v rattler-build || true)"
+original_cmake="$(command -v cmake || true)"
 if [[ -z "${original_download}" ]]; then
   echo "RAPIDS gha-tools must be installed before candidate dependency setup" >&2
   exit 1
@@ -333,6 +339,10 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" && -z "${original_r
 fi
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" && -z "${original_rattler_build}" ]]; then
   echo "rattler-build is required for a candidate Conda build" >&2
+  exit 1
+fi
+if [[ -z "${original_cmake}" ]]; then
+  echo "cmake is required to enforce the release train's rapids-cmake revision" >&2
   exit 1
 fi
 
@@ -444,6 +454,9 @@ EOF
 } >"${tools}/rapids-download-from-github"
 chmod +x "${tools}/rapids-download-from-github"
 
+cp "${script_directory}/cmake.sh" "${tools}/cmake"
+chmod +x "${tools}/cmake"
+
 printf 'RELEASE_CANDIDATE_DEPENDENCY_MANIFESTS=%s\n' "${manifests}" >>"${GITHUB_ENV}"
 
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
@@ -479,6 +492,8 @@ fi
   printf 'RELEASE_CANDIDATE_TRAIN_PREFIX=%s\n' "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
   printf 'RELEASE_CANDIDATE_TRAIN_SHA256=%s\n' "${RELEASE_CANDIDATE_TRAIN_SHA256}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
+  printf 'RAPIDS_CANDIDATE_ORIGINAL_CMAKE=%s\n' "${original_cmake}"
+  printf 'RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA=%s\n' "${rapids_cmake_sha}"
   if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     printf 'RAPIDS_CANDIDATE_CONDA_CHANNEL=%s\n' "${channel}"
     printf 'RAPIDS_CANDIDATE_ORIGINAL_RATTLER_CHANNEL_STRING=%s\n' "${original_rattler}"

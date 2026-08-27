@@ -149,3 +149,56 @@ def test_candidate_conda_platform_rejects_unknown_architecture():
 
     if result.returncode == 0 or "unsupported candidate architecture" not in result.stderr:
         pytest.fail("unknown candidate architecture was accepted")
+
+
+def test_candidate_cmake_wrapper_pins_rapids_cmake_for_configure(tmp_path):
+    output = tmp_path / "arguments.txt"
+    original = tmp_path / "cmake"
+    original.write_text('#!/bin/bash\nprintf \'%s\\n\' "$@" >"${TEST_OUTPUT}"\n')
+    original.chmod(0o755)
+    wrapper = Path(__file__).parents[1] / "release-candidate-dependencies" / "cmake.sh"
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(wrapper), "-S", ".", "-B", "build"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "RAPIDS_CANDIDATE_ORIGINAL_CMAKE": str(original),
+            "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA": "a" * 40,
+            "TEST_OUTPUT": str(output),
+        },
+    )
+
+    if result.stdout:
+        pytest.fail("candidate CMake wrapper wrote unexpected standard output")
+    expected_arguments = [
+        "-Drapids-cmake-sha=" + "a" * 40,
+        "-S",
+        ".",
+        "-B",
+        "build",
+    ]
+    if output.read_text().splitlines() != expected_arguments:
+        pytest.fail("candidate CMake wrapper did not pin RAPIDS CMake during configuration")
+
+
+def test_candidate_cmake_wrapper_does_not_modify_build_mode(tmp_path):
+    output = tmp_path / "arguments.txt"
+    original = tmp_path / "cmake"
+    original.write_text('#!/bin/bash\nprintf \'%s\\n\' "$@" >"${TEST_OUTPUT}"\n')
+    original.chmod(0o755)
+    wrapper = Path(__file__).parents[1] / "release-candidate-dependencies" / "cmake.sh"
+    subprocess.run(  # noqa: S603
+        ["/bin/bash", str(wrapper), "--build", "build"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "RAPIDS_CANDIDATE_ORIGINAL_CMAKE": str(original),
+            "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA": "a" * 40,
+            "TEST_OUTPUT": str(output),
+        },
+    )
+
+    if output.read_text().splitlines() != ["--build", "build"]:
+        pytest.fail("candidate CMake wrapper modified a build-mode invocation")

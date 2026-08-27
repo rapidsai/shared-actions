@@ -53,6 +53,30 @@ if [[ "${actual_train_sha256}" != "${RELEASE_CANDIDATE_TRAIN_SHA256}" ]]; then
   echo "stored release train does not match RELEASE_CANDIDATE_TRAIN_SHA256" >&2
   exit 1
 fi
+
+# Schema-2 trains keep generated input evidence in compact, checksum-addressed
+# receipts. Download those before resolving this job's lock packages. Older
+# trains retain the inline fields during the migration period.
+lock_source="${workspace}/release-train.json"
+variant_source="${workspace}/release-train.json"
+if jq -e '.input_receipts' "${workspace}/release-train.json" >/dev/null; then
+  for receipt_name in locks variants; do
+    receipt_path="$(jq -r --arg name "${receipt_name}" '.input_receipts[$name].path // empty' "${workspace}/release-train.json")"
+    receipt_sha256="$(jq -r --arg name "${receipt_name}" '.input_receipts[$name].sha256 // empty' "${workspace}/release-train.json")"
+    if [[ -z "${receipt_path}" || "${receipt_path}" == /* || "${receipt_path}" == *".."* || ! "${receipt_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
+      echo "release train contains an unsafe ${receipt_name} receipt reference" >&2
+      exit 1
+    fi
+    receipt_file="${workspace}/${receipt_name}-receipt.json"
+    aws s3 cp "${root}/inputs/${receipt_path}" "${receipt_file}"
+    if [[ "$(sha256sum "${receipt_file}" | awk '{print $1}')" != "${receipt_sha256}" ]]; then
+      echo "stored ${receipt_name} receipt does not match the release train" >&2
+      exit 1
+    fi
+  done
+  lock_source="${workspace}/locks-receipt.json"
+  variant_source="${workspace}/variants-receipt.json"
+fi
 # The scheduler binds each repository to one exact GitHub run.  Candidate
 # references are append-only across retries, so consuming that binding avoids
 # accidentally mixing a prior failed attempt into this build's dependencies.
@@ -321,9 +345,9 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
       --arg platform "${conda_platform}" \
       --arg cuda "${cuda_major}" \
       --arg environment "${section}" \
-      '.input_locks.conda[]
+      '(.conda // .input_locks.conda)[]
        | select(.scope.platform == $platform and .scope.cuda == $cuda and .scope.environment == $environment)' \
-      "${workspace}/release-train.json")"
+      "${lock_source}")"
     relative_path="$(jq -r '.path' <<<"${record}")"
     expected_sha256="$(jq -r '.sha256' <<<"${record}")"
     if [[ "${relative_path}" == /* || "${relative_path}" == *".."* || ! "${expected_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
@@ -357,7 +381,7 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
 
   lock_build_package="$(prepare_lock_metapackage build)"
   lock_host_package="$(prepare_lock_metapackage host)"
-  variant_record="$(jq -cer '.input_variants | {path: .configuration_path, sha256: .configuration_sha256}' "${workspace}/release-train.json")"
+  variant_record="$(jq -cer 'if has("configuration_path") then {path: .configuration_path, sha256: .configuration_sha256} else .input_variants | {path: .configuration_path, sha256: .configuration_sha256} end' "${variant_source}")"
   variant_path="$(jq -r '.path' <<<"${variant_record}")"
   variant_sha256="$(jq -r '.sha256' <<<"${variant_record}")"
   if [[ "${variant_path}" == /* || "${variant_path}" == *".."* || ! "${variant_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then

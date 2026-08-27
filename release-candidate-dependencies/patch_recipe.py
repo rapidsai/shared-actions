@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import re
+import shutil
 from pathlib import Path
 
 import yaml
@@ -20,8 +21,11 @@ def main() -> int:
     parser.add_argument("--host-lock", required=True)
     arguments = parser.parse_args()
 
+    source_is_directory = arguments.recipe.is_dir()
     recipe = _resolve_recipe(arguments.recipe, parser)
-    document = yaml.safe_load(recipe.read_text())
+    destination_directory = _copy_recipe_directory(recipe, arguments.build_lock, arguments.host_lock)
+    destination_recipe = destination_directory / "recipe.yaml"
+    document = yaml.safe_load(destination_recipe.read_text())
     if not isinstance(document, dict):
         parser.error(f"recipe must be a YAML mapping: {recipe}")
     exact_variant_keys = _local_exact_variant_keys(recipe)
@@ -35,10 +39,8 @@ def main() -> int:
                 parser.error(f"recipe output must be a mapping: {recipe}")
             _prepare_document(output, arguments.build_lock, arguments.host_lock, exact_variant_keys)
 
-    digest = hashlib.sha256(f"{arguments.build_lock}\0{arguments.host_lock}".encode()).hexdigest()[:12]
-    destination = recipe.with_name(f".{recipe.stem}.release-candidate-{digest}{recipe.suffix}")
-    destination.write_text(yaml.safe_dump(document, sort_keys=False))
-    print(destination)
+    destination_recipe.write_text(yaml.safe_dump(document, sort_keys=False))
+    print(destination_directory if source_is_directory else destination_recipe)
     return 0
 
 
@@ -61,6 +63,16 @@ def _resolve_recipe(candidate: Path, parser: argparse.ArgumentParser) -> Path:
     if not recipe.is_file():
         parser.error(f"recipe must be a file or a directory containing recipe.yaml: {candidate}")
     return recipe
+
+
+def _copy_recipe_directory(recipe: Path, build_lock: str, host_lock: str) -> Path:
+    """Create a same-parent disposable recipe directory named for Rattler."""
+    digest = hashlib.sha256(f"{build_lock}\0{host_lock}".encode()).hexdigest()[:12]
+    destination = recipe.parent.parent / f".{recipe.parent.name}.release-candidate-{digest}"
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(recipe.parent, destination)
+    return destination
 
 
 def _prepare_document(document: dict, build_lock: str, host_lock: str, exact_variant_keys: set[str]) -> None:

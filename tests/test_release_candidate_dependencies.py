@@ -95,3 +95,24 @@ def test_recipe_patcher_accepts_recipe_directory(tmp_path):
 
     if resolved != expected:
         pytest.fail("recipe patcher did not resolve a recipe directory to recipe.yaml")
+
+
+def test_recipe_patcher_copies_recipe_directory_with_recipe_yaml(tmp_path):
+    recipe = tmp_path / "recipes" / "example"
+    recipe.mkdir(parents=True)
+    source_recipe = recipe / "recipe.yaml"
+    source_recipe.write_text("package:\n  name: example\n  version: 1\n")
+    (recipe / "build.sh").write_text("#!/usr/bin/env bash\n")
+
+    destination = _PATCHER_MODULE._copy_recipe_directory(
+        source_recipe,
+        "candidate-build-lock",
+        "candidate-host-lock",
+    )
+
+    if not destination.name.startswith(".example.release-candidate-"):
+        pytest.fail("recipe patcher did not use a deterministic disposable directory")
+    if not (destination / "recipe.yaml").is_file():
+        pytest.fail("disposable recipe directory did not retain recipe.yaml")
+    if not (destination / "build.sh").is_file():
+        pytest.fail("disposable recipe directory did not retain recipe-local files")

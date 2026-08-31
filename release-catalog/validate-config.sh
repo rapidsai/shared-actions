@@ -3,6 +3,11 @@
 
 set -euo pipefail
 
+# Validate the public JSON input before materialize.sh reads any build output.
+# Structural errors are emitted as GitHub Actions annotations so callers see
+# every invalid field in one run. Validated values are written to GITHUB_OUTPUT
+# for the dispatch action's later materialization step.
+
 emit_error() {
   local message="$1"
   printf '::error title=Invalid release catalog configuration::%s\n' "${message}" >&2

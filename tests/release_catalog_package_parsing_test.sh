@@ -7,11 +7,16 @@ repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "${temporary_directory}"' EXIT
 
+GITHUB_REPOSITORY="rapidsai/shared-actions"
+GITHUB_RUN_ATTEMPT="1"
+GITHUB_RUN_ID="1234"
+GITHUB_WORKFLOW_REF="rapidsai/shared-actions/.github/workflows/pr.yml@refs/pull/136/merge"
 RELEASE_ARTIFACTS=''
 RELEASE_CATALOG_KEY="test:package-parsing"
 RELEASE_ENTRIES_NAME="release-catalog-entries.json"
 RELEASE_SOURCE_ARTIFACT_NAME="package-parsing-test"
 RAPIDS_SHA="0123456789012345678901234567890123456789"
+export GITHUB_REPOSITORY GITHUB_RUN_ATTEMPT GITHUB_RUN_ID GITHUB_WORKFLOW_REF
 export RAPIDS_SHA RELEASE_ARTIFACTS RELEASE_CATALOG_KEY RELEASE_ENTRIES_NAME RELEASE_SOURCE_ARTIFACT_NAME
 
 wheel_output_directory="${temporary_directory}/wheels"

@@ -20,12 +20,18 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+
+  test-release-catalog-actions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
       - name: Test release catalog materialization
-        run: |
-          ./tests/release_catalog_config_test.sh
-          ./tests/release_catalog_discovery_test.sh
-          ./tests/release_catalog_package_parsing_test.sh
-          ./tests/release_catalog_test.sh
+        run: ./ci/run_release_catalog_tests.sh
       - name: Prepare release catalog dispatch smoke test
         run: |
           mkdir -p release-catalog-smoke

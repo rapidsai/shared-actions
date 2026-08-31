@@ -3,6 +3,19 @@
 
 set -euo pipefail
 
+# Convert one completed build directory into a release catalog companion.
+#
+# Inputs come from release-catalog-dispatch/action.yml. RELEASE_ARTIFACTS is
+# either empty (discover Conda packages and wheels) or a validated JSON array
+# selecting custom artifacts. GitHub Actions supplies the GITHUB_* build
+# context, while RAPIDS_SHA identifies the commit actually checked out.
+#
+# The script validates all context before touching outputs, resolves every
+# artifact to exactly one file inside RELEASE_ARTIFACT_DIRECTORY, reads or
+# extracts its package identity, generates identity-only SPDX and CycloneDX
+# SBOMs plus provenance evidence, and writes RELEASE_ENTRIES_NAME. It never
+# modifies primary files.
+
 require_nonempty() {
   local name="$1"
   local value="$2"
@@ -12,13 +25,54 @@ require_nonempty() {
   fi
 }
 
-require_nonempty "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
-require_nonempty "RELEASE_ARTIFACT_DIRECTORY" "${RELEASE_ARTIFACT_DIRECTORY:-}"
-require_nonempty "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
-require_nonempty "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NAME:-}"
+require_single_line() {
+  local name="$1"
+  local value="$2"
+  require_nonempty "${name}" "${value}"
+  if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
+    echo "${name} must be a single-line string" >&2
+    exit 1
+  fi
+}
+
+require_positive_integer() {
+  local name="$1"
+  local value="$2"
+  if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "${name} must be a positive integer" >&2
+    exit 1
+  fi
+}
+
+# Fail before materialization when provenance would otherwise contain empty or
+# malformed source fields. These values are guaranteed in GitHub Actions; a
+# local caller must set explicit test values.
+require_single_line "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
+require_single_line "RELEASE_ARTIFACT_DIRECTORY" "${RELEASE_ARTIFACT_DIRECTORY:-}"
+require_single_line "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
+require_single_line "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NAME:-}"
 
 source_sha="${RAPIDS_SHA:-}"
-require_nonempty "RAPIDS_SHA" "${source_sha}"
+require_single_line "RAPIDS_SHA" "${source_sha}"
+if [[ ! "${source_sha}" =~ ^[[:xdigit:]]{40}$ && ! "${source_sha}" =~ ^[[:xdigit:]]{64}$ ]]; then
+  echo "RAPIDS_SHA must be a 40- or 64-character hexadecimal Git object ID" >&2
+  exit 1
+fi
+
+github_repository="${GITHUB_REPOSITORY:-}"
+github_run_attempt="${GITHUB_RUN_ATTEMPT:-}"
+github_run_id="${GITHUB_RUN_ID:-}"
+github_workflow_ref="${GITHUB_WORKFLOW_REF:-}"
+require_single_line "GITHUB_REPOSITORY" "${github_repository}"
+require_single_line "GITHUB_RUN_ATTEMPT" "${github_run_attempt}"
+require_single_line "GITHUB_RUN_ID" "${github_run_id}"
+require_single_line "GITHUB_WORKFLOW_REF" "${github_workflow_ref}"
+if [[ ! "${github_repository}" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+  echo "GITHUB_REPOSITORY must have owner/repository form" >&2
+  exit 1
+fi
+require_positive_integer "GITHUB_RUN_ATTEMPT" "${github_run_attempt}"
+require_positive_integer "GITHUB_RUN_ID" "${github_run_id}"
 
 require_plain_filename() {
   local label="$1"
@@ -47,6 +101,8 @@ ensure_relative_pattern() {
 
 artifact_directory="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
 
+# Artifact paths may contain globs for matrix-dependent filenames, but each
+# descriptor must resolve to one regular file below the configured directory.
 resolve_one_file() {
   local field="$1"
   local pattern="$2"
@@ -70,6 +126,9 @@ resolve_one_file() {
   printf '%s\n' "${resolved#"${artifact_directory}/"}"
 }
 
+# Normalize supported package formats into the common package identity stored
+# in each catalog entry. Wheels expose Core Metadata; Conda packages expose
+# info/index.json. Custom formats provide the same fields in a sidecar file.
 describe_wheel_package() {
   local wheel_path="$1"
   local relative_path="${wheel_path#"${artifact_directory}/"}"
@@ -232,6 +291,8 @@ prepare_artifacts() {
   printf '%s\n' "${prepared_artifacts}"
 }
 
+# From here onward, every descriptor has an exact path and either extracted
+# package identity or a producer-created package identity file.
 artifacts="$(prepare_artifacts)"
 entries_path="${artifact_directory}/${RELEASE_ENTRIES_NAME}"
 temporary_manifest="$(mktemp "${artifact_directory}/.release-catalog.XXXXXX")"
@@ -260,6 +321,8 @@ generated_evidence_path() {
   printf 'release-evidence/%s.%s.%s.json\n' "${artifact_label}" "${artifact_digest}" "${kind}"
 }
 
+# This SPDX document proves which named package and digest the entry refers to.
+# It deliberately sets filesAnalyzed=false and contains no dependency inventory.
 write_generated_sbom() {
   local primary_path="$1"
   local package="$2"
@@ -301,6 +364,40 @@ write_generated_sbom() {
     }' >"${artifact_directory}/${destination}"
 }
 
+# This CycloneDX document describes the same artifact identity as the SPDX
+# document. It intentionally has no component inventory or dependency graph.
+write_generated_cyclonedx_sbom() {
+  local primary_path="$1"
+  local package="$2"
+  local destination="$3"
+  local artifact_digest
+  artifact_digest="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
+  mkdir -p "$(dirname "${artifact_directory}/${destination}")"
+  jq -n -S \
+    --arg artifact_digest "${artifact_digest}" \
+    --arg artifact_path "${primary_path}" \
+    --argjson package "${package}" \
+    '{
+      bomFormat: "CycloneDX",
+      specVersion: "1.6",
+      version: 1,
+      metadata: {
+        timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        component: {
+          type: "file",
+          "bom-ref": ("urn:sha256:" + $artifact_digest),
+          name: $package.name,
+          version: $package.version,
+          hashes: [{alg: "SHA-256", content: $artifact_digest}],
+          properties: [
+            {name: "rapids:artifact:path", value: $artifact_path},
+            {name: "rapids:package:ecosystem", value: $package.ecosystem}
+          ]
+        }
+      }
+    }' >"${artifact_directory}/${destination}"
+}
+
 write_generated_provenance() {
   local primary_path="$1"
   local package="$2"
@@ -311,11 +408,11 @@ write_generated_provenance() {
   jq -n -S \
     --arg artifact_digest "${artifact_digest}" \
     --arg artifact_path "${primary_path}" \
-    --arg repository "${GITHUB_REPOSITORY:-}" \
-    --arg run_attempt "${GITHUB_RUN_ATTEMPT:-}" \
-    --arg run_id "${GITHUB_RUN_ID:-}" \
+    --arg repository "${github_repository}" \
+    --arg run_attempt "${github_run_attempt}" \
+    --arg run_id "${github_run_id}" \
     --arg source_sha "${source_sha}" \
-    --arg workflow_ref "${GITHUB_WORKFLOW_REF:-}" \
+    --arg workflow_ref "${github_workflow_ref}" \
     --argjson package "${package}" \
     '{
       _type: "https://in-toto.io/Statement/v1",
@@ -339,6 +436,9 @@ write_generated_provenance() {
 }
 
 shopt -s globstar nullglob
+# Create one catalog entry, two identity-only SBOM documents, and one provenance
+# document per primary artifact. Producer-supplied dependency evidence is
+# intentionally not accepted by this version of the schema.
 while IFS= read -r descriptor; do
   if ! jq -e '
     type == "object"
@@ -367,20 +467,21 @@ while IFS= read -r descriptor; do
     exit 1
   fi
 
-  sbom_path="$(generated_evidence_path "${primary_path}" "spdx")"
-  write_generated_sbom "${primary_path}" "${package}" "${sbom_path}"
+  spdx_sbom_path="$(generated_evidence_path "${primary_path}" "sbom.spdx")"
+  write_generated_sbom "${primary_path}" "${package}" "${spdx_sbom_path}"
+  cyclonedx_sbom_path="$(generated_evidence_path "${primary_path}" "sbom.cdx")"
+  write_generated_cyclonedx_sbom "${primary_path}" "${package}" "${cyclonedx_sbom_path}"
   provenance_path="$(generated_evidence_path "${primary_path}" "provenance")"
   write_generated_provenance "${primary_path}" "${package}" "${provenance_path}"
 
-  # TODO: Accept producer-supplied SBOM, provenance, and signature evidence after
-  # the release catalog defines a generic artifact-to-evidence association.
   entry="$(jq -cn \
     --arg release_catalog_key "${RELEASE_CATALOG_KEY}" \
     --arg path "${primary_path}" \
-    --arg sbom "${sbom_path}" \
+    --arg spdx_sbom "${spdx_sbom_path}" \
+    --arg cyclonedx_sbom "${cyclonedx_sbom_path}" \
     --arg provenance "${provenance_path}" \
     --argjson package "${package}" \
-    '{release_catalog_key: $release_catalog_key, path: $path, sbom: $sbom, sbom_kind: "generated-identity", provenance: $provenance, package: $package}')"
+    '{release_catalog_key: $release_catalog_key, path: $path, sboms: {spdx: $spdx_sbom, cyclonedx: $cyclonedx_sbom}, sbom_kind: "generated-identity", provenance: $provenance, package: $package}')"
 
   jq --argjson entry "${entry}" '.entries += [$entry]' "${temporary_manifest}" >"${temporary_manifest}.next"
   mv "${temporary_manifest}.next" "${temporary_manifest}"
@@ -391,13 +492,15 @@ if ! jq -e '.entries as $items | ($items | map([.release_catalog_key, .path] | j
   exit 1
 fi
 
+# Store job-level source context once around the entry array. A downstream
+# assembler can retain that association while combining selected companions.
 jq -n -S \
   --arg artifact_name "${RELEASE_SOURCE_ARTIFACT_NAME}" \
-  --arg repository "${GITHUB_REPOSITORY:-}" \
-  --arg run_attempt "${GITHUB_RUN_ATTEMPT:-}" \
-  --arg run_id "${GITHUB_RUN_ID:-}" \
+  --arg repository "${github_repository}" \
+  --arg run_attempt "${github_run_attempt}" \
+  --arg run_id "${github_run_id}" \
   --arg sha "${source_sha}" \
-  --arg workflow_ref "${GITHUB_WORKFLOW_REF:-}" \
+  --arg workflow_ref "${github_workflow_ref}" \
   --argjson entries "$(jq -c '.entries' "${temporary_manifest}")" \
   '{
     schema_version: 1,

@@ -9,34 +9,6 @@ A dispatch action is one that:
 * clones the shared-actions repository (repo/ref changeable using env vars)
 * runs (dispatches to) another action within the clone, using a relative path
 
-## Release catalog companions
-
-`release-catalog-dispatch` validates a producer's local build artifact
-directory and uploads a companion artifact named
-`release-catalog-<source-artifact-name>`.
-
-See the [release catalog documentation](release-catalog/README.md)
-for configuration, examples, source-revision handling, companion contents, and
-generated identity evidence semantics.
-
-The dispatch wrapper honors `SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF`.
-When neither is set, it checks out the same repository and ref used to invoke
-the wrapper, which allows a feature-branch wrapper to dispatch to its matching
-implementation during canary testing.
-
-There can be more complicated arrangements of more actions, but the idea is to
-have the local clone of the shared-actions repository be the first step of an action.
-
-Actions that refer to each other assume that they have been checked out to the
-./shared-actions folder. This *should* be the root of the GitHub Actions workspace.
-This assumption is what allow code reuse between actions.
-
-Actions that use this pattern should include "dispatch" in their folder name, so
-that they can be readily distinguished from any actions that are either
-standalone or otherwise implementations that assume that the ./shared-actions
-folder is already cloned, so that they can use relative paths to reference other
-actions and files.
-
 ## Example dispatch action
 
 ```yaml

@@ -1,73 +1,85 @@
-# Release catalog companions
+# Release catalog companion archives
 
-`release-catalog-dispatch` records the exact files produced by a package
-build and uploads a companion GitHub Actions artifact named
-`release-catalog-<source-artifact-name>`. Release tooling uses the
-companion to associate primary artifacts with their build identity and generated
-identity evidence without reconstructing the build later. This evidence supports:
+This action creates a companion archive alongside our binary artifacts (conda,
+wheel or otherwise) that contains an inventory of the binary artifacts that were
+produced by that job. That inventory is used by the RAPIDS release system to
+assemble release candidates. "Release candidates" here refers to a set of
+artifacts that can be deployed to create a release, rather than a release
+candidate version of one artifact.
 
-- [assembling releases that can be tested and verified before formal tagging](https://github.com/rapidsai/release-scripts/issues/102)
-- using build-time metadata to triage CVE scan records more quickly (internal
-  GitLab project, `nspect-manager`)
+## Companion contents
 
-The companion contains:
+Each build job creates one companion archive with this shape:
 
 ```text
 .
 ├── release-catalog-entries.json
 └── release-evidence
-    ├── <artifact evidence>.provenance.json
-    └── <artifact evidence>.spdx.json
+    ├── <artifact-1>.<artifact-1-sha256>.provenance.json
+    ├── <artifact-1>.<artifact-1-sha256>.sbom.cdx.json
+    ├── <artifact-1>.<artifact-1-sha256>.sbom.spdx.json
+    ├── <artifact-2>.<artifact-2-sha256>.provenance.json
+    ├── <artifact-2>.<artifact-2-sha256>.sbom.cdx.json
+    ├── <artifact-2>.<artifact-2-sha256>.sbom.spdx.json
+    └── ...
 ```
 
-`release-catalog-entries.json` is one atomic job-level envelope. Its `source`
-object records the source artifact and build context, while its `entries` array
-contains the release catalog entries produced by that job. The release platform
-validates and aggregates entry arrays from selected builds into the release
-catalog; there is no separate metadata document to keep synchronized.
+`release-catalog-entries.json` records the artifacts produced by the job:
+`.conda`, `.whl`, or otherwise, as well as the checksums of those files.
 
-Each matrix job produces its own companion artifact. The release platform merges
-their entries into one composite release catalog.
+The release-evidence folder carries additional metadata that may be useful to
+consumers of our packages: provenance and software bill of materials (SBOM).
+Provenance describes how a package was built and by whom. An SBOM lists
+components that make up the package. They complement each other: an SBOM without
+provenance may describe the wrong or an untrusted artifact, while provenance
+without an SBOM cannot efficiently answer what vulnerable components are inside.
+For each artifact in its `entries` array, the action creates one provenance file
+and equivalent identity SBOMs in SPDX and CycloneDX formats. The SHA-256 in each
+evidence filename is the digest of that specific artifact's contents. The
+catalog entry identifies both SBOM paths under `sboms`, allowing consumers to
+select their preferred format without inferring it from the filename.
 
-## Configuration
+The provenance.json file follows the
+[SLSA](https://slsa.dev/spec/v1.2/attestation-model) standard format.
 
-Every build job that calls this action passes one `config` JSON object. Its
-canonical schema and field documentation are in
-[`config.schema.json`](config.schema.json).
+The `sbom.spdx.json` file uses [SPDX
+2.3](https://spdx.github.io/spdx-spec/v2.3/), while `sbom.cdx.json` uses
+[CycloneDX 1.6](https://cyclonedx.org/docs/1.6/json/). These generated documents
+identify the artifact and its digest; they do not contain a dependency
+inventory.
 
-The action validates the configuration before inspecting build outputs. It then
-verifies properties that depend on produced files, including the package
-identity contents and whether primary-artifact paths resolve unambiguously.
+Provenance remains separate because it is an independently verifiable statement
+about how and where the artifact was built. Although both SBOM standards can
+carry some build metadata, embedding provenance in the SBOMs would not replace
+the in-toto/SLSA statement and would couple evidence with different consumers
+and lifecycles.
+
+## Action Configuration
+
+Every caller passes one `config` JSON object. The canonical schema and field
+documentation are in [`config.schema.json`](config.schema.json). This is
+validated at runtime with the [validate-config.sh](validate-config.sh) script.
 
 ### `release_catalog_key`
 
-The `release_catalog_key` is used to group artifacts in the catalog. Every file
-from every matrix variant in the same publishable artifact set uses the same
-key. The release platform aggregates multiple `release-catalog-entries.json`
-files and coalesces entries with the same `release_catalog_key`. Standard RAPIDS
-conda and wheel workflows construct the key as `<ecosystem>:<repository-name>`,
-such as `conda:cudf`. Custom producers select a key, such as `maven:cuvs-java`,
-that represents their release policy.
+This is a grouping label that represents a common "release policy." Artifacts
+that share release_catalog_key are versioned, validated, ordered, published, and
+promoted together. The key does not need to be unique per artifact, nor per
+matrix variant. For example, `cudf` and `dask-cudf` Conda packages can both use
+`conda:cudf` because they share the same version, validation, inter-package
+order, publishing destination, and are ultimately published together.
 
-Use a distinct `release_catalog_key` only when the outputs intentionally have
-different release policies. Reasons include differences in:
+Standard RAPIDS Conda and wheel workflows use `<ecosystem>:<repository-name>`,
+such as `conda:cudf`, because those workflows apply a repository-level release
+policy. A custom producer should use `<ecosystem>:<release-group>`, such as
+`maven:cuvs-java`, or simply `maven:cuvs`. Use a separate key only when the
+outputs intentionally have a separate release workflows that must be followed.
 
-- versioning schemes
-- validation requirements
-- dependency ordering
-- publication destinations
-- promotion strategy
+### `artifact_directory` and `artifacts`
 
-Multiple package names from one repository do not by themselves justify separate
-keys: for example, `cudf` and `dask-cudf` Conda packages remain part of
-`conda:cudf` when they share one release policy.
-
-### `artifacts`
-
-This is a list of objects, where each object corresponds to exactly one artifact
-(filename). Standard Conda and wheel workflows do not explicitly specify
-`artifacts`. Instead, the action discovers every Conda and wheel output in
-`artifact_directory` and creates corresponding artifact entries.
+`artifact_directory` is the base directory containing the primary artifacts.
+For standard Conda and wheel jobs, omit `artifacts`; the action discovers all
+Conda packages and wheels below that directory and parses metadata from them.
 
 ```yaml
 - name: Create wheel release catalog companion
@@ -81,8 +93,9 @@ This is a list of objects, where each object corresponds to exactly one artifact
     source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
 ```
 
-For artifacts other than conda and wheels, `path` and `package_identity_file` must
-be specified:
+Other formats require an explicit `artifacts` list. Each dictionary in the list
+corresponds to one artifact file. Wildcards are allowed, but a wildcard that
+resolves to zero files or multiple files results in an error.
 
 ```yaml
 - name: Create custom release catalog companion
@@ -100,20 +113,11 @@ be specified:
     source-artifact-name: cuvs-java
 ```
 
-Wildcards are allowed to allow for variance in filenames, but each wildcard must
-resolve to only one file. In other words, each list object corresponds to
-exactly one artifact, and any ambiguity is an error.
-
 #### Package identity file
 
-Package identity is high-level information about an artifact outside of its
-filename. It requires `ecosystem`, `name`, and `version` and may include `build`
-and `platform`. The action implicitly parses this information from conda and
-wheel artifacts, but other artifact formats require the producer to provide it
-explicitly using the `package_identity_file` parameter. Any referenced package
-identity file must be created before this action runs. An artifact descriptor's
-`package_identity_file` is the path to that file relative to
-`artifact_directory`. Example contents of a package_identity_file:
+package_identity_file is a JSON file containing at least `ecosystem`, `name`,
+and `version`; `build` and `platform` are optional. This path is relative to
+`artifact_directory`.
 
 ```json
 {
@@ -123,34 +127,5 @@ identity file must be created before this action runs. An artifact descriptor's
 }
 ```
 
-Multiple artifact descriptors may reference the same identity file when those
-artifacts have the same package identity.
-
-## Prerequisite state
-
-The action requires `RAPIDS_SHA` in the job environment. It must identify the
-repository revision actually checked out and built:
-
-- Conda build workflows set `RAPIDS_SHA` to `git rev-parse HEAD` immediately
-  after checkout.
-- Wheel and custom workflows use `rapids-github-info`; it uses `inputs.sha`
-  when supplied and otherwise sets `RAPIDS_SHA` to `git rev-parse HEAD`.
-
-This distinction matters when a reusable workflow checks out a repository or
-revision different from the workflow event. Direct callers must likewise set
-`RAPIDS_SHA` to the checked-out commit instead of assuming `${{ github.sha }}`
-names the built source. Variables written to `GITHUB_ENV` are available to the
-action when it runs as a subsequent job step.
-
-## Generated identity evidence
-
-For every artifact, the action generates an SPDX artifact-identity envelope
-classified as `generated-identity` and a build-context provenance statement.
-They record the artifact SHA-256, package identity, source revision, and workflow
-context, but contain no dependency or source-license inventory. They must not be
-reported as producer-supplied dependency coverage.
-
-Producer-supplied dependency SBOMs and richer build provenance, such as build
-dependencies and compiler flags, would make package contents easier to
-understand without downloading them. Associating that input-side evidence with
-artifacts is left for future work.
+Multiple artifacts in the list may reference the same identity file when the
+files have the same package identity.

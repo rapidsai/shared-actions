@@ -505,7 +505,7 @@ jq -n -S \
   --argjson entries "$(jq -c '.entries' "${temporary_manifest}")" \
   '{
     schema_version: 1,
-    producer: "shared-workflows",
+    producer: "NVIDIA ADI Build/Operations",
     source: {
       artifact: $artifact_name,
       repository: $repository,

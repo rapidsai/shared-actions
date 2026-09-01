@@ -39,6 +39,7 @@ case "${operation}" in
     [[ ! -e "${path}" ]]
     mkdir -p "$(dirname "${path}")"
     cp "${body}" "${path}"
+    printf '%s\n' "${key}" >>"${FAKE_LOG}"
     ;;
   *)
     echo "unsupported fake AWS operation: ${operation}" >&2
@@ -87,6 +88,7 @@ run_upload() {
   GITHUB_RUN_ATTEMPT="$1" \
     PATH="${temporary_directory}/bin:${PATH}" \
     FAKE_S3="${temporary_directory}/s3" \
+    FAKE_LOG="${temporary_directory}/put-objects.log" \
     RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}/bundle" \
     RELEASE_CANDIDATE_BUCKET="candidate-store" \
     RELEASE_CANDIDATE_CONTENT_PREFIX="artifacts" \
@@ -118,6 +120,14 @@ test -f "${train}/101.1/release-catalog-entries.json"
 test -f "${train}/101.1/release-evidence/example.intoto.jsonl"
 test ! -d "${artifact_root}/${artifact_digest}/attempts"
 jq -e '.upstream_dependencies == []' "${canonical}/build-record.json" >/dev/null
+jq -e '.schema_version == 2' "${canonical}/build-record.json" >/dev/null
+jq -e '.schema_version == 2' "${canonical}/artifact-index.json" >/dev/null
+artifact_line="$(grep -nF "${artifact_digest}/conda/linux-64/example-26.10.00.conda" "${temporary_directory}/put-objects.log" | cut -d: -f1)"
+index_line="$(grep -nF "${artifact_digest}/conda/artifact-index.json" "${temporary_directory}/put-objects.log" | cut -d: -f1)"
+if [[ -z "${artifact_line}" || -z "${index_line}" || "${index_line}" -le "${artifact_line}" ]]; then
+  echo "canonical artifact index was not committed after its artifact bytes" >&2
+  exit 1
+fi
 jq -e '.build_implementation_revisions == {"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shared-actions":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","shared-workflows":"cccccccccccccccccccccccccccccccccccccccc"}' "${canonical}/build-record.json" >/dev/null
 if jq -e 'tostring | test("run_id|run_attempt")' "${canonical}/artifact-index.json" >/dev/null; then
   echo "canonical artifact index contains GitHub execution metadata" >&2

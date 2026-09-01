@@ -126,7 +126,7 @@ build_record_path="$(mktemp)"
 jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
   --argjson build_implementation_revisions "${build_implementation_revisions}" '
   {
-    schema_version,
+    schema_version: 2,
     producer,
     source: (.source | {artifact, repository, sha, workflow_ref, matrix}),
     build_implementation_revisions: $build_implementation_revisions,
@@ -237,15 +237,19 @@ while IFS= read -r entry; do
 done < <(jq -c '.entries[]' "${entries_path}") >"${artifact_index_entries}"
 jq -csS \
   --arg build_input_digest "${build_input_digest}" \
-  '{schema_version: 1, producer: "shared-workflows", build_input_digest: $build_input_digest,
+  '{schema_version: 2, producer: "shared-workflows", build_input_digest: $build_input_digest,
     entries: sort_by(.release_catalog_key, .path)}' \
   "${artifact_index_entries}" >"${artifact_index_path}"
 
 upload_immutable "${build_record_path}" "${build_record_key}"
-upload_immutable "${artifact_index_path}" "${artifact_index_key}"
 for relative_path in "${artifact_paths[@]}"; do
   upload_artifact "${relative_path}"
 done
+# The index is the canonical artifact commit marker. Write it only after every
+# byte and deterministic SBOM that it certifies is durably present. A failed
+# or racing upload may leave harmless unreferenced content, but never a
+# complete-looking index for a partial candidate.
+upload_immutable "${artifact_index_path}" "${artifact_index_key}"
 for relative_path in "${execution_paths[@]}"; do
   upload_execution "${relative_path}"
 done

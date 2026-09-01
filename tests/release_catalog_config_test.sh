@@ -27,7 +27,7 @@ assert_invalid() {
 }
 
 valid_output="${temporary_directory}/valid.output"
-RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/package-identity-file.json")" \
+RELEASE_CATALOG_CONFIG="$(<"${repository_root}/tests/release-catalog-config/valid/package-identity-file.json")" \
   GITHUB_OUTPUT="${valid_output}" "${validator}"
 
 grep -Fx 'release_catalog_key=maven:cuvs-java' "${valid_output}"
@@ -78,8 +78,8 @@ assert_invalid \
   malformed-artifact \
   '{"release_catalog_key":"archive:smoke","artifacts":[{"file":"smoke.tar.gz","package_identity_file":false,"sbom":false}]}' \
   'artifacts[0] has unknown field(s): file, sbom'
-grep -F 'artifacts[0].path must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
-grep -F 'artifacts[0].package_identity_file must be a non-empty, single-line string' "${temporary_directory}/malformed-artifact.error" >/dev/null
+grep -F 'artifacts[0].path must be a non-empty relative path without parent traversal' "${temporary_directory}/malformed-artifact.error" >/dev/null
+grep -F 'artifacts[0].package_identity_file must be a non-empty relative path without parent traversal' "${temporary_directory}/malformed-artifact.error" >/dev/null
 
 default_output="${temporary_directory}/default.output"
 RELEASE_CATALOG_CONFIG='{"release_catalog_key":"conda:smoke"}' \
@@ -97,3 +97,23 @@ RELEASE_CATALOG_CONFIG='{
 grep -Fx 'release_catalog_key=wheel:kvikio' "${standard_output}"
 grep -Fx 'artifact_directory=dist' "${standard_output}"
 grep -Fx 'artifacts=' "${standard_output}"
+
+for invalid_fixture in "${repository_root}"/tests/release-catalog-config/invalid/*.json; do
+  fixture_name="$(basename "${invalid_fixture}" .json)"
+  case "${fixture_name}" in
+    absolute-artifact-path | parent-artifact-path)
+      expected="artifacts[0].path must be a non-empty relative path without parent traversal"
+      ;;
+    absolute-identity-path)
+      expected="artifacts[0].package_identity_file must be a non-empty relative path without parent traversal"
+      ;;
+    unknown-field)
+      expected="unknown field(s): unexpected"
+      ;;
+    *)
+      echo "missing expected runtime error for ${fixture_name}" >&2
+      exit 1
+      ;;
+  esac
+  assert_invalid "fixture-${fixture_name}" "$(<"${invalid_fixture}")" "${expected}"
+done

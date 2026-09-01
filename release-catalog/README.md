@@ -67,6 +67,11 @@ identity of each one, and the source context of the job (repository, commit,
 workflow, run). See [`examples/cuvs-java`](examples/cuvs-java) for a complete
 companion.
 
+Generated entry documents conform to
+[`entries.schema.json`](entries.schema.json). The schema fixes the versioned
+output contract for producer identity, source context, package identity, and
+evidence paths.
+
 The top-level `producer` identifies the organization responsible for producing
 and maintaining the companion: `NVIDIA ADI Build/Operations`. Implementation
 details such as the reusable workflow remain in the source context and evidence

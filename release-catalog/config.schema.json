@@ -40,15 +40,22 @@
       ],
       "properties": {
         "path": {
+          "description": "Artifact path or glob, relative to artifact_directory. Absolute paths and parent-directory traversal are forbidden.",
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\r\\n]+$"
+          "pattern": "^[^\\r\\n]+$",
+          "not": {
+            "pattern": "(^/)|((^|/)\\.\\.(/|$))"
+          }
         },
         "package_identity_file": {
           "description": "Path, relative to artifact_directory, to producer-created package identity JSON for this artifact. Required only when identity cannot be extracted from the artifact. See https://github.com/rapidsai/shared-actions/blob/main/release-catalog/README.md#package-identity-file",
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\r\\n]+$"
+          "pattern": "^[^\\r\\n]+$",
+          "not": {
+            "pattern": "(^/)|((^|/)\\.\\.(/|$))"
+          }
         }
       }
     }

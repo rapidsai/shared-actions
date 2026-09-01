@@ -28,6 +28,10 @@ fi
 validation_errors="$(jq -r '
   def single_line_string:
     type == "string" and length > 0 and (test("[\\r\\n]") | not);
+  def relative_path:
+    single_line_string
+    and (startswith("/") | not)
+    and (split("/") | index("..") | not);
   if type != "object" then
     ["release catalog configuration must be a JSON object"]
   else
@@ -59,12 +63,12 @@ validation_errors="$(jq -r '
                 | if ($artifact_unknown | length) > 0 then
                     "artifacts[\($index)] has unknown field(s): " + ($artifact_unknown | join(", "))
                   else empty end,
-                  if ($artifact.path | single_line_string) then empty
-                  else "artifacts[\($index)].path must be a non-empty, single-line string" end,
+                  if ($artifact.path | relative_path) then empty
+                  else "artifacts[\($index)].path must be a non-empty relative path without parent traversal" end,
                   ($artifact | to_entries[]
                     | select(.key == "package_identity_file")
-                    | select((.value | single_line_string) | not)
-                    | "artifacts[\($index)].\(.key) must be a non-empty, single-line string")
+                    | select((.value | relative_path) | not)
+                    | "artifacts[\($index)].\(.key) must be a non-empty relative path without parent traversal")
               end
           ]
         else [] end

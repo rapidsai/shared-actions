@@ -23,11 +23,25 @@ _PATCHER_MODULE = importlib.util.module_from_spec(_PATCHER_SPEC)
 _PATCHER_SPEC.loader.exec_module(_PATCHER_MODULE)
 
 _LOCK_SELECTOR = Path(__file__).parents[1] / "release-candidate-dependencies" / "select_lock.py"
+_SETUP = Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh"
 _LOCK_SELECTOR_SPEC = importlib.util.spec_from_file_location("select_lock", _LOCK_SELECTOR)
 if _LOCK_SELECTOR_SPEC is None or _LOCK_SELECTOR_SPEC.loader is None:
     raise RuntimeError(f"unable to load lock selector: {_LOCK_SELECTOR}")
 _LOCK_SELECTOR_MODULE = importlib.util.module_from_spec(_LOCK_SELECTOR_SPEC)
 _LOCK_SELECTOR_SPEC.loader.exec_module(_LOCK_SELECTOR_MODULE)
+
+
+def test_candidate_conda_channels_exclude_public_rapids_and_nvidia_channels():
+    setup = _SETUP.read_text()
+
+    expected_contracts = (
+        "candidate build rejected external Conda channel",
+        "rapidsai|rapidsai-nightly|nvidia|",
+        "conda-forge|https://conda.anaconda.org/conda-forge|file://*|/*",
+    )
+    missing = [contract for contract in expected_contracts if contract not in setup]
+    if missing:
+        pytest.fail(f"candidate channel policy is incomplete: {missing}")
 
 
 def test_wheel_lock_selector_requires_one_exact_matrix_scope():

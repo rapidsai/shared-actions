@@ -560,6 +560,32 @@ cat >"${tools}/rapids-rattler-channel-string" <<'EOF'
 #!/usr/bin/env bash
 RAPIDS_PREPENDED_CONDA_CHANNELS=("${RAPIDS_CANDIDATE_CONDA_CHANNEL}" "${RAPIDS_PREPENDED_CONDA_CHANNELS[@]:-}")
 source "${RAPIDS_CANDIDATE_ORIGINAL_RATTLER_CHANNEL_STRING}"
+
+# Candidate builds must resolve RAPIDS packages only from exact local outputs
+# and the train-scoped candidate channel. The standard helper adds the public
+# RAPIDS channel, so remove those known defaults and reject any other external
+# source that is not conda-forge.
+candidate_channels=()
+for ((index = 0; index < ${#RATTLER_CHANNELS[@]}; index += 2)); do
+  if [[ "${RATTLER_CHANNELS[${index}]}" != "--channel" || -z "${RATTLER_CHANNELS[$((index + 1))]:-}" ]]; then
+    echo "candidate build received an invalid Conda channel argument" >&2
+    return 1
+  fi
+  channel="${RATTLER_CHANNELS[$((index + 1))]%/}"
+  case "${channel}" in
+    rapidsai|rapidsai-nightly|nvidia|https://conda.anaconda.org/rapidsai|https://conda.anaconda.org/rapidsai-nightly|https://conda.anaconda.org/nvidia)
+      ;;
+    conda-forge|https://conda.anaconda.org/conda-forge|file://*|/*)
+      candidate_channels+=(--channel "${channel}")
+      ;;
+    *)
+      echo "candidate build rejected external Conda channel: ${channel}" >&2
+      return 1
+      ;;
+  esac
+done
+RATTLER_CHANNELS=("${candidate_channels[@]}")
+export RATTLER_CHANNELS
 EOF
 chmod +x "${tools}/rapids-rattler-channel-string"
 cat >"${tools}/rattler-build" <<'EOF'

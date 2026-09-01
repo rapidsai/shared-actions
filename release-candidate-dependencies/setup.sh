@@ -41,6 +41,7 @@ root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEA
 train_key_prefix="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
 cuda_major="${RELEASE_CANDIDATE_CUDA_VERSION%%.*}"
 conda_platform="$(conda_platform_for_arch "${RELEASE_CANDIDATE_ARCH}")"
+wheel_platform="$(wheel_platform_for_arch "${RELEASE_CANDIDATE_ARCH}")"
 workspace="${RUNNER_TEMP}/release-candidate-dependencies"
 channel="${workspace}/conda-channel"
 wheelhouse="${workspace}/wheelhouse"
@@ -155,6 +156,22 @@ if jq -e '.input_receipts' "${workspace}/release-train.json" >/dev/null; then
   done
   lock_source="${workspace}/locks-receipt.json"
   variant_source="${workspace}/variants-receipt.json"
+fi
+
+wheel_constraint=""
+if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel" ]]; then
+  wheel_lock_record="$(python3 "${script_directory}/select_lock.py" \
+    --locks "${lock_source}" \
+    --platform "${wheel_platform}" \
+    --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION}")"
+  wheel_lock_path="$(jq -r '.path' <<<"${wheel_lock_record}")"
+  wheel_lock_sha256="$(jq -r '.sha256' <<<"${wheel_lock_record}")"
+  wheel_constraint="${workspace}/wheel-constraints.txt"
+  aws s3 cp "${root}/inputs/${wheel_lock_path}" "${wheel_constraint}"
+  if [[ "$(sha256sum "${wheel_constraint}" | awk '{print $1}')" != "${wheel_lock_sha256}" ]]; then
+    echo "stored wheel lock does not match the release train" >&2
+    exit 1
+  fi
 fi
 # The scheduler binds each repository to one exact GitHub run.  Candidate
 # references are append-only across retries, so consuming that binding avoids
@@ -587,6 +604,9 @@ fi
     printf 'RAPIDS_CANDIDATE_BUILD_LOCK_PACKAGE=%s\n' "${lock_build_package}"
     printf 'RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE=%s\n' "${lock_host_package}"
     printf 'RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG=%s\n' "${variant_config}"
+  fi
+  if [[ -n "${wheel_constraint}" ]]; then
+    printf 'PIP_CONSTRAINT=%s\n' "${wheel_constraint}"
   fi
   printf 'PIP_FIND_LINKS=%s\n' "${wheelhouse}${PIP_FIND_LINKS:+ ${PIP_FIND_LINKS}}"
 } >>"${GITHUB_ENV}"

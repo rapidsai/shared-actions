@@ -22,6 +22,54 @@ if _PATCHER_SPEC is None or _PATCHER_SPEC.loader is None:
 _PATCHER_MODULE = importlib.util.module_from_spec(_PATCHER_SPEC)
 _PATCHER_SPEC.loader.exec_module(_PATCHER_MODULE)
 
+_LOCK_SELECTOR = Path(__file__).parents[1] / "release-candidate-dependencies" / "select_lock.py"
+_LOCK_SELECTOR_SPEC = importlib.util.spec_from_file_location("select_lock", _LOCK_SELECTOR)
+if _LOCK_SELECTOR_SPEC is None or _LOCK_SELECTOR_SPEC.loader is None:
+    raise RuntimeError(f"unable to load lock selector: {_LOCK_SELECTOR}")
+_LOCK_SELECTOR_MODULE = importlib.util.module_from_spec(_LOCK_SELECTOR_SPEC)
+_LOCK_SELECTOR_SPEC.loader.exec_module(_LOCK_SELECTOR_MODULE)
+
+
+def test_wheel_lock_selector_requires_one_exact_matrix_scope():
+    expected = {
+        "path": "locks/wheel/x86_64-manylinux_2_28/python-3.14/requirements.txt",
+        "sha256": "a" * 64,
+    }
+    receipt = {
+        "wheel": [
+            {**expected, "scope": {"platform": "x86_64-manylinux_2_28", "python": "3.14"}},
+            {
+                "path": "locks/wheel/aarch64-manylinux_2_28/python-3.14/requirements.txt",
+                "sha256": "b" * 64,
+                "scope": {"platform": "aarch64-manylinux_2_28", "python": "3.14"},
+            },
+        ]
+    }
+
+    selected = _LOCK_SELECTOR_MODULE.select_wheel_lock(receipt, "x86_64-manylinux_2_28", "3.14")
+
+    if selected != expected:
+        pytest.fail(f"wheel lock selector returned the wrong matrix lock: {selected}")
+
+
+def test_wheel_lock_selector_rejects_missing_and_unsafe_records():
+    with pytest.raises(ValueError, match="exactly one wheel lock"):
+        _LOCK_SELECTOR_MODULE.select_wheel_lock({"wheel": []}, "x86_64-manylinux_2_28", "3.14")
+    with pytest.raises(ValueError, match="unsafe wheel lock path"):
+        _LOCK_SELECTOR_MODULE.select_wheel_lock(
+            {
+                "wheel": [
+                    {
+                        "path": "../requirements.txt",
+                        "sha256": "a" * 64,
+                        "scope": {"platform": "x86_64-manylinux_2_28", "python": "3.14"},
+                    }
+                ]
+            },
+            "x86_64-manylinux_2_28",
+            "3.14",
+        )
+
 
 @pytest.mark.parametrize(
     ("wheel", "python_version"),

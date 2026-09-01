@@ -12,8 +12,8 @@ set -euo pipefail
 #
 # The script validates all context before touching outputs, resolves every
 # artifact to exactly one file inside RELEASE_ARTIFACT_DIRECTORY, reads or
-# extracts its package identity, generates identity-only SPDX and CycloneDX
-# SBOMs plus provenance evidence, and writes RELEASE_ENTRIES_NAME. It never
+# extracts its package identity, generates an identity-only CycloneDX SBOM plus
+# provenance evidence, and writes RELEASE_ENTRIES_NAME. It never
 # modifies primary files.
 
 require_nonempty() {
@@ -321,51 +321,8 @@ generated_evidence_path() {
   printf 'release-evidence/%s.%s.%s.json\n' "${artifact_label}" "${artifact_digest}" "${kind}"
 }
 
-# This SPDX document proves which named package and digest the entry refers to.
-# It deliberately sets filesAnalyzed=false and contains no dependency inventory.
-write_generated_sbom() {
-  local primary_path="$1"
-  local package="$2"
-  local destination="$3"
-  local artifact_digest
-  artifact_digest="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
-  mkdir -p "$(dirname "${artifact_directory}/${destination}")"
-  jq -n -S \
-    --arg artifact_digest "${artifact_digest}" \
-    --arg artifact_path "${primary_path}" \
-    --argjson package "${package}" \
-    '{
-      spdxVersion: "SPDX-2.3",
-      dataLicense: "CC0-1.0",
-      SPDXID: "SPDXRef-DOCUMENT",
-      name: ("RAPIDS release artifact " + $artifact_path),
-      # This is a unique identifier, not a retrieval URL; SPDX requires an
-      # absolute URI for the document namespace but does not require it to resolve.
-      documentNamespace: ("https://rapids.ai/release-platform/spdx/" + $artifact_digest),
-      creationInfo: {
-        creators: ["Tool: rapidsai/shared-workflows release catalog"],
-        created: (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
-      },
-      documentDescribes: ["SPDXRef-Artifact"],
-      packages: [{
-        SPDXID: "SPDXRef-Artifact",
-        name: $package.name,
-        versionInfo: $package.version,
-        downloadLocation: "NOASSERTION",
-        filesAnalyzed: false,
-        checksums: [{algorithm: "SHA256", checksumValue: $artifact_digest}]
-      }],
-      relationships: [{
-        spdxElementId: "SPDXRef-DOCUMENT",
-        relationshipType: "DESCRIBES",
-        relatedSpdxElement: "SPDXRef-Artifact"
-      }],
-      comment: "Artifact-identity SBOM. It identifies only this artifact and its digest, not its dependencies."
-    }' >"${artifact_directory}/${destination}"
-}
-
-# This CycloneDX document describes the same artifact identity as the SPDX
-# document. It intentionally has no component inventory or dependency graph.
+# This CycloneDX document identifies the artifact and intentionally has no
+# component inventory or dependency graph.
 write_generated_cyclonedx_sbom() {
   local primary_path="$1"
   local package="$2"
@@ -436,7 +393,7 @@ write_generated_provenance() {
 }
 
 shopt -s globstar nullglob
-# Create one catalog entry, two identity-only SBOM documents, and one provenance
+# Create one catalog entry, one identity-only SBOM document, and one provenance
 # document per primary artifact. Producer-supplied dependency evidence is
 # intentionally not accepted by this version of the schema.
 while IFS= read -r descriptor; do
@@ -467,21 +424,18 @@ while IFS= read -r descriptor; do
     exit 1
   fi
 
-  spdx_sbom_path="$(generated_evidence_path "${primary_path}" "sbom.spdx")"
-  write_generated_sbom "${primary_path}" "${package}" "${spdx_sbom_path}"
-  cyclonedx_sbom_path="$(generated_evidence_path "${primary_path}" "sbom.cdx")"
-  write_generated_cyclonedx_sbom "${primary_path}" "${package}" "${cyclonedx_sbom_path}"
+  sbom_path="$(generated_evidence_path "${primary_path}" "sbom.cdx")"
+  write_generated_cyclonedx_sbom "${primary_path}" "${package}" "${sbom_path}"
   provenance_path="$(generated_evidence_path "${primary_path}" "provenance")"
   write_generated_provenance "${primary_path}" "${package}" "${provenance_path}"
 
   entry="$(jq -cn \
     --arg release_catalog_key "${RELEASE_CATALOG_KEY}" \
     --arg path "${primary_path}" \
-    --arg spdx_sbom "${spdx_sbom_path}" \
-    --arg cyclonedx_sbom "${cyclonedx_sbom_path}" \
+    --arg sbom "${sbom_path}" \
     --arg provenance "${provenance_path}" \
     --argjson package "${package}" \
-    '{release_catalog_key: $release_catalog_key, path: $path, sboms: {spdx: $spdx_sbom, cyclonedx: $cyclonedx_sbom}, sbom_kind: "generated-identity", provenance: $provenance, package: $package}')"
+    '{release_catalog_key: $release_catalog_key, path: $path, sbom: $sbom, sbom_kind: "generated-identity", provenance: $provenance, package: $package}')"
 
   jq --argjson entry "${entry}" '.entries += [$entry]' "${temporary_manifest}" >"${temporary_manifest}.next"
   mv "${temporary_manifest}.next" "${temporary_manifest}"

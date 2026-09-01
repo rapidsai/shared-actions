@@ -18,14 +18,12 @@ shows the complete output for one primary JAR:
   associates the artifact with its package identity and evidence.
 - [SLSA/in-toto provenance](release-catalog/examples/cuvs-java/release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.provenance.json)
   identifies the source, workflow, invocation, and exact artifact digest.
-- The SBOM is provided in both [SPDX
-  2.3](release-catalog/examples/cuvs-java/release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.sbom.spdx.json)
-  and [CycloneDX
-  1.6](release-catalog/examples/cuvs-java/release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.sbom.cdx.json)
-  formats so consumers can choose the serialization their tooling supports.
+- The [CycloneDX 1.6
+  SBOM](release-catalog/examples/cuvs-java/release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.sbom.cdx.json)
+  identifies the artifact and binds it to its digest.
 
 The [example companion notes](release-catalog/examples/README.md) explain how
-the catalog, both SBOMs, provenance, and separately uploaded primary artifact
+the catalog, CycloneDX SBOM, provenance, and separately uploaded primary artifact
 are bound together by the artifact SHA-256.
 
 A dispatch action is one that:

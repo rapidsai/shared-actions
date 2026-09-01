@@ -1,6 +1,6 @@
 name: Dispatch release catalog
 description: >-
-  Create a release catalog companion (artifact inventory, provenance, and SBOMs)
+  Create a release catalog companion (artifact inventory, provenance, and CycloneDX SBOM)
   for the artifacts a build job produced, and optionally upload it to S3.
   See release-catalog/README.md.
 

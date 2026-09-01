@@ -89,8 +89,9 @@ require_expected_revision() {
   local expected_revision="$3"
   local actual_repository="$4"
   local actual_revision="$5"
+  local usage_repository="$6"
   if [[ "${actual_repository}" != "${expected_repository}" || "${actual_revision}" != "${expected_revision}" ]]; then
-    echo "${label} does not match the frozen release train: expected ${expected_repository}@${expected_revision}, got ${actual_repository}@${actual_revision}" >&2
+    echo "${label} usage in ${usage_repository} does not match the frozen release train: train expects ${expected_repository}@${expected_revision:0:8}, got ${actual_repository}@${actual_revision:0:8}" >&2
     exit 1
   fi
 }
@@ -100,13 +101,15 @@ require_expected_revision \
   "rapidsai/shared-actions" \
   "${shared_actions_revision}" \
   "${RELEASE_CANDIDATE_SHARED_ACTIONS_REPOSITORY:-}" \
-  "${RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION:-}"
+  "${RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION:-}" \
+  "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY:-${GITHUB_REPOSITORY}}"
 require_expected_revision \
   "shared-workflows" \
   "rapidsai/shared-workflows" \
   "${shared_workflows_revision}" \
   "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY:-}" \
-  "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REVISION:-}"
+  "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REVISION:-}" \
+  "${GITHUB_REPOSITORY}"
 
 if ! command -v git >/dev/null; then
   echo "git is required to install the train-locked gha-tools revision" >&2

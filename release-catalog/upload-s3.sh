@@ -21,9 +21,13 @@ safe_prefix() {
   [[ "${prefix}" != /* && "${prefix}" != */ && "${prefix}" != *'//' && "${prefix}" != *'..'* ]]
 }
 
-for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
+for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_SOURCE_ARTIFACT_NAME RAPIDS_DATETIME_STRING GITHUB_REPOSITORY; do
   require_value "${value}" "${!value:-}"
 done
+if [[ ! "${RAPIDS_DATETIME_STRING}" =~ ^[0-9]{12}$ ]]; then
+  echo "RAPIDS_DATETIME_STRING must use YYMMDDhhmmss format" >&2
+  exit 1
+fi
 if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
   echo "RELEASE_CANDIDATE_TRAIN_SHA256 must be a SHA-256 hex digest" >&2
   exit 1
@@ -76,9 +80,10 @@ safe_relative_path() {
   [[ -n "${path}" && "${path}" != /* && "${path}" != ../* && "${path}" != */../* && "${path}" != *'/..' ]]
 }
 
-# A reusable repository build is keyed only by its declared inputs. In
-# particular, package build strings often contain a CI timestamp, so the full
-# generated catalog is an *output* record and must not determine this key.
+# A reusable repository build is keyed only by its declared inputs. Package
+# bytes can embed the CI timestamp, so that timestamp is an explicit input.
+# The full generated catalog remains an output record and must not determine
+# this key.
 # A digest names canonical, reusable release bytes. Execution-specific catalog
 # context and provenance stay with the train attempt instead of duplicating
 # payloads below the canonical artifact namespace.
@@ -124,11 +129,13 @@ fi
 
 build_record_path="$(mktemp)"
 jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
-  --argjson build_implementation_revisions "${build_implementation_revisions}" '
+  --argjson build_implementation_revisions "${build_implementation_revisions}" \
+  --arg build_datetime "${RAPIDS_DATETIME_STRING}" '
   {
-    schema_version: 2,
+    schema_version: 3,
     producer,
     source: (.source | {artifact, repository, sha, workflow_ref, matrix}),
+    build_datetime: $build_datetime,
     build_implementation_revisions: $build_implementation_revisions,
     upstream_dependencies: $upstream_dependencies,
     packages: [

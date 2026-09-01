@@ -81,10 +81,12 @@ run_upload() {
   local implementation_revisions="$2"
   local gha_tools_revision
   local shared_actions_revision
+  local build_datetime
   gha_tools_revision="$(jq -r '."gha-tools"' <<<"${implementation_revisions}")"
   shared_actions_revision="$(jq -r '."shared-actions"' <<<"${implementation_revisions}")"
   gha_tools_revision="${3:-${gha_tools_revision}}"
   shared_actions_revision="${4:-${shared_actions_revision}}"
+  build_datetime="${5:-260901120000}"
   GITHUB_RUN_ATTEMPT="$1" \
     PATH="${temporary_directory}/bin:${PATH}" \
     FAKE_S3="${temporary_directory}/s3" \
@@ -103,6 +105,7 @@ run_upload() {
     RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY="rapidsai/shared-actions" \
     RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION="${shared_actions_revision}" \
     RELEASE_CANDIDATE_UPSTREAM_INPUTS="${temporary_directory}/upstream-inputs.json" \
+    RAPIDS_DATETIME_STRING="${build_datetime}" \
     "${repository_root}/release-catalog/upload-s3.sh"
 }
 
@@ -120,7 +123,7 @@ test -f "${train}/101.1/release-catalog-entries.json"
 test -f "${train}/101.1/release-evidence/example.intoto.jsonl"
 test ! -d "${artifact_root}/${artifact_digest}/attempts"
 jq -e '.upstream_dependencies == []' "${canonical}/build-record.json" >/dev/null
-jq -e '.schema_version == 2' "${canonical}/build-record.json" >/dev/null
+jq -e '.schema_version == 3 and .build_datetime == "260901120000"' "${canonical}/build-record.json" >/dev/null
 jq -e '.schema_version == 2' "${canonical}/artifact-index.json" >/dev/null
 artifact_line="$(grep -nF "${artifact_digest}/conda/linux-64/example-26.10.00.conda" "${temporary_directory}/put-objects.log" | cut -d: -f1)"
 index_line="$(grep -nF "${artifact_digest}/conda/artifact-index.json" "${temporary_directory}/put-objects.log" | cut -d: -f1)"
@@ -203,8 +206,14 @@ jq -e '
     }
   }]
 ' "${artifact_root}/${upstream_digest}/conda/build-record.json" >/dev/null
+run_upload 4 "${base_implementation_revisions}" "" "" "260901120001"
+mapfile -t artifact_digests < <(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+if [[ "${#artifact_digests[@]}" -ne 4 ]]; then
+  echo "build timestamp change did not create a distinct build-input digest" >&2
+  exit 1
+fi
 printf 'different bytes\n' >"${temporary_directory}/bundle/linux-64/example-26.10.00.conda"
-if run_upload 4 "${base_implementation_revisions}" >/dev/null 2>&1; then
+if run_upload 5 "${base_implementation_revisions}" >/dev/null 2>&1; then
   echo "upload accepted different canonical package bytes" >&2
   exit 1
 fi

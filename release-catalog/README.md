@@ -1,15 +1,52 @@
-# Release catalog companion archives
+# Release catalog companions
 
-This action creates a companion archive alongside our binary artifacts (conda,
-wheel or otherwise) that contains an inventory of the binary artifacts that were
-produced by that job. That inventory is used by the RAPIDS release system to
-assemble release candidates. "Release candidates" here refers to a set of
-artifacts that can be deployed to create a release, rather than a release
-candidate version of one artifact.
+## Why this exists
+
+RAPIDS builds hundreds of binary artifacts (conda packages, wheels, JARs, and
+others) across many repositories and CI jobs. Two things are hard to do with
+those artifacts today:
+
+- **Assemble and test a release before tagging it.** We want to pick a
+  consistent set of artifacts, test them together as a candidate, and only
+  then publish. That requires a single inventory of what each job built.
+- **Keep build-time evidence.** Facts such as which commit, workflow, and run
+  produced a wheel cannot be reliably reconstructed after the fact. They have
+  to be captured by the job that built the artifact.
+
+This action solves both by having each build job write a small **companion**
+next to its artifacts: an inventory of the files it produced, plus provenance
+and SBOM documents for each one. The companion never modifies the artifacts
+themselves.
+
+## Lifecycle
+
+1. A build job produces its artifacts as usual.
+2. This action runs as a later step in that job and writes a companion into
+   the artifact directory.
+3. The companion is uploaded to a private S3 bucket (`upload-to-s3: true`).
+4. The RAPIDS release platform reads the companions from every job in a
+   release train, merges them into the **release catalog**, and uses the
+   catalog to assemble and test a **release candidate**.
+
+"Release candidate" here means a set of artifacts that can be deployed to
+create a release, not a release-candidate version of one artifact.
+
+## Glossary
+
+| Term | Meaning |
+| ---- | ------- |
+| **Artifact** | A file a build job produces and that we may publish: a `.conda` file, a wheel, a JAR, and so on. |
+| **Companion** | The set of files this action writes next to a job's artifacts: `release-catalog-entries.json` plus a `release-evidence/` directory. One companion per build job. |
+| **Producer** | The build job (and the workflow it runs in) that created the artifacts. |
+| **Release catalog** | The merged inventory of all companions for a release, maintained by the release platform. |
+| **Release train** | One planned release of RAPIDS, identified by an immutable JSON document. Its SHA-256 is used to group all companions that belong to that release in S3. |
+| **Release candidate** | A set of artifacts selected from the release catalog to be tested and, if it passes, published. |
+| **Provenance** | A [SLSA](https://slsa.dev/spec/v1.2/attestation-model) statement describing how, where, and from what source an artifact was built. |
+| **SBOM** | Software bill of materials. The SBOMs this action generates identify the artifact and its digest only; they do not list its dependencies. |
 
 ## Companion contents
 
-Each build job creates one companion archive with this shape:
+Each build job creates one companion with this shape:
 
 ```text
 .
@@ -24,56 +61,67 @@ Each build job creates one companion archive with this shape:
     └── ...
 ```
 
-`release-catalog-entries.json` records the artifacts produced by the job:
-`.conda`, `.whl`, or otherwise, as well as the checksums of those files.
+`release-catalog-entries.json` records the artifacts produced by the job
+(`.conda`, `.whl`, or otherwise), the checksums of those files, the package
+identity of each one, and the source context of the job (repository, commit,
+workflow, run). See [`examples/cuvs-java`](examples/cuvs-java) for a complete
+companion.
 
-The release-evidence folder carries additional metadata that may be useful to
-consumers of our packages: provenance and software bill of materials (SBOM).
-Provenance describes how a package was built and by whom. An SBOM lists
-components that make up the package. They complement each other: an SBOM without
-provenance may describe the wrong or an untrusted artifact, while provenance
-without an SBOM cannot efficiently answer what vulnerable components are inside.
-For each artifact in its `entries` array, the action creates one provenance file
-and equivalent identity SBOMs in SPDX and CycloneDX formats. The SHA-256 in each
-evidence filename is the digest of that specific artifact's contents. The
-catalog entry identifies both SBOM paths under `sboms`, allowing consumers to
-select their preferred format without inferring it from the filename.
+For each artifact in its `entries` array, the action creates one provenance
+file and two equivalent SBOMs, one in [SPDX
+2.3](https://spdx.github.io/spdx-spec/v2.3/) and one in [CycloneDX
+1.6](https://cyclonedx.org/docs/1.6/json/). The SHA-256 in each evidence
+filename is the digest of that artifact's contents, so evidence files can
+never be confused across artifacts. The catalog entry lists both SBOM paths
+under `sboms`, allowing consumers to select their preferred format without
+inferring it from the filename.
 
-The provenance.json file follows the
-[SLSA](https://slsa.dev/spec/v1.2/attestation-model) standard format.
+Each entry also carries `sbom_kind: "generated-identity"`. This marks the
+SBOMs as identity-only documents generated by this action. A future version
+may accept producer-supplied dependency SBOMs, which would use a different
+`sbom_kind`.
 
-The `sbom.spdx.json` file uses [SPDX
-2.3](https://spdx.github.io/spdx-spec/v2.3/), while `sbom.cdx.json` uses
-[CycloneDX 1.6](https://cyclonedx.org/docs/1.6/json/). These generated documents
-identify the artifact and its digest; they do not contain a dependency
-inventory.
+## Action inputs
 
-Provenance remains separate because it is an independently verifiable statement
-about how and where the artifact was built. Although both SBOM standards can
-carry some build metadata, embedding provenance in the SBOMs would not replace
-the in-toto/SLSA statement and would couple evidence with different consumers
-and lifecycles.
+The action is used via `rapidsai/shared-actions/release-catalog-dispatch`.
 
-## Action Configuration
+| Input | Required | Description |
+| ----- | -------- | ----------- |
+| `config` | yes | JSON object selecting the artifacts and their release catalog key. Schema: [`config.schema.json`](config.schema.json). Details below. |
+| `source-artifact-name` | yes | Stable name for this job's output, for example the GitHub Actions artifact name. Used as the last path component in S3. |
+| `upload-to-s3` | no | `"true"` to upload the companion to S3. Defaults to `"false"`, which only writes the companion locally. |
+| `candidate-train-sha256` | when uploading | SHA-256 of the release train JSON this build belongs to. All companions for one release share it. |
+| `candidate-bucket` | no | S3 bucket for companions. Defaults to `rapids-release-candidates`. |
+| `candidate-prefix` | no | Root prefix inside the bucket. Defaults to `candidate-builds`. |
 
-Every caller passes one `config` JSON object. The canonical schema and field
-documentation are in [`config.schema.json`](config.schema.json). This is
-validated at runtime with the [validate-config.sh](validate-config.sh) script.
+When uploading, the companion lands at
+`s3://<candidate-bucket>/<candidate-prefix>/<candidate-train-sha256>/<repository>/<run-id>/<source-artifact-name>/`.
+Uploads are conditional: an existing object is accepted only if its bytes
+match, so reruns are safe.
+
+## `config` contents
+
+The canonical schema and field documentation are in
+[`config.schema.json`](config.schema.json). It is validated at runtime by
+[validate-config.sh](validate-config.sh).
 
 ### `release_catalog_key`
 
 This is a grouping label that represents a common "release policy." Artifacts
-that share release_catalog_key are versioned, validated, ordered, published, and
-promoted together. The key does not need to be unique per artifact, nor per
-matrix variant. For example, `cudf` and `dask-cudf` Conda packages can both use
-`conda:cudf` because they share the same version, validation, inter-package
-order, publishing destination, and are ultimately published together.
+that share a `release_catalog_key` are versioned, validated, ordered, published,
+and promoted together. For example, the `cudf` and `dask-cudf` Conda packages
+both use `conda:cudf` because they share the same version, validation,
+inter-package order, and publishing destination, and are ultimately published
+together.
+
+The key does not need to be unique per artifact or per matrix variant. Use a
+separate key only when the outputs intentionally follow a separate release
+workflow.
 
 Standard RAPIDS Conda and wheel workflows use `<ecosystem>:<repository-name>`,
 such as `conda:cudf`, because those workflows apply a repository-level release
 policy. A custom producer should use `<ecosystem>:<release-group>`, such as
-`maven:cuvs-java`, or simply `maven:cuvs`. Use a separate key only when the
-outputs intentionally have a separate release workflows that must be followed.
+`maven:cuvs-java`, or simply `maven:cuvs`.
 
 ### `artifact_directory` and `artifacts`
 
@@ -115,7 +163,7 @@ resolves to zero files or multiple files results in an error.
 
 #### Package identity file
 
-package_identity_file is a JSON file containing at least `ecosystem`, `name`,
+`package_identity_file` is a JSON file containing at least `ecosystem`, `name`,
 and `version`; `build` and `platform` are optional. This path is relative to
 `artifact_directory`.
 
@@ -129,3 +177,14 @@ and `version`; `build` and `platform` are optional. This path is relative to
 
 Multiple artifacts in the list may reference the same identity file when the
 files have the same package identity.
+
+## Design notes
+
+Provenance and SBOMs are kept as separate documents. Provenance describes how a
+package was built and by whom; an SBOM lists what makes up the package. They
+complement each other: an SBOM without provenance may describe the wrong or an
+untrusted artifact, while provenance without an SBOM cannot efficiently answer
+what vulnerable components are inside. Although both SBOM standards can carry
+some build metadata, embedding provenance in the SBOMs would not replace the
+in-toto/SLSA statement and would couple evidence with different consumers and
+lifecycles.

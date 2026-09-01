@@ -29,7 +29,7 @@ if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
   exit 1
 fi
 if [[ "${RELEASE_SOURCE_ARTIFACT_NAME}" == */* || "${RELEASE_SOURCE_ARTIFACT_NAME}" == *".."* ]]; then
-  echo "RELEASE_SOURCE_ARTIFACT_NAME must be a plain bundle name" >&2
+  echo "RELEASE_SOURCE_ARTIFACT_NAME must be a plain name without path separators" >&2
   exit 1
 fi
 if ! safe_prefix "${RELEASE_CANDIDATE_PREFIX}"; then
@@ -37,14 +37,14 @@ if ! safe_prefix "${RELEASE_CANDIDATE_PREFIX}"; then
   exit 1
 fi
 
-bundle_root="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
-entries_path="${bundle_root}/release-catalog-entries.json"
+companion_root="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
+entries_path="${companion_root}/release-catalog-entries.json"
 if [[ ! -f "${entries_path}" ]]; then
   echo "release catalog entries are missing: ${entries_path}" >&2
   exit 1
 fi
 
-# Catalog paths are relative to the build bundle. Reject traversal before an
+# Catalog paths are relative to the companion root. Reject traversal before an
 # S3 key is constructed, even though materialize.sh already validates them.
 safe_relative_path() {
   local path="$1"
@@ -55,13 +55,13 @@ base_key="${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB
 # `signature` is optional, so select only declared string paths. Without the
 # filter, jq renders a missing optional value as the literal text `null` and
 # the uploader attempts to find a file with that name.
-mapfile -t bundle_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, (.sboms[]), .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
+mapfile -t companion_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, (.sboms[]), .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
 head_metadata="$(mktemp)"
 trap 'rm -f "${head_metadata}"' EXIT
 
 upload_one() {
   local relative_path="$1"
-  local local_path="${bundle_root}/${relative_path}"
+  local local_path="${companion_root}/${relative_path}"
   local object_key="${base_key}/${relative_path}"
   local checksum
   checksum="$(openssl dgst -sha256 -binary "${local_path}" | base64)"
@@ -83,12 +83,12 @@ upload_one() {
   fi
 }
 
-for relative_path in "${bundle_paths[@]}"; do
-  if ! safe_relative_path "${relative_path}" || [[ ! -f "${bundle_root}/${relative_path}" ]]; then
+for relative_path in "${companion_paths[@]}"; do
+  if ! safe_relative_path "${relative_path}" || [[ ! -f "${companion_root}/${relative_path}" ]]; then
     echo "catalog declares a missing or unsafe candidate file: ${relative_path}" >&2
     exit 1
   fi
   upload_one "${relative_path}"
 done
 
-printf 'Release candidate bundle: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${base_key}" >>"${GITHUB_STEP_SUMMARY}"
+printf 'Release catalog companion: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${base_key}" >>"${GITHUB_STEP_SUMMARY}"

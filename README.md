@@ -5,6 +5,29 @@ especially the telemetry actions, use a pattern that we refer to as "dispatch ac
 The general idea of a dispatch action is to make it easier to depend on other actions
 at a specific revision, and also to simplify using files beyond a given action .yml file.
 
+## Release catalog companions
+
+The release catalog action creates a companion archive for each build job. See
+the [release catalog documentation](release-catalog/README.md) for its
+configuration and archive contract.
+
+The checked-in [cuVS Java companion example](release-catalog/examples/cuvs-java)
+shows the complete output for one primary JAR:
+
+- [`release-catalog-entries.json`](release-catalog/examples/cuvs-java/release-catalog-entries.json)
+  associates the artifact with its package identity and evidence.
+- [SLSA/in-toto provenance](release-catalog/examples/cuvs-java/release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.provenance.json)
+  identifies the source, workflow, invocation, and exact artifact digest.
+- The SBOM is provided in both [SPDX
+  2.3](release-catalog/examples/cuvs-java/release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.sbom.spdx.json)
+  and [CycloneDX
+  1.6](release-catalog/examples/cuvs-java/release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.sbom.cdx.json)
+  formats so consumers can choose the serialization their tooling supports.
+
+The [example companion notes](release-catalog/examples/README.md) explain how
+the catalog, both SBOMs, provenance, and separately uploaded primary artifact
+are bound together by the artifact SHA-256.
+
 A dispatch action is one that:
 * clones the shared-actions repository (repo/ref changeable using env vars)
 * runs (dispatches to) another action within the clone, using a relative path

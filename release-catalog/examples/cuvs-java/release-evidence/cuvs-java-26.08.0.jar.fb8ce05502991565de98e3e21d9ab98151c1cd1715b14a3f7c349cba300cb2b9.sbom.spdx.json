@@ -1,6 +1,6 @@
 {
   "SPDXID": "SPDXRef-DOCUMENT",
-  "comment": "Artifact-identity SBOM envelope. It does not contain a dependency inventory.",
+  "comment": "Artifact-identity SBOM. It identifies only this artifact and its digest, not its dependencies.",
   "creationInfo": {
     "created": "2026-08-21T00:00:00Z",
     "creators": [

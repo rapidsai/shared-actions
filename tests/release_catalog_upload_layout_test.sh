@@ -86,7 +86,7 @@ run_upload() {
   shared_actions_revision="$(jq -r '."shared-actions"' <<<"${implementation_revisions}")"
   gha_tools_revision="${3:-${gha_tools_revision}}"
   shared_actions_revision="${4:-${shared_actions_revision}}"
-  build_datetime="${5:-260901120000}"
+  build_datetime="${5-260901120000}"
   GITHUB_RUN_ATTEMPT="$1" \
     PATH="${temporary_directory}/bin:${PATH}" \
     FAKE_S3="${temporary_directory}/s3" \
@@ -212,8 +212,14 @@ if [[ "${#artifact_digests[@]}" -ne 4 ]]; then
   echo "build timestamp change did not create a distinct build-input digest" >&2
   exit 1
 fi
+run_upload 5 "${base_implementation_revisions}" "" "" ""
+mapfile -t artifact_digests < <(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+if [[ "${#artifact_digests[@]}" -ne 5 ]]; then
+  echo "empty build timestamp was not accepted as a stable build input" >&2
+  exit 1
+fi
 printf 'different bytes\n' >"${temporary_directory}/bundle/linux-64/example-26.10.00.conda"
-if run_upload 5 "${base_implementation_revisions}" >/dev/null 2>&1; then
+if run_upload 6 "${base_implementation_revisions}" >/dev/null 2>&1; then
   echo "upload accepted different canonical package bytes" >&2
   exit 1
 fi

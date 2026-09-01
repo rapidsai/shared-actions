@@ -150,9 +150,10 @@ exact upstream Conda and wheel files actually materialized for the current job
 matrix. Each entry contains the file SHA-256 plus the producing RAPIDS
 repository SHA and build-input digest. `release-catalog` incorporates that lock
 into `build-record.json`, along with the train's frozen `shared-workflows`,
-`shared-actions`, and `gha-tools` revisions and the build timestamp supplied to
-the package build. The timestamp is required because Conda packages and wheels
-can embed it in their bytes. The record's SHA-256 determines the canonical
+`shared-actions`, and `gha-tools` revisions and any build timestamp supplied to
+the package build. The timestamp is included because Conda packages and wheels
+can embed it in their bytes; workflows that do not use one record an empty,
+stable value. The record's SHA-256 determines the canonical
 artifact location. Therefore an unchanged build can be reused
 across candidate trains and GitHub retries, while a downstream build is
 necessarily distinct when an upstream package byte, selected upstream build, or

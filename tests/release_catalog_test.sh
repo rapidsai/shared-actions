@@ -45,13 +45,14 @@ jq -e '
   and .entries[0].path == "cuvs-java-26.08.0.jar"
   and .entries[0].package.name == "ai.rapids:cuvs-java"
   and .entries[0].sbom_kind == "generated-identity"
-  and (.entries[0].sboms | keys) == ["cyclonedx", "spdx"]
+  and (.entries[0].sbom | endswith(".sbom.cdx.json"))
 ' "${entries_path}" >/dev/null
 
 # Optional signatures must not cause the S3 uploader to request a literal
 # `null` file. This mirrors its declared-file selection without requiring AWS.
-mapfile -t upload_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, (.sboms[]), .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
-test "${upload_paths[*]}" = "release-catalog-entries.json cuvs-java-26.08.0.jar release-evidence/cuvs-java-26.08.0.jar.sbom.cdx.json release-evidence/cuvs-java-26.08.0.jar.sbom.spdx.json release-evidence/cuvs-java-26.08.0.jar.provenance.json"
+mapfile -t upload_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
+artifact_sha256="$(sha256sum "${canonical_bundle_directory}/cuvs-java-26.08.0.jar" | awk '{print $1}')"
+test "${upload_paths[*]}" = "release-catalog-entries.json cuvs-java-26.08.0.jar release-evidence/cuvs-java-26.08.0.jar.${artifact_sha256}.provenance.json release-evidence/cuvs-java-26.08.0.jar.${artifact_sha256}.sbom.cdx.json"
 if printf '%s\n' "${upload_paths[@]}" | grep -Fx null; then
   echo "optional signature emitted a literal null upload path" >&2
   exit 1
@@ -61,15 +62,8 @@ fi
 # action. Only the generated SBOM timestamps are normalized.
 example_directory="${repository_root}/release-catalog/examples/cuvs-java"
 diff -u "${example_directory}/release-catalog-entries.json" "${entries_path}"
-example_spdx_sbom_path="$(jq -r '.entries[0].sboms.spdx' "${entries_path}")"
-example_cyclonedx_sbom_path="$(jq -r '.entries[0].sboms.cyclonedx' "${entries_path}")"
+example_cyclonedx_sbom_path="$(jq -r '.entries[0].sbom' "${entries_path}")"
 example_provenance_path="$(jq -r '.entries[0].provenance' "${entries_path}")"
-jq -S '.creationInfo.created = "2026-08-21T00:00:00Z"' \
-  "${canonical_bundle_directory}/${example_spdx_sbom_path}" \
-  >"${temporary_directory}/normalized-example.spdx.json"
-diff -u \
-  "${example_directory}/${example_spdx_sbom_path}" \
-  "${temporary_directory}/normalized-example.spdx.json"
 jq -S '.metadata.timestamp = "2026-08-21T00:00:00Z"' \
   "${canonical_bundle_directory}/${example_cyclonedx_sbom_path}" \
   >"${temporary_directory}/normalized-example.cdx.json"
@@ -86,7 +80,7 @@ cp "${entries_path}" "${isolated_companion_directory}/"
 cp -R "${canonical_bundle_directory}/release-evidence" "${isolated_companion_directory}/"
 while IFS= read -r evidence_path; do
   test -f "${isolated_companion_directory}/${evidence_path}"
-done < <(jq -r '.entries[] | .sboms[], .provenance' "${isolated_companion_directory}/release-catalog-entries.json")
+done < <(jq -r '.entries[] | .sbom, .provenance' "${isolated_companion_directory}/release-catalog-entries.json")
 
 multiple_identity_directory="${temporary_directory}/multiple-identities"
 mkdir -p "${multiple_identity_directory}"
@@ -111,7 +105,7 @@ jq -e '
   and .entries[0].package == {ecosystem: "archive", name: "first", version: "1.0"}
   and .entries[1].package == {ecosystem: "maven", name: "example:second", version: "2.0"}
 ' "${multiple_identity_directory}/release-catalog-entries.json" >/dev/null
-test "$(find "${multiple_identity_directory}/release-evidence" -type f | wc -l | tr -d ' ')" = "6"
+test "$(find "${multiple_identity_directory}/release-evidence" -type f | wc -l | tr -d ' ')" = "4"
 
 generated_directory="${temporary_directory}/generated-bundle"
 mkdir -p "${generated_directory}/linux-64"
@@ -129,8 +123,7 @@ export RAPIDS_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_AR
 "${repository_root}/release-catalog/materialize.sh"
 
 generated_entries_path="${generated_directory}/release-catalog-entries.json"
-generated_spdx_sbom_path="$(jq -r '.entries[0].sboms.spdx' "${generated_entries_path}")"
-generated_cyclonedx_sbom_path="$(jq -r '.entries[0].sboms.cyclonedx' "${generated_entries_path}")"
+generated_cyclonedx_sbom_path="$(jq -r '.entries[0].sbom' "${generated_entries_path}")"
 generated_provenance_path="$(jq -r '.entries[0].provenance' "${generated_entries_path}")"
 jq -e '
   .source.artifact == "kvikio_conda_python_kvikio_x86_64_abi3_cu12"
@@ -140,11 +133,6 @@ jq -e '
   and .entries[0].package == {ecosystem: "conda", name: "kvikio", version: "26.08.00a32"}
   and .entries[0].sbom_kind == "generated-identity"
 ' "${generated_entries_path}" >/dev/null
-jq -e '
-  .spdxVersion == "SPDX-2.3"
-  and .packages[0].name == "kvikio"
-  and .packages[0].versionInfo == "26.08.00a32"
-' "${generated_directory}/${generated_spdx_sbom_path}" >/dev/null
 jq -e '
   .bomFormat == "CycloneDX"
   and .specVersion == "1.6"

@@ -55,7 +55,7 @@ base_key="${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB
 # `signature` is optional, so select only declared string paths. Without the
 # filter, jq renders a missing optional value as the literal text `null` and
 # the uploader attempts to find a file with that name.
-mapfile -t companion_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, (.sboms[]), .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
+mapfile -t companion_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
 head_metadata="$(mktemp)"
 trap 'rm -f "${head_metadata}"' EXIT
 

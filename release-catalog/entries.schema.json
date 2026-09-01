@@ -51,20 +51,12 @@
     "entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["release_catalog_key", "path", "package", "sboms", "sbom_kind", "provenance"],
+      "required": ["release_catalog_key", "path", "package", "sbom", "sbom_kind", "provenance"],
       "properties": {
         "release_catalog_key": {"type": "string", "minLength": 1, "pattern": "^[^\\r\\n]+$"},
         "path": {"$ref": "#/$defs/relative_path"},
         "package": {"$ref": "#/$defs/package"},
-        "sboms": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["spdx", "cyclonedx"],
-          "properties": {
-            "spdx": {"$ref": "#/$defs/relative_path"},
-            "cyclonedx": {"$ref": "#/$defs/relative_path"}
-          }
-        },
+        "sbom": {"$ref": "#/$defs/relative_path"},
         "sbom_kind": {"const": "generated-identity"},
         "provenance": {"$ref": "#/$defs/relative_path"},
         "signature": {"$ref": "#/$defs/relative_path"}

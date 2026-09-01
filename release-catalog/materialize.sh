@@ -360,7 +360,7 @@ write_generated_sbom() {
         relationshipType: "DESCRIBES",
         relatedSpdxElement: "SPDXRef-Artifact"
       }],
-      comment: "Artifact-identity SBOM envelope. It does not contain a dependency inventory."
+      comment: "Artifact-identity SBOM. It identifies only this artifact and its digest, not its dependencies."
     }' >"${artifact_directory}/${destination}"
 }
 
@@ -492,8 +492,9 @@ if ! jq -e '.entries as $items | ($items | map([.release_catalog_key, .path] | j
   exit 1
 fi
 
-# Store job-level source context once around the entry array. A downstream
-# assembler can retain that association while combining selected companions.
+# Store the job's source context (repository, commit, workflow, run) once at
+# the top level rather than on every entry. The release platform keeps this
+# association when it merges companions from many jobs into the catalog.
 jq -n -S \
   --arg artifact_name "${RELEASE_SOURCE_ARTIFACT_NAME}" \
   --arg repository "${github_repository}" \

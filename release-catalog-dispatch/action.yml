@@ -1,5 +1,8 @@
 name: Dispatch release catalog
-description: Write a release-candidate catalog bundle directly to the private S3 store.
+description: >-
+  Create a release catalog companion (artifact inventory, provenance, and SBOMs)
+  for the artifacts a build job produced, and optionally upload it to S3.
+  See release-catalog/README.md.
 
 inputs:
   config:
@@ -8,21 +11,26 @@ inputs:
       https://github.com/rapidsai/shared-actions/blob/main/release-catalog/config.schema.json
     required: true
   source-artifact-name:
-    description: Stable name of this producing artifact bundle.
+    description: >-
+      Stable name for this job's output, such as the GitHub Actions artifact
+      name. Used as the last path component in S3.
     required: true
   candidate-train-sha256:
-    description: Canonical SHA-256 of the immutable release-train JSON.
-    required: true
+    description: >-
+      SHA-256 of the release train JSON this build belongs to. Required when
+      upload-to-s3 is true; ignored otherwise.
+    required: false
+    default: ""
   candidate-bucket:
-    description: Private S3 bucket that holds candidate-build bytes.
+    description: S3 bucket that receives the companion when upload-to-s3 is true.
     required: false
     default: rapids-release-candidates
   candidate-prefix:
-    description: Root prefix for train-scoped candidate-build bytes.
+    description: Root prefix inside candidate-bucket.
     required: false
     default: candidate-builds
   upload-to-s3:
-    description: Whether to upload the generated bundle to the candidate store.
+    description: Whether to upload the companion to S3. When false, the companion is only written locally.
     required: false
     default: "false"
 runs:
@@ -64,7 +72,7 @@ runs:
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
         RELEASE_CATALOG_KEY: ${{ steps.configuration.outputs.release_catalog_key }}
       run: "${IMPLEMENTATION_PATH}/materialize.sh"
-    - name: Write release-candidate bundle to S3
+    - name: Upload release catalog companion to S3
       if: ${{ inputs.upload-to-s3 == 'true' }}
       shell: bash
       env:

@@ -36,6 +36,8 @@ def test_candidate_conda_channels_exclude_public_rapids_and_nvidia_channels():
 
     expected_contracts = (
         "candidate build rejected external Conda channel",
+        "release train must contain the complete Conda bootstrap tool bundle",
+        "bootstrap-channel/noarch/*",
         "rapidsai|rapidsai-nightly|nvidia|",
         "conda-forge|https://conda.anaconda.org/conda-forge|file://*|/*",
     )

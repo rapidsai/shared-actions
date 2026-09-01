@@ -161,6 +161,33 @@ if jq -e '.input_receipts' "${workspace}/release-train.json" >/dev/null; then
   variant_source="${workspace}/variants-receipt.json"
 fi
 
+if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
+  mapfile -t bootstrap_records < <(jq -cer '.bootstrap_conda[]?' "${lock_source}")
+  bootstrap_packages="$(printf '%s\n' "${bootstrap_records[@]}" | jq -Rsc 'split("\n") | map(select(length > 0) | fromjson | .package) | sort')"
+  if [[ "${bootstrap_packages}" != '["rapids-build-backend","rapids-dependency-file-generator"]' ]]; then
+    echo "release train must contain the complete Conda bootstrap tool bundle" >&2
+    exit 1
+  fi
+  for record in "${bootstrap_records[@]}"; do
+    bootstrap_path="$(jq -r '.path // empty' <<<"${record}")"
+    bootstrap_sha256="$(jq -r '.sha256 // empty' <<<"${record}")"
+    bootstrap_filename="${bootstrap_path##*/}"
+    if [[ "${bootstrap_path}" != bootstrap-channel/noarch/* \
+      || "${bootstrap_filename}" == *".."* \
+      || ! "${bootstrap_filename}" =~ \.(conda|tar\.bz2)$ \
+      || ! "${bootstrap_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
+      echo "release train contains an unsafe Conda bootstrap package reference" >&2
+      exit 1
+    fi
+    bootstrap_destination="${channel}/noarch/${bootstrap_filename}"
+    aws s3 cp "${root}/inputs/${bootstrap_path}" "${bootstrap_destination}"
+    if [[ "$(sha256sum "${bootstrap_destination}" | awk '{print $1}')" != "${bootstrap_sha256}" ]]; then
+      echo "stored Conda bootstrap package does not match the release train: ${bootstrap_filename}" >&2
+      exit 1
+    fi
+  done
+fi
+
 wheel_constraint=""
 if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel" ]]; then
   wheel_lock_record="$(python3 "${script_directory}/select_lock.py" \

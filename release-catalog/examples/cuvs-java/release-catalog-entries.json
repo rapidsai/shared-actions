@@ -16,7 +16,7 @@
       }
     }
   ],
-  "producer": "shared-workflows",
+  "producer": "NVIDIA ADI Build/Operations",
   "schema_version": 1,
   "source": {
     "artifact": "cuvs-java-cuda12.9.1",

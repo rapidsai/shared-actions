@@ -36,7 +36,7 @@ entries_path="${canonical_bundle_directory}/release-catalog-entries.json"
 test ! -e "${canonical_bundle_directory}/release-catalog-metadata.json"
 jq -e '
   .schema_version == 1
-  and .producer == "shared-workflows"
+  and .producer == "NVIDIA ADI Build/Operations"
   and .source.artifact == "cuvs-java-cuda12.9.1"
   and .source.repository == "NVIDIA/cuvs"
   and .source.sha == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

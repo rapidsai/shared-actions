@@ -67,6 +67,11 @@ identity of each one, and the source context of the job (repository, commit,
 workflow, run). See [`examples/cuvs-java`](examples/cuvs-java) for a complete
 companion.
 
+The top-level `producer` identifies the organization responsible for producing
+and maintaining the companion: `NVIDIA ADI Build/Operations`. Implementation
+details such as the reusable workflow remain in the source context and evidence
+rather than serving as the producer identity.
+
 For each artifact in its `entries` array, the action creates one provenance
 file and two equivalent SBOMs, one in [SPDX
 2.3](https://spdx.github.io/spdx-spec/v2.3/) and one in [CycloneDX

@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-# Convert one completed build directory into a release catalog companion.
+# Record artifact metadata from completed build directory into a release catalog companion.
 #
 # Inputs come from release-catalog-dispatch/action.yml. RELEASE_ARTIFACTS is
 # either empty (discover Conda packages and wheels) or a validated JSON array
@@ -127,8 +127,7 @@ resolve_one_file() {
 }
 
 # Normalize supported package formats into the common package identity stored
-# in each catalog entry. Wheels expose Core Metadata; Conda packages expose
-# info/index.json. Custom formats provide the same fields in a sidecar file.
+# in each catalog entry. Wheels expose Core Metadata;
 describe_wheel_package() {
   local wheel_path="$1"
   local relative_path="${wheel_path#"${artifact_directory}/"}"
@@ -155,6 +154,7 @@ describe_wheel_package() {
     '{ecosystem: "wheel", name: $name, version: $version}'
 }
 
+# Conda packages expose info/index.json.
 describe_conda_package() {
   local package_path="$1"
   local relative_path="${package_path#"${artifact_directory}/"}"

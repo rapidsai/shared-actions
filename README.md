@@ -7,9 +7,10 @@ at a specific revision, and also to simplify using files beyond a given action .
 
 ## Release catalog companions
 
-The release catalog action creates a companion archive for each build job. See
-the [release catalog documentation](release-catalog/README.md) for its
-configuration and archive contract.
+The release catalog action creates a companion (an artifact inventory plus
+provenance and SBOM files) for each build job. See the [release catalog
+documentation](release-catalog/README.md) for its configuration and output
+contract.
 
 The checked-in [cuVS Java companion example](release-catalog/examples/cuvs-java)
 shows the complete output for one primary JAR:
@@ -23,7 +24,7 @@ shows the complete output for one primary JAR:
   identifies the artifact and binds it to its digest.
 
 The [example companion notes](release-catalog/examples/README.md) explain how
-the catalog, CycloneDX SBOM, provenance, and separately uploaded primary artifact
+the catalog, CycloneDX SBOM, provenance, and the artifact uploaded alongside them
 are bound together by the artifact SHA-256.
 
 A dispatch action is one that:

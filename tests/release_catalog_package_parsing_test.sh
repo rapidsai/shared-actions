@@ -42,6 +42,52 @@ jq -e '
   }]
 ' "${wheel_output_directory}/release-catalog-entries.json" >/dev/null
 
+jar_output_directory="${temporary_directory}/jars"
+jar_staging_directory="${temporary_directory}/jar-staging"
+mkdir -p "${jar_output_directory}" "${jar_staging_directory}/META-INF/maven/ai.rapids/cuvs-java"
+printf '%s\n' \
+  'artifactId=cuvs-java' \
+  'groupId=ai.rapids' \
+  'version=26.08.0' \
+  >"${jar_staging_directory}/META-INF/maven/ai.rapids/cuvs-java/pom.properties"
+(
+  cd "${jar_staging_directory}"
+  zip -qr "${jar_output_directory}/cuvs-java-26.08.0.jar" .
+)
+
+RELEASE_ARTIFACT_DIRECTORY="${jar_output_directory}"
+export RELEASE_ARTIFACT_DIRECTORY
+"${repository_root}/release-catalog/materialize.sh"
+jq -e '
+  [.entries[] | {path, package}] == [{
+    path: "cuvs-java-26.08.0.jar",
+    package: {ecosystem: "maven", name: "ai.rapids:cuvs-java", version: "26.08.0"}
+  }]
+' "${jar_output_directory}/release-catalog-entries.json" >/dev/null
+
+ambiguous_jar_directory="${temporary_directory}/ambiguous-jar"
+ambiguous_jar_staging_directory="${temporary_directory}/ambiguous-jar-staging"
+mkdir -p \
+  "${ambiguous_jar_directory}" \
+  "${ambiguous_jar_staging_directory}/META-INF/maven/example/first" \
+  "${ambiguous_jar_staging_directory}/META-INF/maven/example/second"
+printf '%s\n' 'groupId=example' 'artifactId=first' 'version=1.0' \
+  >"${ambiguous_jar_staging_directory}/META-INF/maven/example/first/pom.properties"
+printf '%s\n' 'groupId=example' 'artifactId=second' 'version=1.0' \
+  >"${ambiguous_jar_staging_directory}/META-INF/maven/example/second/pom.properties"
+(
+  cd "${ambiguous_jar_staging_directory}"
+  zip -qr "${ambiguous_jar_directory}/shaded.jar" .
+)
+RELEASE_ARTIFACT_DIRECTORY="${ambiguous_jar_directory}"
+export RELEASE_ARTIFACT_DIRECTORY
+if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/ambiguous-jar-error"; then
+  echo "materialize.sh unexpectedly accepted a JAR with ambiguous Maven identity" >&2
+  exit 1
+fi
+grep -F 'Maven JAR must contain exactly one META-INF/maven/<groupId>/<artifactId>/pom.properties file: shaded.jar' \
+  "${temporary_directory}/ambiguous-jar-error" >/dev/null
+
 conda_output_directory="${temporary_directory}/conda"
 tar_bz2_staging_directory="${temporary_directory}/tar-bz2-staging"
 conda_staging_directory="${temporary_directory}/conda-staging"

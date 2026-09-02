@@ -6,7 +6,7 @@ set -euo pipefail
 # Record artifact metadata from completed build directory into a release catalog companion.
 #
 # Inputs come from release-catalog/action.yml. RELEASE_ARTIFACTS is
-# either empty (discover Conda packages and wheels) or a validated JSON array
+# either empty (discover Conda packages, wheels, and Maven JARs) or a validated JSON array
 # selecting custom artifacts. GitHub Actions supplies the GITHUB_* build
 # context, while RAPIDS_SHA identifies the commit actually checked out.
 #
@@ -127,8 +127,8 @@ resolve_one_file() {
 }
 
 # Normalize supported package formats into the common package identity stored
-# in each catalog entry. Custom formats (JARs, tarballs) supply the same fields
-# via package_identity_file instead.
+# in each catalog entry. Other formats supply the same fields via
+# package_identity_file instead.
 
 # Wheels expose Core Metadata in <name>.dist-info/METADATA.
 describe_wheel_package() {
@@ -155,6 +155,45 @@ describe_wheel_package() {
 
   jq -cn --arg name "${package_name}" --arg version "${package_version}" \
     '{ecosystem: "wheel", name: $name, version: $version}'
+}
+
+# Maven-built JARs normally expose their coordinates in exactly one
+# META-INF/maven/<groupId>/<artifactId>/pom.properties file. Shaded JARs may
+# contain several descriptors, so ambiguity is an error rather than a guess.
+describe_maven_jar_package() {
+  local jar_path="$1"
+  local relative_path="${jar_path#"${artifact_directory}/"}"
+  local -a metadata_members=()
+  local metadata_member
+  while IFS= read -r metadata_member; do
+    metadata_members+=("${metadata_member}")
+  done < <(unzip -Z1 "${jar_path}" | awk '$0 ~ "^META-INF/maven/[^/]+/[^/]+/pom[.]properties$"')
+  if [[ "${#metadata_members[@]}" -ne 1 ]]; then
+    echo "Maven JAR must contain exactly one META-INF/maven/<groupId>/<artifactId>/pom.properties file: ${relative_path}" >&2
+    return 1
+  fi
+
+  local metadata coordinates_path coordinate_group_id coordinate_artifact_id
+  local group_id artifact_id package_version
+  metadata="$(unzip -p "${jar_path}" "${metadata_members[0]}")"
+  coordinates_path="${metadata_members[0]#META-INF/maven/}"
+  coordinates_path="${coordinates_path%/pom.properties}"
+  coordinate_group_id="${coordinates_path%%/*}"
+  coordinate_artifact_id="${coordinates_path#*/}"
+  group_id="$(awk -F= '$1 == "groupId" {sub(/^[^=]*=/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
+  artifact_id="$(awk -F= '$1 == "artifactId" {sub(/^[^=]*=/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
+  package_version="$(awk -F= '$1 == "version" {sub(/^[^=]*=/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
+  if [[ -z "${group_id}" || -z "${artifact_id}" || -z "${package_version}" ]]; then
+    echo "Maven pom.properties must contain non-empty groupId, artifactId, and version fields: ${relative_path}" >&2
+    return 1
+  fi
+  if [[ "${group_id}" != "${coordinate_group_id}" || "${artifact_id}" != "${coordinate_artifact_id}" ]]; then
+    echo "Maven pom.properties coordinates do not match its META-INF path: ${relative_path}" >&2
+    return 1
+  fi
+
+  jq -cn --arg name "${group_id}:${artifact_id}" --arg version "${package_version}" \
+    '{ecosystem: "maven", name: $name, version: $version}'
 }
 
 # Conda packages expose info/index.json.
@@ -207,13 +246,18 @@ prepare_artifacts() {
     local -a detected_files=()
     while IFS= read -r primary_file; do
       detected_files+=("${primary_file}")
-    done < <(find "${artifact_directory}" -type f \( -name '*.conda' -o -name '*.tar.bz2' -o -name '*.whl' \) -print | sort)
+    done < <(find "${artifact_directory}" -type f \( -name '*.conda' -o -name '*.tar.bz2' -o -name '*.whl' -o -name '*.jar' \) -print | sort)
 
     for primary_file in "${detected_files[@]}"; do
       primary_path="${primary_file#"${artifact_directory}/"}"
       case "${primary_file}" in
         *.whl)
           if ! package="$(describe_wheel_package "${primary_file}")"; then
+            return 1
+          fi
+          ;;
+        *.jar)
+          if ! package="$(describe_maven_jar_package "${primary_file}")"; then
             return 1
           fi
           ;;
@@ -260,6 +304,17 @@ prepare_artifacts() {
             return 1
           fi
           ;;
+        *.jar)
+          if package="$(describe_maven_jar_package "${primary_file}" 2>/dev/null)"; then
+            if [[ -n "${identity_file}" ]]; then
+              echo "package_identity_file is not allowed when Maven JAR identity can be extracted: $(jq -r '.path' <<<"${descriptor}")" >&2
+              exit 1
+            fi
+          elif [[ -z "${identity_file}" ]]; then
+            echo "JAR does not contain one unambiguous Maven package identity and requires package_identity_file: $(jq -r '.path' <<<"${descriptor}")" >&2
+            exit 1
+          fi
+          ;;
         *.tar.bz2)
           if conda_package="$(describe_conda_package "${primary_file}" 2>/dev/null)"; then
             if [[ -n "${identity_file}" ]]; then
@@ -288,7 +343,7 @@ prepare_artifacts() {
   fi
 
   if [[ "$(jq 'length' <<<"${prepared_artifacts}")" -eq 0 ]]; then
-    echo "artifact-directory contains no detectable Conda or wheel artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed" >&2
+    echo "artifact-directory contains no detectable Conda, wheel, or Maven JAR artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed" >&2
     exit 1
   fi
   printf '%s\n' "${prepared_artifacts}"

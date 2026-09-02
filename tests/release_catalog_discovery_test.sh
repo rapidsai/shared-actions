@@ -117,7 +117,7 @@ if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}
   echo "materialize.sh unexpectedly accepted an artifact directory without detectable artifacts" >&2
   exit 1
 fi
-grep -Fx 'artifact-directory contains no detectable Conda or wheel artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed' "${temporary_directory}/empty-error"
+grep -Fx 'artifact-directory contains no detectable Conda, wheel, or Maven JAR artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed' "${temporary_directory}/empty-error"
 
 RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz"}]')"

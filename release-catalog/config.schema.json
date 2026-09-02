@@ -23,7 +23,7 @@
       "default": "."
     },
     "artifacts": {
-      "description": "Optional explicit artifact list. When omitted, Conda and wheel artifacts are discovered in artifact_directory.",
+      "description": "Optional explicit artifact list. When omitted, Conda packages, wheels, and Maven JARs are discovered in artifact_directory.",
       "type": "array",
       "minItems": 1,
       "items": {

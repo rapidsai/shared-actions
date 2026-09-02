@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rapids.ai/schemas/release-catalog-config-v1.json",
   "title": "Release catalog configuration",
-  "description": "Producer configuration for one release catalog companion.",
+  "description": "Caller configuration for one release catalog companion.",
   "type": "object",
   "additionalProperties": false,
   "required": [

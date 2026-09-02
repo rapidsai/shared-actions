@@ -8,7 +8,10 @@
   "required": ["schema_version", "producer", "source", "entries"],
   "properties": {
     "schema_version": {"const": 1},
-    "producer": {"const": "NVIDIA ADI Build/Operations"},
+    "producer": {
+      "description": "The tool that generated this document. Matches metadata.tools in the CycloneDX SBOM.",
+      "const": "rapidsai/shared-actions/release-catalog"
+    },
     "source": {"$ref": "#/$defs/source"},
     "entries": {
       "type": "array",
@@ -51,10 +54,11 @@
     "entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["release_catalog_key", "path", "package", "sbom", "sbom_kind", "provenance"],
+      "required": ["release_catalog_key", "path", "sha256", "package", "sbom", "sbom_kind", "provenance"],
       "properties": {
         "release_catalog_key": {"type": "string", "minLength": 1, "pattern": "^[^\\r\\n]+$"},
         "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "package": {"$ref": "#/$defs/package"},
         "sbom": {"$ref": "#/$defs/relative_path"},
         "sbom_kind": {"const": "generated-identity"},

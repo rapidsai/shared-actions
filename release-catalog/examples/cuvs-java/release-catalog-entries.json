@@ -10,10 +10,11 @@
       "provenance": "release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.provenance.json",
       "release_catalog_key": "maven:cuvs-java",
       "sbom": "release-evidence/cuvs-java-26.08.0.jar.fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9.sbom.cdx.json",
-      "sbom_kind": "generated-identity"
+      "sbom_kind": "generated-identity",
+      "sha256": "fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9"
     }
   ],
-  "producer": "NVIDIA ADI Build/Operations",
+  "producer": "rapidsai/shared-actions/release-catalog",
   "schema_version": 1,
   "source": {
     "artifact": "cuvs-java-cuda12.9.1",

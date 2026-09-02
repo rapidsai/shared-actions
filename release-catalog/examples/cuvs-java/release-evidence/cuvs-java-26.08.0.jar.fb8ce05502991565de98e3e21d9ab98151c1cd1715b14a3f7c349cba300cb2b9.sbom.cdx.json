@@ -23,7 +23,16 @@
       "type": "file",
       "version": "26.08.0"
     },
-    "timestamp": "2026-08-21T00:00:00Z"
+    "timestamp": "2026-08-21T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "group": "rapidsai",
+          "name": "shared-actions/release-catalog",
+          "type": "application"
+        }
+      ]
+    }
   },
   "specVersion": "1.6",
   "version": 1

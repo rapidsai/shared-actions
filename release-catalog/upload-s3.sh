@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-# Upload only the files declared by the generated catalog document. GitHub
-# Actions retains logs and this receipt, but never a second release-artifact
-# copy. Conditional S3 writes make reruns safe: an existing object is accepted
-# only when its checksum exactly matches the byte about to be uploaded.
+# Upload the files declared by the generated catalog document. Uploading
+# existing filenames with different content will raise an error.
 set -euo pipefail
+
+export RELEASE_CATALOG_SCRIPT_NAME="upload-s3.sh"
+export RELEASE_CATALOG_ERROR_TITLE="Release catalog upload failed"
+# shellcheck source=release-catalog/error.sh
+source "$(dirname "${BASH_SOURCE[0]}")/error.sh"
 
 require_value() {
   local name="$1"
   local value="$2"
   if [[ -z "${value}" || "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
-    echo "${name} must be a non-empty single-line string" >&2
+    release_catalog_error "${name} must be a non-empty single-line string"
     exit 1
   fi
 }
@@ -26,22 +29,22 @@ for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDA
 done
 RELEASE_CANDIDATE_PREFIX="${RELEASE_CANDIDATE_PREFIX:-}"
 if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
-  echo "RELEASE_CANDIDATE_TRAIN_SHA256 must be a SHA-256 hex digest" >&2
+  release_catalog_error "RELEASE_CANDIDATE_TRAIN_SHA256 must be a SHA-256 hex digest"
   exit 1
 fi
 if [[ "${RELEASE_SOURCE_ARTIFACT_NAME}" == */* || "${RELEASE_SOURCE_ARTIFACT_NAME}" == *".."* ]]; then
-  echo "RELEASE_SOURCE_ARTIFACT_NAME must be a plain name without path separators" >&2
+  release_catalog_error "RELEASE_SOURCE_ARTIFACT_NAME must be a plain name without path separators"
   exit 1
 fi
 if ! safe_prefix "${RELEASE_CANDIDATE_PREFIX}"; then
-  echo "RELEASE_CANDIDATE_PREFIX must be a safe, relative S3 prefix" >&2
+  release_catalog_error "RELEASE_CANDIDATE_PREFIX must be a safe, relative S3 prefix"
   exit 1
 fi
 
 companion_root="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
 entries_path="${companion_root}/release-catalog-entries.json"
 if [[ ! -f "${entries_path}" ]]; then
-  echo "release catalog entries are missing: ${entries_path}" >&2
+  release_catalog_error "release catalog entries are missing: ${entries_path}"
   exit 1
 fi
 
@@ -71,7 +74,7 @@ upload_one() {
 
   if aws s3api head-object --bucket "${RELEASE_CANDIDATE_BUCKET}" --key "${object_key}" --checksum-mode ENABLED >"${head_metadata}" 2>/dev/null; then
     if [[ "$(jq -r '.ChecksumSHA256 // empty' "${head_metadata}")" != "${checksum}" ]]; then
-      echo "existing candidate object has different bytes: ${object_key}" >&2
+      release_catalog_error "Filename already exists remotely and has different content from current file: ${object_key}"
       exit 1
     fi
     return
@@ -80,7 +83,7 @@ upload_one() {
   if ! aws s3api put-object --bucket "${RELEASE_CANDIDATE_BUCKET}" --key "${object_key}" --body "${local_path}" --checksum-algorithm SHA256 --checksum-sha256 "${checksum}" --if-none-match '*' --tagging 'release-candidate-status=candidate' >/dev/null 2>&1; then
     aws s3api head-object --bucket "${RELEASE_CANDIDATE_BUCKET}" --key "${object_key}" --checksum-mode ENABLED >"${head_metadata}"
     if [[ "$(jq -r '.ChecksumSHA256 // empty' "${head_metadata}")" != "${checksum}" ]]; then
-      echo "candidate object could not be written immutably: ${object_key}" >&2
+      release_catalog_error "candidate object could not be written immutably: ${object_key}"
       exit 1
     fi
   fi
@@ -88,7 +91,7 @@ upload_one() {
 
 for relative_path in "${companion_paths[@]}"; do
   if ! safe_relative_path "${relative_path}" || [[ ! -f "${companion_root}/${relative_path}" ]]; then
-    echo "catalog declares a missing or unsafe candidate file: ${relative_path}" >&2
+    release_catalog_error "catalog declares a missing or unsafe candidate file: ${relative_path}"
     exit 1
   fi
   upload_one "${relative_path}"

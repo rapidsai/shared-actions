@@ -3,25 +3,25 @@
 
 set -euo pipefail
 
+export RELEASE_CATALOG_SCRIPT_NAME="validate-config.sh"
+export RELEASE_CATALOG_ERROR_TITLE="Invalid release catalog configuration"
+# shellcheck source=release-catalog/error.sh
+source "$(dirname "${BASH_SOURCE[0]}")/error.sh"
+
 # Validate the public JSON input before materialize.sh reads any build output.
 # Structural errors are emitted as GitHub Actions annotations so callers see
 # every invalid field in one run. Validated values are written to GITHUB_OUTPUT
 # for the dispatch action's later materialization step.
 
-emit_error() {
-  local message="$1"
-  printf '::error title=Invalid release catalog configuration::%s\n' "${message}" >&2
-}
-
 config="${RELEASE_CATALOG_CONFIG:-}"
 if [[ -z "${config}" ]]; then
-  emit_error "release catalog configuration must be a non-empty JSON object"
+  release_catalog_error "release catalog configuration must be a non-empty JSON object"
   exit 1
 fi
 
 if ! compact_config="$(jq -ce . <<<"${config}" 2>/dev/null)"; then
   parse_error="$(jq -ce . <<<"${config}" 2>&1 || true)"
-  emit_error "release catalog configuration must be valid JSON: ${parse_error}"
+  release_catalog_error "release catalog configuration must be valid JSON: ${parse_error}"
   exit 1
 fi
 
@@ -78,13 +78,13 @@ validation_errors="$(jq -r '
 
 if [[ -n "${validation_errors}" ]]; then
   while IFS= read -r validation_error; do
-    emit_error "${validation_error}"
+    release_catalog_error "${validation_error}"
   done <<<"${validation_errors}"
   exit 1
 fi
 
 if [[ -z "${GITHUB_OUTPUT:-}" ]]; then
-  emit_error "GITHUB_OUTPUT is required"
+  release_catalog_error "GITHUB_OUTPUT is required"
   exit 1
 fi
 

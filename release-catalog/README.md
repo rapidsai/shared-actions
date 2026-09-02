@@ -94,6 +94,10 @@ dependency SBOM will add. That will be a new `sbom_kind` value and a new
 
 The action is used via `rapidsai/shared-actions/release-catalog`.
 
+Configuration, materialization, and upload failures appear as GitHub Actions
+error annotations. When the scripts run outside GitHub Actions, the same errors
+are written to stderr with the responsible script name.
+
 | Input | Required | Description |
 | ----- | -------- | ----------- |
 | `config` | yes | JSON object selecting the artifacts and their release catalog key. Schema: [`config.schema.json`](config.schema.json). Details below. |

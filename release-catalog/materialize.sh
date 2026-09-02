@@ -3,6 +3,11 @@
 
 set -euo pipefail
 
+export RELEASE_CATALOG_SCRIPT_NAME="materialize.sh"
+export RELEASE_CATALOG_ERROR_TITLE="Release catalog materialization failed"
+# shellcheck source=release-catalog/error.sh
+source "$(dirname "${BASH_SOURCE[0]}")/error.sh"
+
 # Record artifact metadata from completed build directory into a release catalog companion.
 #
 # Inputs come from release-catalog/action.yml. RELEASE_ARTIFACTS is
@@ -20,7 +25,7 @@ require_nonempty() {
   local name="$1"
   local value="$2"
   if [[ -z "${value}" ]]; then
-    echo "${name} must be a non-empty string" >&2
+    release_catalog_error "${name} must be a non-empty string"
     exit 1
   fi
 }
@@ -30,7 +35,7 @@ require_single_line() {
   local value="$2"
   require_nonempty "${name}" "${value}"
   if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
-    echo "${name} must be a single-line string" >&2
+    release_catalog_error "${name} must be a single-line string"
     exit 1
   fi
 }
@@ -39,7 +44,7 @@ require_positive_integer() {
   local name="$1"
   local value="$2"
   if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "${name} must be a positive integer" >&2
+    release_catalog_error "${name} must be a positive integer"
     exit 1
   fi
 }
@@ -54,7 +59,7 @@ require_single_line "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NA
 source_sha="${RELEASE_SOURCE_SHA:-}"
 require_single_line "RELEASE_SOURCE_SHA" "${source_sha}"
 if [[ ! "${source_sha}" =~ ^[[:xdigit:]]{40}$ && ! "${source_sha}" =~ ^[[:xdigit:]]{64}$ ]]; then
-  echo "RELEASE_SOURCE_SHA must be a 40- or 64-character hexadecimal Git object ID" >&2
+  release_catalog_error "RELEASE_SOURCE_SHA must be a 40- or 64-character hexadecimal Git object ID"
   exit 1
 fi
 
@@ -67,14 +72,14 @@ require_single_line "GITHUB_RUN_ATTEMPT" "${github_run_attempt}"
 require_single_line "GITHUB_RUN_ID" "${github_run_id}"
 require_single_line "GITHUB_WORKFLOW_REF" "${github_workflow_ref}"
 if [[ ! "${github_repository}" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
-  echo "GITHUB_REPOSITORY must have owner/repository form" >&2
+  release_catalog_error "GITHUB_REPOSITORY must have owner/repository form"
   exit 1
 fi
 require_positive_integer "GITHUB_RUN_ATTEMPT" "${github_run_attempt}"
 require_positive_integer "GITHUB_RUN_ID" "${github_run_id}"
 
 if [[ ! -d "${RELEASE_ARTIFACT_DIRECTORY}" ]]; then
-  echo "artifact-directory does not exist or is not a directory: ${RELEASE_ARTIFACT_DIRECTORY}" >&2
+  release_catalog_error "artifact-directory does not exist or is not a directory: ${RELEASE_ARTIFACT_DIRECTORY}"
   exit 1
 fi
 
@@ -82,7 +87,7 @@ ensure_relative_pattern() {
   local field="$1"
   local pattern="$2"
   if [[ "${pattern}" == /* || "${pattern}" == */../* || "${pattern}" == ../* || "${pattern}" == *"/.." ]]; then
-    echo "${field} must be a relative path inside artifact-directory: ${pattern}" >&2
+    release_catalog_error "${field} must be a relative path inside artifact-directory: ${pattern}"
     exit 1
   fi
 }
@@ -101,14 +106,14 @@ resolve_one_file() {
     matches+=("${match}")
   done < <(compgen -G "${artifact_directory}/${pattern}" || true)
   if [[ "${#matches[@]}" -ne 1 || ! -f "${matches[0]:-}" ]]; then
-    echo "${field} pattern must resolve to exactly one file: ${pattern}" >&2
+    release_catalog_error "${field} pattern must resolve to exactly one file: ${pattern}"
     exit 1
   fi
 
   local resolved
   resolved="$(realpath "${matches[0]}")"
   if [[ "${resolved}" != "${artifact_directory}"/* ]]; then
-    echo "${field} must resolve inside artifact-directory: ${pattern}" >&2
+    release_catalog_error "${field} must resolve inside artifact-directory: ${pattern}"
     exit 1
   fi
   printf '%s\n' "${resolved#"${artifact_directory}/"}"
@@ -128,7 +133,7 @@ describe_wheel_package() {
     metadata_members+=("${metadata_member}")
   done < <(unzip -Z1 "${wheel_path}" | awk '/\.dist-info\/METADATA$/')
   if [[ "${#metadata_members[@]}" -ne 1 ]]; then
-    echo "wheel must contain exactly one .dist-info/METADATA file: ${relative_path}" >&2
+    release_catalog_error "wheel must contain exactly one .dist-info/METADATA file: ${relative_path}"
     exit 1
   fi
 
@@ -137,7 +142,7 @@ describe_wheel_package() {
   package_name="$(awk 'tolower($0) ~ /^name:[[:space:]]*/ {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
   package_version="$(awk 'tolower($0) ~ /^version:[[:space:]]*/ {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
   if [[ -z "${package_name}" || -z "${package_version}" ]]; then
-    echo "wheel metadata must contain non-empty Name and Version fields: ${relative_path}" >&2
+    release_catalog_error "wheel metadata must contain non-empty Name and Version fields: ${relative_path}"
     exit 1
   fi
 
@@ -157,7 +162,7 @@ describe_maven_jar_package() {
     metadata_members+=("${metadata_member}")
   done < <(unzip -Z1 "${jar_path}" | awk '$0 ~ "^META-INF/maven/[^/]+/[^/]+/pom[.]properties$"')
   if [[ "${#metadata_members[@]}" -ne 1 ]]; then
-    echo "Maven JAR must contain exactly one META-INF/maven/<groupId>/<artifactId>/pom.properties file: ${relative_path}" >&2
+    release_catalog_error "Maven JAR must contain exactly one META-INF/maven/<groupId>/<artifactId>/pom.properties file: ${relative_path}"
     return 1
   fi
 
@@ -172,11 +177,11 @@ describe_maven_jar_package() {
   artifact_id="$(awk -F= '$1 == "artifactId" {sub(/^[^=]*=/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
   package_version="$(awk -F= '$1 == "version" {sub(/^[^=]*=/, ""); sub(/\r$/, ""); print; exit}' <<<"${metadata}")"
   if [[ -z "${group_id}" || -z "${artifact_id}" || -z "${package_version}" ]]; then
-    echo "Maven pom.properties must contain non-empty groupId, artifactId, and version fields: ${relative_path}" >&2
+    release_catalog_error "Maven pom.properties must contain non-empty groupId, artifactId, and version fields: ${relative_path}"
     return 1
   fi
   if [[ "${group_id}" != "${coordinate_group_id}" || "${artifact_id}" != "${coordinate_artifact_id}" ]]; then
-    echo "Maven pom.properties coordinates do not match its META-INF path: ${relative_path}" >&2
+    release_catalog_error "Maven pom.properties coordinates do not match its META-INF path: ${relative_path}"
     return 1
   fi
 
@@ -197,7 +202,7 @@ describe_conda_package() {
         info_members+=("${info_member}")
       done < <(unzip -Z1 "${package_path}" | awk '/^info-.*\.tar\.zst$/')
       if [[ "${#info_members[@]}" -ne 1 ]]; then
-        echo ".conda package must contain exactly one info-*.tar.zst member: ${relative_path}" >&2
+        release_catalog_error ".conda package must contain exactly one info-*.tar.zst member: ${relative_path}"
         exit 1
       fi
       index_json="$(unzip -p "${package_path}" "${info_members[0]}" | zstd -dc | tar -xOf - info/index.json)"
@@ -206,7 +211,7 @@ describe_conda_package() {
       index_json="$(tar -xOjf "${package_path}" info/index.json)"
       ;;
     *)
-      echo "unsupported Conda package extension: ${relative_path}" >&2
+      release_catalog_error "unsupported Conda package extension: ${relative_path}"
       exit 1
       ;;
   esac
@@ -218,7 +223,7 @@ describe_conda_package() {
     and (.build | type == "string" and length > 0)
     and (.subdir | type == "string" and length > 0)
   ' <<<"${index_json}" >/dev/null; then
-    echo "Conda info/index.json must contain exact name, version, build, and subdir fields: ${relative_path}" >&2
+    release_catalog_error "Conda info/index.json must contain exact name, version, build, and subdir fields: ${relative_path}"
     exit 1
   fi
 
@@ -260,12 +265,12 @@ prepare_artifacts() {
     done
   else
     if ! jq -e 'type == "array" and length > 0' <<<"${configured_artifacts}" >/dev/null; then
-      echo "release-artifacts must be a non-empty JSON array when supplied" >&2
+      release_catalog_error "release-artifacts must be a non-empty JSON array when supplied"
       exit 1
     fi
     while IFS= read -r descriptor; do
       if jq -e 'has("package")' <<<"${descriptor}" >/dev/null; then
-        echo "package identity must not be supplied inline: ${descriptor}" >&2
+        release_catalog_error "package identity must not be supplied inline: ${descriptor}"
         return 1
       fi
       primary_path="$(resolve_one_file path "$(jq -r '.path' <<<"${descriptor}")")"
@@ -276,7 +281,7 @@ prepare_artifacts() {
       case "${primary_file}" in
         *.whl)
           if [[ -n "${identity_file}" ]]; then
-            echo "package_identity_file is not allowed when wheel identity can be extracted: $(jq -r '.path' <<<"${descriptor}")" >&2
+            release_catalog_error "package_identity_file is not allowed when wheel identity can be extracted: $(jq -r '.path' <<<"${descriptor}")"
             exit 1
           fi
           if ! package="$(describe_wheel_package "${primary_file}")"; then
@@ -285,7 +290,7 @@ prepare_artifacts() {
           ;;
         *.conda)
           if [[ -n "${identity_file}" ]]; then
-            echo "package_identity_file is not allowed when Conda identity can be extracted: $(jq -r '.path' <<<"${descriptor}")" >&2
+            release_catalog_error "package_identity_file is not allowed when Conda identity can be extracted: $(jq -r '.path' <<<"${descriptor}")"
             exit 1
           fi
           if ! package="$(describe_conda_package "${primary_file}")"; then
@@ -295,29 +300,29 @@ prepare_artifacts() {
         *.jar)
           if package="$(describe_maven_jar_package "${primary_file}" 2>/dev/null)"; then
             if [[ -n "${identity_file}" ]]; then
-              echo "package_identity_file is not allowed when Maven JAR identity can be extracted: $(jq -r '.path' <<<"${descriptor}")" >&2
+              release_catalog_error "package_identity_file is not allowed when Maven JAR identity can be extracted: $(jq -r '.path' <<<"${descriptor}")"
               exit 1
             fi
           elif [[ -z "${identity_file}" ]]; then
-            echo "JAR does not contain one unambiguous Maven package identity and requires package_identity_file: $(jq -r '.path' <<<"${descriptor}")" >&2
+            release_catalog_error "JAR does not contain one unambiguous Maven package identity and requires package_identity_file: $(jq -r '.path' <<<"${descriptor}")"
             exit 1
           fi
           ;;
         *.tar.bz2)
           if conda_package="$(describe_conda_package "${primary_file}" 2>/dev/null)"; then
             if [[ -n "${identity_file}" ]]; then
-              echo "package_identity_file is not allowed when Conda identity can be extracted: $(jq -r '.path' <<<"${descriptor}")" >&2
+              release_catalog_error "package_identity_file is not allowed when Conda identity can be extracted: $(jq -r '.path' <<<"${descriptor}")"
               exit 1
             fi
             package="${conda_package}"
           elif [[ -z "${identity_file}" ]]; then
-            echo "artifact is not a valid Conda package and requires package_identity_file: $(jq -r '.path' <<<"${descriptor}")" >&2
+            release_catalog_error "artifact is not a valid Conda package and requires package_identity_file: $(jq -r '.path' <<<"${descriptor}")"
             exit 1
           fi
           ;;
         *)
           if [[ -z "${identity_file}" ]]; then
-            echo "artifact identity cannot be extracted; package_identity_file is required: $(jq -r '.path' <<<"${descriptor}")" >&2
+            release_catalog_error "artifact identity cannot be extracted; package_identity_file is required: $(jq -r '.path' <<<"${descriptor}")"
             exit 1
           fi
           ;;
@@ -331,7 +336,7 @@ prepare_artifacts() {
   fi
 
   if [[ "$(jq 'length' <<<"${prepared_artifacts}")" -eq 0 ]]; then
-    echo "artifact-directory contains no detectable Conda, wheel, or Maven JAR artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed" >&2
+    release_catalog_error "artifact-directory contains no detectable Conda, wheel, or Maven JAR artifacts; explicitly selected artifacts require package_identity_file when their identity cannot be parsed"
     exit 1
   fi
   printf '%s\n' "${prepared_artifacts}"
@@ -459,7 +464,7 @@ while IFS= read -r descriptor; do
     and ((.package_identity_file // "") | type == "string")
     and ([has("package"), has("package_identity_file")] | map(select(.)) | length == 1)
   ' <<<"${descriptor}" >/dev/null; then
-    echo "release artifact descriptor must contain path and exactly one package identity source: ${descriptor}" >&2
+    release_catalog_error "release artifact descriptor must contain path and exactly one package identity source: ${descriptor}"
     exit 1
   fi
 
@@ -468,14 +473,14 @@ while IFS= read -r descriptor; do
   if [[ -n "${package_identity_file}" ]]; then
     package_identity_path="$(resolve_one_file package_identity_file "${package_identity_file}")"
     if ! package="$(jq -ce . "${artifact_directory}/${package_identity_path}" 2>/dev/null)"; then
-      echo "package_identity_file must contain valid JSON: ${package_identity_file}" >&2
+      release_catalog_error "package_identity_file must contain valid JSON: ${package_identity_file}"
       exit 1
     fi
   else
     package="$(jq -c '.package' <<<"${descriptor}")"
   fi
   if ! validate_package_identity <<<"${package}"; then
-    echo "package identity for ${primary_path} must contain non-empty ecosystem, name, and version strings and only optional build or platform strings" >&2
+    release_catalog_error "package identity for ${primary_path} must contain non-empty ecosystem, name, and version strings and only optional build or platform strings"
     exit 1
   fi
 
@@ -499,7 +504,7 @@ while IFS= read -r descriptor; do
 done < <(jq -c '.[]' <<<"${artifacts}")
 
 if ! jq -e '.entries as $items | ($items | map([.release_catalog_key, .path] | join("\u0000")) | unique | length) == ($items | length)' "${temporary_manifest}" >/dev/null; then
-  echo "release-artifacts contains duplicate release_catalog_key/path entries" >&2
+  release_catalog_error "release-artifacts contains duplicate release_catalog_key/path entries"
   exit 1
 fi
 

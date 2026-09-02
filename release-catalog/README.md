@@ -1,0 +1,219 @@
+# Release catalog companions
+
+## Why this exists
+
+RAPIDS builds hundreds of binary artifacts (conda packages, wheels, JARs, and
+others) across many repositories and CI jobs. Two things are hard to do with
+those artifacts today:
+
+- **Assemble and test a release before tagging it.** We want to pick a
+  consistent set of artifacts, test them together as a candidate, and only
+  then publish. That requires a single inventory of what each job built.
+- **Keep build-time evidence.** Facts such as which commit, workflow, and run
+  produced a wheel cannot be reliably reconstructed after the fact. They have
+  to be captured by the job that built the artifact. This captured metadata
+  can make security scans more accurate.
+
+This action solves both by having each build job write a small **companion**
+next to its artifacts: a folder with an inventory of the files that the job
+produced, plus provenance and SBOM documents for each one. The companion never
+modifies the artifacts themselves.
+
+## Lifecycle
+
+1. A build job produces its artifacts as usual.
+2. This action runs as a later step in that job and writes a companion into
+   the artifact directory.
+3. The artifacts and their companion are uploaded to a private S3 bucket
+   (`upload-to-s3: true`).
+4. The [RAPIDS release platform (in
+   development)](https://github.com/rapidsai/release-scripts/pull/113) reads the
+   companions from every job in a release train, merges them into the **release
+   catalog**, and uses the catalog to assemble and test a **release candidate**.
+
+"Release candidate" here means a set of artifacts that can be deployed to
+create a release, not a release-candidate version of one artifact.
+
+## Glossary
+
+| Term | Meaning |
+| ---- | ------- |
+| **Artifact** | A file produced by a build job that we may publish: a `.conda` file, a wheel, a JAR, and so on. Sometimes called the *primary* artifact to distinguish it from its evidence files. |
+| **Companion** | The set of files this action writes next to a job's artifacts: `release-catalog-entries.json` plus a `release-evidence/` directory. One companion per build job. |
+| **Producer** | The tool that wrote the companion: this action, recorded as `rapidsai/shared-actions/release-catalog` in the `producer` field. The build job that created the artifacts is identified by the `source` block instead. |
+| **Release catalog** | The merged inventory of all companions for a release, maintained by the release platform. |
+| **Release train** | One planned release of RAPIDS, identified by an immutable JSON document that the [release platform](https://github.com/rapidsai/release-scripts/issues/102) maintains. Its SHA-256 is used to group all companions that belong to that release in S3. |
+| **Release candidate** | A set of artifacts selected from the release catalog to be tested and, if it passes, published. |
+| **Provenance** | A [SLSA](https://slsa.dev/spec/v1.2/attestation-model) statement describing how, where, and from what source an artifact was built. |
+| **SBOM** | Software bill of materials. In general an SBOM lists a package's components by ecosystem, name, and version. The [CycloneDX](https://cyclonedx.org/docs/1.6/json/) SBOM this action generates lists only the artifact itself and its digest; listing dependencies is a future addition. |
+
+## Companion contents
+
+Each build job creates one companion with this shape:
+
+```text
+.
+├── release-catalog-entries.json
+└── release-evidence
+    ├── <artifact-1>.<artifact-1-sha256>.provenance.json
+    ├── <artifact-1>.<artifact-1-sha256>.sbom.cdx.json
+    ├── <artifact-2>.<artifact-2-sha256>.provenance.json
+    ├── <artifact-2>.<artifact-2-sha256>.sbom.cdx.json
+    └── ...
+```
+
+Evidence filenames are derived from the artifact's path relative to
+`artifact_directory`, with `/` replaced by `_`, so `linux-64/librmm-1.0.conda`
+produces `release-evidence/linux-64_librmm-1.0.conda.<sha256>.provenance.json`.
+
+`release-catalog-entries.json` records the artifacts produced by the job
+(`.conda`, `.whl`, or otherwise), the SHA-256 of each file, the package
+identity of each one, the paths to its evidence files, and the source context
+of the job (repository, commit, workflow, run). See
+[`examples/cuvs-java`](examples/cuvs-java) for a complete companion.
+
+Generated entry documents conform to
+[`entries.schema.json`](entries.schema.json). The schema fixes the versioned
+output contract for producer identity, source context, package identity, and
+evidence paths.
+
+For each artifact in its `entries` array, the action creates one provenance
+file and one [CycloneDX 1.6](https://cyclonedx.org/docs/1.6/json/) SBOM. The SHA-256 in each evidence
+filename is the digest of that artifact's contents, so evidence files can
+never be confused across artifacts. The catalog entry lists the SBOM path
+under `sbom`.
+
+Each entry also carries `sbom_kind: "generated-identity"`. This marks the
+SBOM as an identity-only document generated by this action. On its own, each
+identity SBOM binds a name, version, and digest in a format scanners already
+consume. Merged across all jobs, they inventory every package a release ships.
+They do not yet describe what is inside each package; that is what the future
+dependency SBOM will add. That will be a new `sbom_kind` value and a new
+`schema_version`, so existing consumers can tell the two apart.
+
+## Action inputs
+
+The action is used via `rapidsai/shared-actions/release-catalog`.
+
+Configuration, materialization, and upload failures appear as GitHub Actions
+error annotations. When the scripts run outside GitHub Actions, the same errors
+are written to stderr with the responsible script name.
+
+| Input | Required | Description |
+| ----- | -------- | ----------- |
+| `config` | yes | JSON object selecting the artifacts and their release catalog key. Schema: [`config.schema.json`](config.schema.json). Details below. |
+| `source-sha` | yes | Full 40- or 64-character Git object ID of the commit that was checked out and built. Standard RAPIDS workflows pass `${{ env.RAPIDS_SHA }}` from `rapids-github-info`. |
+| `source-artifact-name` | yes | Stable name for this job's output, for example the GitHub Actions artifact name. Used as the last path component in S3. |
+| `upload-to-s3` | no | `"true"` to upload the artifacts and companion to S3. Defaults to `"false"`, which only writes the companion locally. |
+| `candidate-train-sha256` | when uploading | SHA-256 of the release train JSON this build belongs to. All companions for one release share it. |
+| `candidate-bucket` | no | S3 bucket for companions. Defaults to `rapids-release-candidates`. |
+| `candidate-prefix` | no | Optional root prefix inside the bucket. Defaults to empty, placing each train directly below the bucket root. |
+
+When uploading, every file the companion lists (the artifacts, the evidence
+files, and `release-catalog-entries.json` itself) lands under
+`s3://<candidate-bucket>/<candidate-train-sha256>/<repository>/<run-id>/<source-artifact-name>/`.
+When `candidate-prefix` is set explicitly, it is inserted between the bucket
+name and the train SHA-256.
+Uploads are conditional: an existing object is accepted only if its bytes
+match, so reruns are safe.
+
+## `config` contents
+
+The canonical schema and field documentation are in
+[`config.schema.json`](config.schema.json). It is validated at runtime by
+[validate-config.sh](validate-config.sh).
+
+### `release_catalog_key`
+
+This is a grouping label that represents a common "release policy." Artifacts
+that share a `release_catalog_key` are versioned, validated, ordered,
+published, and promoted together. For example, the `cudf` and `dask-cudf`
+Conda packages both use `conda:cudf` because they share the same version,
+validation, inter-package order, and publishing destination, and are
+ultimately published together.
+
+The key does not need to be unique per artifact or per matrix variant. Use a
+separate key only when the outputs intentionally follow a separate release
+workflow.
+
+Standard RAPIDS Conda and wheel workflows use `<ecosystem>:<repository-name>`,
+such as `conda:cudf`, because those workflows apply a repository-level release
+policy. A custom job should use `<ecosystem>:<release-group>`, such as
+`maven:cuvs-java`, or simply `maven:cuvs`.
+
+### `artifact_directory` and `artifacts`
+
+`artifact_directory` is the required base directory containing the artifacts,
+relative to the job working directory. The action does not scan the working
+directory by default.
+For standard Conda, wheel, and Maven JAR jobs, omit `artifacts`; the action
+discovers supported artifacts below that directory and parses package identity
+from their embedded metadata.
+
+```yaml
+- name: Create wheel release catalog companion
+  uses: rapidsai/shared-actions/release-catalog@main
+  with:
+    config: >-
+      {
+        "release_catalog_key": "wheel:example",
+        "artifact_directory": ${{ toJSON(steps.package-name.outputs.WHEEL_OUTPUT_DIR) }}
+      }
+    source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
+    source-sha: ${{ env.RAPIDS_SHA }}
+```
+
+Other formats require an explicit `artifacts` list. Each dictionary in the list
+corresponds to one artifact file. Wildcards are allowed, but a wildcard that
+resolves to zero files or multiple files results in an error.
+
+```yaml
+- name: Create custom release catalog companion
+  uses: rapidsai/shared-actions/release-catalog@main
+  with:
+    config: >-
+      {
+        "release_catalog_key": "maven:cuvs-java",
+        "artifact_directory": "java/cuvs-java/target",
+        "artifacts": [{
+          "path": "cuvs-java-*-x86_64-cuda*.jar"
+        }]
+      }
+    source-artifact-name: cuvs-java
+    source-sha: ${{ env.RAPIDS_SHA }}
+```
+
+For a JAR, the action requires exactly one
+`META-INF/maven/<groupId>/<artifactId>/pom.properties` file and reads its
+`groupId`, `artifactId`, and `version`. The directory coordinates must match
+the property values. JARs without this metadata, or shaded JARs containing
+multiple Maven descriptors, require `package_identity_file` so the action does
+not guess which package the artifact represents.
+
+#### Package identity file
+
+`package_identity_file` is a path to a JSON file that contains at least
+`ecosystem`, `name`, and `version` keys; `build` and `platform` are optional.
+This path is relative to `artifact_directory`.
+
+```json
+{
+  "ecosystem": "maven",
+  "name": "ai.rapids:cuvs-java",
+  "version": "26.08.0"
+}
+```
+
+Multiple artifacts in the list may reference the same identity file when the
+files have the same package identity.
+
+## Design notes
+
+Provenance and the SBOM are kept as separate documents. Provenance describes
+how a package was built and by whom; an SBOM identifies the package and, once
+dependency SBOMs are added, what makes it up. They complement each other: an
+SBOM without provenance may describe the wrong or an untrusted artifact, while
+provenance without an SBOM cannot be matched to a package by name and version.
+Although CycloneDX can carry some build metadata, embedding provenance in the
+SBOM would not replace the in-toto/SLSA statement and would couple evidence
+with different consumers and lifecycles.

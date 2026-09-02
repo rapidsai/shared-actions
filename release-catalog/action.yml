@@ -1,0 +1,88 @@
+name: Release catalog
+description: >-
+  Create a release catalog companion (artifact inventory, provenance, and CycloneDX SBOM)
+  for the artifacts a build job produced, and optionally upload it to S3.
+  See release-catalog/README.md.
+
+inputs:
+  config:
+    description: >-
+      JSON string with configuration for this action. Schema and field documentation:
+      https://github.com/rapidsai/shared-actions/blob/main/release-catalog/config.schema.json
+    required: true
+  source-sha:
+    description: >-
+      Full 40- or 64-character Git object ID of the commit that was checked out
+      and built. Standard RAPIDS workflows pass RAPIDS_SHA from rapids-github-info.
+    required: true
+  source-artifact-name:
+    description: >-
+      Stable name for this job's output, such as the GitHub Actions artifact
+      name. Used as the last path component in S3.
+    required: true
+  candidate-train-sha256:
+    description: >-
+      SHA-256 of the release train JSON this build belongs to. Required when
+      upload-to-s3 is true; ignored otherwise.
+    required: false
+    default: ""
+  candidate-bucket:
+    description: S3 bucket that receives the companion when upload-to-s3 is true.
+    required: false
+    default: rapids-release-candidates
+  candidate-prefix:
+    description: Optional root prefix inside candidate-bucket. Empty writes below the bucket root.
+    required: false
+    default: ""
+  upload-to-s3:
+    description: Whether to upload the companion to S3. When false, the companion is only written locally.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Clone shared-actions repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
+        path: ./shared-actions
+        persist-credentials: false
+    - id: implementation
+      name: Resolve release catalog implementation
+      shell: bash
+      run: |
+        implementation_path="${PWD}/shared-actions/release-catalog"
+        if [[ ! -d "${implementation_path}" ]]; then
+          echo "release-catalog implementation not found at ${implementation_path}" >&2
+          exit 1
+        fi
+        echo "path=${implementation_path}" >>"${GITHUB_OUTPUT}"
+    - id: configuration
+      name: Validate release catalog configuration
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_CATALOG_CONFIG: ${{ inputs.config }}
+      run: "${IMPLEMENTATION_PATH}/validate-config.sh"
+    - name: Materialize release catalog entries
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_ARTIFACTS: ${{ steps.configuration.outputs.artifacts }}
+        RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
+        RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+        RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
+        RELEASE_CATALOG_KEY: ${{ steps.configuration.outputs.release_catalog_key }}
+      run: "${IMPLEMENTATION_PATH}/materialize.sh"
+    - name: Upload release catalog companion to S3
+      if: ${{ inputs.upload-to-s3 == 'true' }}
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
+        RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
+        RELEASE_CANDIDATE_PREFIX: ${{ inputs.candidate-prefix }}
+        RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
+        RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+      run: "${IMPLEMENTATION_PATH}/upload-s3.sh"

@@ -9,53 +9,27 @@ A dispatch action is one that:
 * clones the shared-actions repository (repo/ref changeable using env vars)
 * runs (dispatches to) another action within the clone, using a relative path
 
-## Release build-output companions
+The checkout is the important part of the pattern. It gives every subsequent
+step a stable `./shared-actions` path and lets a caller test changes by setting
+`SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF` without changing the caller's
+`uses:` line. When those variables are absent, dispatch actions normally use
+`rapidsai/shared-actions` at `main`.
 
-`release-build-output-dispatch` validates a producer's local build artifact
-directory and uploads a companion artifact named
-`release-build-output-<source-artifact-name>`. The companion contains
-`release-build-output.json`, `release-build-metadata.json`, provenance, and an
-SBOM record for every primary artifact.
+The public action and its implementation may use either of two layouts:
 
-Conda and wheel jobs can set `artifact-type` to `conda` or `wheel` and omit
-`release-artifacts`; the implementation reads package metadata from the built
-files. Custom bundles provide explicit artifact descriptors and either inline
-package identity or a producer-created package JSON file.
+* A small dispatch action can invoke a separate implementation action under the
+  checked-out `./shared-actions` directory. This is useful when several public
+  actions share one implementation.
+* A self-dispatching action can keep its `action.yml`, scripts, schemas, and
+  documentation in one folder. After checkout, its shell steps invoke the files
+  in the corresponding `./shared-actions/<action-name>` folder. This is simpler
+  when the implementation has no independent callers.
 
-```yaml
-- name: Create release build-output companion
-  uses: rapidsai/shared-actions/release-build-output-dispatch@main
-  with:
-    artifact-type: wheel
-    output-directory: ${{ steps.package-name.outputs.WHEEL_OUTPUT_DIR }}
-    release-unit: wheel:example
-    source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
-    source-sha: ${{ github.sha }}
-```
-
-A descriptor-selected producer SBOM is classified as `producer-dependency`.
-When no SBOM is supplied, the action generates an SPDX artifact-identity
-envelope and classifies it as `generated-identity`. The generated envelope
-contains the primary artifact's identity and SHA-256 but no dependency
-inventory; it must not be treated as dependency coverage.
-
-The dispatch wrapper honors `SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF`.
-When neither is set, it checks out the same repository and ref used to invoke
-the wrapper, which allows a feature-branch wrapper to dispatch to its matching
-implementation during canary testing.
-
-There can be more complicated arrangements of more actions, but the idea is to
-have the local clone of the shared-actions repository be the first step of an action.
-
-Actions that refer to each other assume that they have been checked out to the
-./shared-actions folder. This *should* be the root of the GitHub Actions workspace.
-This assumption is what allow code reuse between actions.
-
-Actions that use this pattern should include "dispatch" in their folder name, so
-that they can be readily distinguished from any actions that are either
-standalone or otherwise implementations that assume that the ./shared-actions
-folder is already cloned, so that they can use relative paths to reference other
-actions and files.
+In both layouts, actions must use files from the checked-out `./shared-actions`
+tree rather than from the revision that initially loaded the public
+`action.yml`. Otherwise `SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF` would
+select only the wrapper while the implementation continued to come from a
+different revision.
 
 ## Example dispatch action
 
@@ -72,9 +46,10 @@ runs:
     - name: Clone shared-actions repo
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO }}
-        ref: ${{ env.SHARED_ACTIONS_REF }}
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
+        persist-credentials: false
     - name: Run local implementation action
       uses: ./shared-actions/impls/example-action
 ```

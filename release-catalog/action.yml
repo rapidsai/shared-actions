@@ -10,6 +10,11 @@ inputs:
       JSON string with configuration for this action. Schema and field documentation:
       https://github.com/rapidsai/shared-actions/blob/main/release-catalog/config.schema.json
     required: true
+  source-sha:
+    description: >-
+      Full 40- or 64-character Git object ID of the commit that was checked out
+      and built. Standard RAPIDS workflows pass RAPIDS_SHA from rapids-github-info.
+    required: true
   source-artifact-name:
     description: >-
       Stable name for this job's output, such as the GitHub Actions artifact
@@ -65,9 +70,9 @@ runs:
       env:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         RELEASE_ARTIFACTS: ${{ steps.configuration.outputs.artifacts }}
-        RELEASE_ENTRIES_NAME: release-catalog-entries.json
         RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+        RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
         RELEASE_CATALOG_KEY: ${{ steps.configuration.outputs.release_catalog_key }}
       run: "${IMPLEMENTATION_PATH}/materialize.sh"
     - name: Upload release catalog companion to S3

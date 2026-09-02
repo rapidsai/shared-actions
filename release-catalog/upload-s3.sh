@@ -56,10 +56,9 @@ base_key="${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID
 if [[ -n "${RELEASE_CANDIDATE_PREFIX}" ]]; then
   base_key="${RELEASE_CANDIDATE_PREFIX}/${base_key}"
 fi
-# `signature` is optional, so select only declared string paths. Without the
-# filter, jq renders a missing optional value as the literal text `null` and
-# the uploader attempts to find a file with that name.
-mapfile -t companion_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
+# Upload exactly the files the companion declares: the entries document, each
+# artifact, and each artifact's evidence files.
+mapfile -t companion_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance] | unique) | .[]' "${entries_path}")
 head_metadata="$(mktemp)"
 trap 'rm -f "${head_metadata}"' EXIT
 

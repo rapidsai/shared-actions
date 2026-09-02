@@ -20,14 +20,13 @@ GITHUB_RUN_ID="1234"
 GITHUB_SHA="0123456789012345678901234567890123456789"
 GITHUB_WORKFLOW_REF="NVIDIA/cuvs/.github/workflows/build.yaml@refs/heads/release/26.08"
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "cuvs-java-*.jar", package_identity_file: "cuvs-java-package-identity.json"}]')"
-RELEASE_ENTRIES_NAME="release-catalog-entries.json"
 RELEASE_ARTIFACT_DIRECTORY="${bundle_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="cuvs-java-cuda12.9.1"
-RAPIDS_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+RELEASE_SOURCE_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 RELEASE_CATALOG_KEY="maven:cuvs-java"
 export GITHUB_REPOSITORY GITHUB_RUN_ATTEMPT GITHUB_RUN_ID GITHUB_SHA GITHUB_WORKFLOW_REF
-export RELEASE_ARTIFACTS RELEASE_ENTRIES_NAME RELEASE_ARTIFACT_DIRECTORY
-export RAPIDS_SHA RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
+export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
+export RELEASE_SOURCE_SHA RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
 
 "${repository_root}/release-catalog/materialize.sh"
 
@@ -49,15 +48,10 @@ jq -e '
   and (.entries[0].sbom | endswith(".sbom.cdx.json"))
 ' "${entries_path}" >/dev/null
 
-# Optional signatures must not cause the S3 uploader to request a literal
-# `null` file. This mirrors its declared-file selection without requiring AWS.
-mapfile -t upload_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance, .signature? | strings] | unique) | .[]' "${entries_path}")
+# Mirror the S3 uploader's declared-file selection without requiring AWS.
+mapfile -t upload_paths < <(jq -r '["release-catalog-entries.json"] + ([.entries[] | .path, .sbom, .provenance] | unique) | .[]' "${entries_path}")
 artifact_sha256="$(sha256sum "${canonical_bundle_directory}/cuvs-java-26.08.0.jar" | awk '{print $1}')"
 test "${upload_paths[*]}" = "release-catalog-entries.json cuvs-java-26.08.0.jar release-evidence/cuvs-java-26.08.0.jar.${artifact_sha256}.provenance.json release-evidence/cuvs-java-26.08.0.jar.${artifact_sha256}.sbom.cdx.json"
-if printf '%s\n' "${upload_paths[@]}" | grep -Fx null; then
-  echo "optional signature emitted a literal null upload path" >&2
-  exit 1
-fi
 
 # Keep the checked-in example synchronized with the exact output owned by this
 # action. Only the generated SBOM timestamps are normalized.
@@ -97,9 +91,9 @@ RELEASE_ARTIFACTS="$(jq -cn '[
 ]')"
 RELEASE_ARTIFACT_DIRECTORY="${multiple_identity_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="multiple-identities"
-RAPIDS_SHA="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+RELEASE_SOURCE_SHA="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 RELEASE_CATALOG_KEY="archive:multiple"
-export RAPIDS_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
+export RELEASE_SOURCE_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
 "${repository_root}/release-catalog/materialize.sh"
 jq -e '
   (.entries | length == 2)
@@ -117,9 +111,9 @@ jq -n '{ecosystem: "conda", name: "kvikio", version: "26.08.00a32"}' \
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "linux-64/kvikio-*.bin", package_identity_file: "kvikio.identity.json"}]')"
 RELEASE_ARTIFACT_DIRECTORY="${generated_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="kvikio_conda_python_kvikio_x86_64_abi3_cu12"
-RAPIDS_SHA="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+RELEASE_SOURCE_SHA="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 RELEASE_CATALOG_KEY="conda:kvikio"
-export RAPIDS_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
+export RELEASE_SOURCE_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
 
 "${repository_root}/release-catalog/materialize.sh"
 
@@ -156,9 +150,9 @@ jq -n '{ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32"}' \
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "libkvikio_cu12-*.bin", package_identity_file: "libkvikio.identity.json"}]')"
 RELEASE_ARTIFACT_DIRECTORY="${wheel_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="kvikio_wheel_cpp_libkvikio_x86_64_cu12"
-RAPIDS_SHA="cccccccccccccccccccccccccccccccccccccccc"
+RELEASE_SOURCE_SHA="cccccccccccccccccccccccccccccccccccccccc"
 RELEASE_CATALOG_KEY="wheel:kvikio"
-export RAPIDS_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
+export RELEASE_SOURCE_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
 
 "${repository_root}/release-catalog/materialize.sh"
 
@@ -179,9 +173,9 @@ jq -n \
 RELEASE_ARTIFACTS="$(jq -cn '[{path: "bundle.tar.gz", package_identity_file: "bundle-package-identity.json"}]')"
 RELEASE_ARTIFACT_DIRECTORY="${missing_version_directory}"
 RELEASE_SOURCE_ARTIFACT_NAME="bundle-archive"
-RAPIDS_SHA="dddddddddddddddddddddddddddddddddddddddd"
+RELEASE_SOURCE_SHA="dddddddddddddddddddddddddddddddddddddddd"
 RELEASE_CATALOG_KEY="archive:bundle"
-export RAPIDS_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
+export RELEASE_SOURCE_SHA RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY RELEASE_SOURCE_ARTIFACT_NAME RELEASE_CATALOG_KEY
 
 if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/missing-version-error"; then
   echo "materialize.sh unexpectedly accepted a custom artifact without a package version" >&2
@@ -189,18 +183,18 @@ if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}
 fi
 grep -Fx 'package identity for bundle.tar.gz must contain non-empty ecosystem, name, and version strings and only optional build or platform strings' "${temporary_directory}/missing-version-error"
 
-if (unset RAPIDS_SHA; "${repository_root}/release-catalog/materialize.sh") 2>"${temporary_directory}/missing-rapids-sha-error"; then
-  echo "materialize.sh unexpectedly accepted a missing RAPIDS_SHA" >&2
+if (unset RELEASE_SOURCE_SHA; "${repository_root}/release-catalog/materialize.sh") 2>"${temporary_directory}/missing-source-sha-error"; then
+  echo "materialize.sh unexpectedly accepted a missing RELEASE_SOURCE_SHA" >&2
   exit 1
 fi
-grep -Fx 'RAPIDS_SHA must be a non-empty string' "${temporary_directory}/missing-rapids-sha-error"
+grep -Fx 'RELEASE_SOURCE_SHA must be a non-empty string' "${temporary_directory}/missing-source-sha-error"
 
-if RAPIDS_SHA="not-a-git-object-id" \
+if RELEASE_SOURCE_SHA="not-a-git-object-id" \
   "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/invalid-rapids-sha-error"; then
-  echo "materialize.sh unexpectedly accepted an invalid RAPIDS_SHA" >&2
+  echo "materialize.sh unexpectedly accepted an invalid RELEASE_SOURCE_SHA" >&2
   exit 1
 fi
-grep -Fx 'RAPIDS_SHA must be a 40- or 64-character hexadecimal Git object ID' \
+grep -Fx 'RELEASE_SOURCE_SHA must be a 40- or 64-character hexadecimal Git object ID' \
   "${temporary_directory}/invalid-rapids-sha-error"
 
 assert_missing_build_context() {

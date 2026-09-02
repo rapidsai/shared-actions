@@ -42,8 +42,8 @@ validation_errors="$(jq -r '
         else empty end,
         if (.release_catalog_key | single_line_string) then empty
         else "release_catalog_key must be a non-empty, single-line string" end,
-        if (has("artifact_directory") | not) or (.artifact_directory | single_line_string) then empty
-        else "artifact_directory must be a non-empty, single-line string when supplied" end
+        if (.artifact_directory | relative_path) then empty
+        else "artifact_directory must be a non-empty relative path without parent traversal" end
       ]
       + if has("artifacts") then
           [
@@ -90,6 +90,6 @@ fi
 
 {
   printf 'release_catalog_key=%s\n' "$(jq -r '.release_catalog_key' <<<"${compact_config}")"
-  printf 'artifact_directory=%s\n' "$(jq -r '.artifact_directory // "."' <<<"${compact_config}")"
+  printf 'artifact_directory=%s\n' "$(jq -r '.artifact_directory' <<<"${compact_config}")"
   printf 'artifacts=%s\n' "$(jq -c '.artifacts // empty' <<<"${compact_config}")"
 } >>"${GITHUB_OUTPUT}"

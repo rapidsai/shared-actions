@@ -90,20 +90,14 @@ They do not yet describe what is inside each package; that is what the future
 dependency SBOM will add. That will be a new `sbom_kind` value and a new
 `schema_version`, so existing consumers can tell the two apart.
 
-Each entry may also carry an optional `signature` path. It is reserved for a
-future signing step; this version never populates it.
-
 ## Action inputs
 
 The action is used via `rapidsai/shared-actions/release-catalog`.
 
-The action also requires `RAPIDS_SHA` in the job environment, set to the
-commit that was checked out and built. Standard RAPIDS build workflows set it;
-custom workflows must export it before this step runs.
-
 | Input | Required | Description |
 | ----- | -------- | ----------- |
 | `config` | yes | JSON object selecting the artifacts and their release catalog key. Schema: [`config.schema.json`](config.schema.json). Details below. |
+| `source-sha` | yes | Full 40- or 64-character Git object ID of the commit that was checked out and built. Standard RAPIDS workflows pass `${{ env.RAPIDS_SHA }}` from `rapids-github-info`. |
 | `source-artifact-name` | yes | Stable name for this job's output, for example the GitHub Actions artifact name. Used as the last path component in S3. |
 | `upload-to-s3` | no | `"true"` to upload the artifacts and companion to S3. Defaults to `"false"`, which only writes the companion locally. |
 | `candidate-train-sha256` | when uploading | SHA-256 of the release train JSON this build belongs to. All companions for one release share it. |
@@ -144,7 +138,9 @@ policy. A custom job should use `<ecosystem>:<release-group>`, such as
 
 ### `artifact_directory` and `artifacts`
 
-`artifact_directory` is the base directory containing the artifacts.
+`artifact_directory` is the required base directory containing the artifacts,
+relative to the job working directory. The action does not scan the working
+directory by default.
 For standard Conda, wheel, and Maven JAR jobs, omit `artifacts`; the action
 discovers supported artifacts below that directory and parses package identity
 from their embedded metadata.
@@ -159,6 +155,7 @@ from their embedded metadata.
         "artifact_directory": ${{ toJSON(steps.package-name.outputs.WHEEL_OUTPUT_DIR) }}
       }
     source-artifact-name: ${{ steps.package-name.outputs.RAPIDS_PACKAGE_NAME }}
+    source-sha: ${{ env.RAPIDS_SHA }}
 ```
 
 Other formats require an explicit `artifacts` list. Each dictionary in the list
@@ -178,6 +175,7 @@ resolves to zero files or multiple files results in an error.
         }]
       }
     source-artifact-name: cuvs-java
+    source-sha: ${{ env.RAPIDS_SHA }}
 ```
 
 For a JAR, the action requires exactly one

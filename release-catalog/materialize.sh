@@ -8,12 +8,12 @@ set -euo pipefail
 # Inputs come from release-catalog/action.yml. RELEASE_ARTIFACTS is
 # either empty (discover Conda packages, wheels, and Maven JARs) or a validated JSON array
 # selecting custom artifacts. GitHub Actions supplies the GITHUB_* build
-# context, while RAPIDS_SHA identifies the commit actually checked out.
+# context, while RELEASE_SOURCE_SHA identifies the commit actually checked out.
 #
 # The script validates all context before touching outputs, resolves every
 # artifact to exactly one file inside RELEASE_ARTIFACT_DIRECTORY, reads or
 # extracts its package identity, generates an identity-only CycloneDX SBOM plus
-# provenance evidence, and writes RELEASE_ENTRIES_NAME. It never
+# provenance evidence, and writes release-catalog-entries.json. It never
 # modifies primary files.
 
 require_nonempty() {
@@ -49,13 +49,12 @@ require_positive_integer() {
 # local caller must set explicit test values.
 require_single_line "RELEASE_CATALOG_KEY" "${RELEASE_CATALOG_KEY:-}"
 require_single_line "RELEASE_ARTIFACT_DIRECTORY" "${RELEASE_ARTIFACT_DIRECTORY:-}"
-require_single_line "RELEASE_ENTRIES_NAME" "${RELEASE_ENTRIES_NAME:-}"
 require_single_line "RELEASE_SOURCE_ARTIFACT_NAME" "${RELEASE_SOURCE_ARTIFACT_NAME:-}"
 
-source_sha="${RAPIDS_SHA:-}"
-require_single_line "RAPIDS_SHA" "${source_sha}"
+source_sha="${RELEASE_SOURCE_SHA:-}"
+require_single_line "RELEASE_SOURCE_SHA" "${source_sha}"
 if [[ ! "${source_sha}" =~ ^[[:xdigit:]]{40}$ && ! "${source_sha}" =~ ^[[:xdigit:]]{64}$ ]]; then
-  echo "RAPIDS_SHA must be a 40- or 64-character hexadecimal Git object ID" >&2
+  echo "RELEASE_SOURCE_SHA must be a 40- or 64-character hexadecimal Git object ID" >&2
   exit 1
 fi
 
@@ -73,17 +72,6 @@ if [[ ! "${github_repository}" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
 fi
 require_positive_integer "GITHUB_RUN_ATTEMPT" "${github_run_attempt}"
 require_positive_integer "GITHUB_RUN_ID" "${github_run_id}"
-
-require_plain_filename() {
-  local label="$1"
-  local filename="$2"
-  if [[ "${filename}" == */* || "${filename}" == .* || "${filename}" == *".."* ]]; then
-    echo "${label} must be a plain filename" >&2
-    exit 1
-  fi
-}
-
-require_plain_filename "entries-name" "${RELEASE_ENTRIES_NAME}"
 
 if [[ ! -d "${RELEASE_ARTIFACT_DIRECTORY}" ]]; then
   echo "artifact-directory does not exist or is not a directory: ${RELEASE_ARTIFACT_DIRECTORY}" >&2
@@ -352,7 +340,8 @@ prepare_artifacts() {
 # From here onward, every descriptor has an exact path and either extracted
 # package identity or a caller-created package identity file.
 artifacts="$(prepare_artifacts)"
-entries_path="${artifact_directory}/${RELEASE_ENTRIES_NAME}"
+# Fixed name: upload-s3.sh, the schema, and consumers all depend on it.
+entries_path="${artifact_directory}/release-catalog-entries.json"
 temporary_manifest="$(mktemp "${artifact_directory}/.release-catalog.XXXXXX")"
 trap 'rm -f "${temporary_manifest}"' EXIT
 

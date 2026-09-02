@@ -81,12 +81,20 @@ assert_invalid \
 grep -F 'artifacts[0].path must be a non-empty relative path without parent traversal' "${temporary_directory}/malformed-artifact.error" >/dev/null
 grep -F 'artifacts[0].package_identity_file must be a non-empty relative path without parent traversal' "${temporary_directory}/malformed-artifact.error" >/dev/null
 
-default_output="${temporary_directory}/default.output"
-RELEASE_CATALOG_CONFIG='{"release_catalog_key":"conda:smoke"}' \
-  GITHUB_OUTPUT="${default_output}" "${validator}"
-grep -Fx 'release_catalog_key=conda:smoke' "${default_output}"
-grep -Fx 'artifact_directory=.' "${default_output}"
-grep -Fx 'artifacts=' "${default_output}"
+assert_invalid \
+  missing-artifact-directory \
+  '{"release_catalog_key":"conda:smoke"}' \
+  'artifact_directory must be a non-empty relative path without parent traversal'
+
+assert_invalid \
+  absolute-artifact-directory \
+  '{"release_catalog_key":"conda:smoke","artifact_directory":"/tmp/artifacts"}' \
+  'artifact_directory must be a non-empty relative path without parent traversal'
+
+assert_invalid \
+  parent-artifact-directory \
+  '{"release_catalog_key":"conda:smoke","artifact_directory":"../artifacts"}' \
+  'artifact_directory must be a non-empty relative path without parent traversal'
 
 standard_output="${temporary_directory}/standard.output"
 RELEASE_CATALOG_CONFIG='{

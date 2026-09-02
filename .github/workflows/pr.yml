@@ -42,7 +42,6 @@ jobs:
       - name: Run release catalog dispatch smoke test
         uses: ./release-catalog
         env:
-          RAPIDS_SHA: ${{ github.sha }}
           SHARED_ACTIONS_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           SHARED_ACTIONS_REF: ${{ github.event.pull_request.head.sha }}
         with:
@@ -56,6 +55,7 @@ jobs:
               }]
             }
           source-artifact-name: release-catalog-smoke
+          source-sha: ${{ github.event.pull_request.head.sha }}
       - name: Verify release catalog dispatch smoke test
         run: |
           jq -e '

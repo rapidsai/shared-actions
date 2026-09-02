@@ -64,8 +64,7 @@
         "package": {"$ref": "#/$defs/package"},
         "sbom": {"$ref": "#/$defs/relative_path"},
         "sbom_kind": {"const": "generated-identity"},
-        "provenance": {"$ref": "#/$defs/relative_path"},
-        "signature": {"$ref": "#/$defs/relative_path"}
+        "provenance": {"$ref": "#/$defs/relative_path"}
       }
     }
   }

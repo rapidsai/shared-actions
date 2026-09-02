@@ -181,20 +181,20 @@ if "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}
   echo "materialize.sh unexpectedly accepted a custom artifact without a package version" >&2
   exit 1
 fi
-grep -Fx 'package identity for bundle.tar.gz must contain non-empty ecosystem, name, and version strings and only optional build or platform strings' "${temporary_directory}/missing-version-error"
+grep -Fx '[materialize.sh] Error: package identity for bundle.tar.gz must contain non-empty ecosystem, name, and version strings and only optional build or platform strings' "${temporary_directory}/missing-version-error"
 
 if (unset RELEASE_SOURCE_SHA; "${repository_root}/release-catalog/materialize.sh") 2>"${temporary_directory}/missing-source-sha-error"; then
   echo "materialize.sh unexpectedly accepted a missing RELEASE_SOURCE_SHA" >&2
   exit 1
 fi
-grep -Fx 'RELEASE_SOURCE_SHA must be a non-empty string' "${temporary_directory}/missing-source-sha-error"
+grep -Fx '[materialize.sh] Error: RELEASE_SOURCE_SHA must be a non-empty string' "${temporary_directory}/missing-source-sha-error"
 
 if RELEASE_SOURCE_SHA="not-a-git-object-id" \
   "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/invalid-rapids-sha-error"; then
   echo "materialize.sh unexpectedly accepted an invalid RELEASE_SOURCE_SHA" >&2
   exit 1
 fi
-grep -Fx 'RELEASE_SOURCE_SHA must be a 40- or 64-character hexadecimal Git object ID' \
+grep -Fx '[materialize.sh] Error: RELEASE_SOURCE_SHA must be a 40- or 64-character hexadecimal Git object ID' \
   "${temporary_directory}/invalid-rapids-sha-error"
 
 assert_missing_build_context() {
@@ -204,7 +204,7 @@ assert_missing_build_context() {
     echo "materialize.sh unexpectedly accepted a missing ${variable_name}" >&2
     exit 1
   fi
-  grep -Fx "${variable_name} must be a non-empty string" "${error_file}"
+  grep -Fx "[materialize.sh] Error: ${variable_name} must be a non-empty string" "${error_file}"
 }
 
 assert_missing_build_context GITHUB_REPOSITORY
@@ -217,7 +217,7 @@ if GITHUB_REPOSITORY="cuvs" \
   echo "materialize.sh unexpectedly accepted an invalid GITHUB_REPOSITORY" >&2
   exit 1
 fi
-grep -Fx 'GITHUB_REPOSITORY must have owner/repository form' \
+grep -Fx '[materialize.sh] Error: GITHUB_REPOSITORY must have owner/repository form' \
   "${temporary_directory}/invalid-repository.error"
 
 if GITHUB_RUN_ATTEMPT="0" \
@@ -225,7 +225,7 @@ if GITHUB_RUN_ATTEMPT="0" \
   echo "materialize.sh unexpectedly accepted an invalid GITHUB_RUN_ATTEMPT" >&2
   exit 1
 fi
-grep -Fx 'GITHUB_RUN_ATTEMPT must be a positive integer' \
+grep -Fx '[materialize.sh] Error: GITHUB_RUN_ATTEMPT must be a positive integer' \
   "${temporary_directory}/invalid-run-attempt.error"
 
 if GITHUB_RUN_ID="not-an-integer" \
@@ -233,5 +233,5 @@ if GITHUB_RUN_ID="not-an-integer" \
   echo "materialize.sh unexpectedly accepted an invalid GITHUB_RUN_ID" >&2
   exit 1
 fi
-grep -Fx 'GITHUB_RUN_ID must be a positive integer' \
+grep -Fx '[materialize.sh] Error: GITHUB_RUN_ID must be a positive integer' \
   "${temporary_directory}/invalid-run-id.error"

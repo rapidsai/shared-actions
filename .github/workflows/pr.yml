@@ -59,7 +59,7 @@ jobs:
       - name: Verify release catalog dispatch smoke test
         run: |
           jq -e '
-            .producer == "NVIDIA ADI Build/Operations"
+            .producer == "rapidsai/shared-actions/release-catalog"
             and .source.artifact == "release-catalog-dispatch-smoke"
             and .entries[0].release_catalog_key == "archive:smoke"
             and .entries[0].path == "package.tar.gz"

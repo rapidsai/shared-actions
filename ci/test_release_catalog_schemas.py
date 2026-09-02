@@ -42,9 +42,9 @@ def main() -> None:
     errors = list(entries.iter_errors(example))
     if errors:
         raise ValueError(f"generated entries example rejected: {errors[0].message}")
-    wrong_producer = {**example, "producer": "shared-workflows"}
+    wrong_producer = {**example, "producer": "some-other-tool"}
     if not list(entries.iter_errors(wrong_producer)):
-        raise ValueError("entries schema accepted an implementation name as producer")
+        raise ValueError("entries schema accepted an unknown producer")
 
 
 if __name__ == "__main__":

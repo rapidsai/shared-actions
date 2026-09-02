@@ -36,13 +36,14 @@ entries_path="${canonical_bundle_directory}/release-catalog-entries.json"
 test ! -e "${canonical_bundle_directory}/release-catalog-metadata.json"
 jq -e '
   .schema_version == 1
-  and .producer == "NVIDIA ADI Build/Operations"
+  and .producer == "rapidsai/shared-actions/release-catalog"
   and .source.artifact == "cuvs-java-cuda12.9.1"
   and .source.repository == "NVIDIA/cuvs"
   and .source.sha == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   and (.entries | length == 1)
   and .entries[0].release_catalog_key == "maven:cuvs-java"
   and .entries[0].path == "cuvs-java-26.08.0.jar"
+  and .entries[0].sha256 == "fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9"
   and .entries[0].package.name == "ai.rapids:cuvs-java"
   and .entries[0].sbom_kind == "generated-identity"
   and (.entries[0].sbom | endswith(".sbom.cdx.json"))

@@ -127,7 +127,10 @@ resolve_one_file() {
 }
 
 # Normalize supported package formats into the common package identity stored
-# in each catalog entry. Wheels expose Core Metadata;
+# in each catalog entry. Custom formats (JARs, tarballs) supply the same fields
+# via package_identity_file instead.
+
+# Wheels expose Core Metadata in <name>.dist-info/METADATA.
 describe_wheel_package() {
   local wheel_path="$1"
   local relative_path="${wheel_path#"${artifact_directory}/"}"
@@ -292,7 +295,7 @@ prepare_artifacts() {
 }
 
 # From here onward, every descriptor has an exact path and either extracted
-# package identity or a producer-created package identity file.
+# package identity or a caller-created package identity file.
 artifacts="$(prepare_artifacts)"
 entries_path="${artifact_directory}/${RELEASE_ENTRIES_NAME}"
 temporary_manifest="$(mktemp "${artifact_directory}/.release-catalog.XXXXXX")"
@@ -340,6 +343,13 @@ write_generated_cyclonedx_sbom() {
       version: 1,
       metadata: {
         timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        tools: {
+          components: [{
+            type: "application",
+            group: "rapidsai",
+            name: "shared-actions/release-catalog"
+          }]
+        },
         component: {
           type: "file",
           "bom-ref": ("urn:sha256:" + $artifact_digest),
@@ -394,7 +404,7 @@ write_generated_provenance() {
 
 shopt -s globstar nullglob
 # Create one catalog entry, one identity-only SBOM document, and one provenance
-# document per primary artifact. Producer-supplied dependency evidence is
+# document per primary artifact. Caller-supplied dependency evidence is
 # intentionally not accepted by this version of the schema.
 while IFS= read -r descriptor; do
   if ! jq -e '
@@ -424,6 +434,7 @@ while IFS= read -r descriptor; do
     exit 1
   fi
 
+  artifact_sha256="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
   sbom_path="$(generated_evidence_path "${primary_path}" "sbom.cdx")"
   write_generated_cyclonedx_sbom "${primary_path}" "${package}" "${sbom_path}"
   provenance_path="$(generated_evidence_path "${primary_path}" "provenance")"
@@ -432,10 +443,11 @@ while IFS= read -r descriptor; do
   entry="$(jq -cn \
     --arg release_catalog_key "${RELEASE_CATALOG_KEY}" \
     --arg path "${primary_path}" \
+    --arg sha256 "${artifact_sha256}" \
     --arg sbom "${sbom_path}" \
     --arg provenance "${provenance_path}" \
     --argjson package "${package}" \
-    '{release_catalog_key: $release_catalog_key, path: $path, sbom: $sbom, sbom_kind: "generated-identity", provenance: $provenance, package: $package}')"
+    '{release_catalog_key: $release_catalog_key, path: $path, sha256: $sha256, sbom: $sbom, sbom_kind: "generated-identity", provenance: $provenance, package: $package}')"
 
   jq --argjson entry "${entry}" '.entries += [$entry]' "${temporary_manifest}" >"${temporary_manifest}.next"
   mv "${temporary_manifest}.next" "${temporary_manifest}"
@@ -459,7 +471,7 @@ jq -n -S \
   --argjson entries "$(jq -c '.entries' "${temporary_manifest}")" \
   '{
     schema_version: 1,
-    producer: "NVIDIA ADI Build/Operations",
+    producer: "rapidsai/shared-actions/release-catalog",
     source: {
       artifact: $artifact_name,
       repository: $repository,

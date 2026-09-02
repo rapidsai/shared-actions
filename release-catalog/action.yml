@@ -1,4 +1,4 @@
-name: Dispatch release catalog
+name: Release catalog
 description: >-
   Create a release catalog companion (artifact inventory, provenance, and CycloneDX SBOM)
   for the artifacts a build job produced, and optionally upload it to S3.
@@ -26,9 +26,9 @@ inputs:
     required: false
     default: rapids-release-candidates
   candidate-prefix:
-    description: Root prefix inside candidate-bucket.
+    description: Optional root prefix inside candidate-bucket. Empty writes below the bucket root.
     required: false
-    default: candidate-builds
+    default: ""
   upload-to-s3:
     description: Whether to upload the companion to S3. When false, the companion is only written locally.
     required: false
@@ -36,20 +36,18 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Clone shared-actions repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
+        path: ./shared-actions
+        persist-credentials: false
     - id: implementation
       name: Resolve release catalog implementation
       shell: bash
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-        HOST_WORKSPACE: ${{ github.workspace }}
       run: |
-        host_root="$(dirname "$(dirname "${HOST_WORKSPACE}")")"
-        container_root="$(dirname "$(dirname "${PWD}")")"
-        action_path="${ACTION_PATH}"
-        if [[ ! -d "${action_path}" && "${action_path}" == "${host_root}/"* ]]; then
-          action_path="${container_root}/${action_path#"${host_root}/"}"
-        fi
-        implementation_path="$(dirname "${action_path}")/release-catalog"
+        implementation_path="${PWD}/shared-actions/release-catalog"
         if [[ ! -d "${implementation_path}" ]]; then
           echo "release-catalog implementation not found at ${implementation_path}" >&2
           exit 1

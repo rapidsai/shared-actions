@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Record artifact metadata from completed build directory into a release catalog companion.
 #
-# Inputs come from release-catalog-dispatch/action.yml. RELEASE_ARTIFACTS is
+# Inputs come from release-catalog/action.yml. RELEASE_ARTIFACTS is
 # either empty (discover Conda packages and wheels) or a validated JSON array
 # selecting custom artifacts. GitHub Actions supplies the GITHUB_* build
 # context, while RAPIDS_SHA identifies the commit actually checked out.

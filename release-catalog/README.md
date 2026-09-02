@@ -95,7 +95,7 @@ future signing step; this version never populates it.
 
 ## Action inputs
 
-The action is used via `rapidsai/shared-actions/release-catalog-dispatch`.
+The action is used via `rapidsai/shared-actions/release-catalog`.
 
 The action also requires `RAPIDS_SHA` in the job environment, set to the
 commit that was checked out and built. Standard RAPIDS build workflows set it;
@@ -108,11 +108,13 @@ custom workflows must export it before this step runs.
 | `upload-to-s3` | no | `"true"` to upload the artifacts and companion to S3. Defaults to `"false"`, which only writes the companion locally. |
 | `candidate-train-sha256` | when uploading | SHA-256 of the release train JSON this build belongs to. All companions for one release share it. |
 | `candidate-bucket` | no | S3 bucket for companions. Defaults to `rapids-release-candidates`. |
-| `candidate-prefix` | no | Root prefix inside the bucket. Defaults to `candidate-builds`. |
+| `candidate-prefix` | no | Optional root prefix inside the bucket. Defaults to empty, placing each train directly below the bucket root. |
 
 When uploading, every file the companion lists (the artifacts, the evidence
 files, and `release-catalog-entries.json` itself) lands under
-`s3://<candidate-bucket>/<candidate-prefix>/<candidate-train-sha256>/<repository>/<run-id>/<source-artifact-name>/`.
+`s3://<candidate-bucket>/<candidate-train-sha256>/<repository>/<run-id>/<source-artifact-name>/`.
+When `candidate-prefix` is set explicitly, it is inserted between the bucket
+name and the train SHA-256.
 Uploads are conditional: an existing object is accepted only if its bytes
 match, so reruns are safe.
 
@@ -148,7 +150,7 @@ Conda packages and wheels below that directory and parses metadata from them.
 
 ```yaml
 - name: Create wheel release catalog companion
-  uses: rapidsai/shared-actions/release-catalog-dispatch@main
+  uses: rapidsai/shared-actions/release-catalog@main
   with:
     config: >-
       {
@@ -164,7 +166,7 @@ resolves to zero files or multiple files results in an error.
 
 ```yaml
 - name: Create custom release catalog companion
-  uses: rapidsai/shared-actions/release-catalog-dispatch@main
+  uses: rapidsai/shared-actions/release-catalog@main
   with:
     config: >-
       {

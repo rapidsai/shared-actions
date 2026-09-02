@@ -15,9 +15,9 @@ those artifacts today:
   can make security scans more accurate.
 
 This action solves both by having each build job write a small **companion**
-next to its artifacts: an inventory of the files it produced, plus provenance
-and SBOM documents for each one. The companion never modifies the artifacts
-themselves.
+next to its artifacts: a folder with an inventory of the files that the job
+produced, plus provenance and SBOM documents for each one. The companion never
+modifies the artifacts themselves.
 
 ## Lifecycle
 
@@ -26,9 +26,10 @@ themselves.
    the artifact directory.
 3. The artifacts and their companion are uploaded to a private S3 bucket
    (`upload-to-s3: true`).
-4. The RAPIDS release platform reads the companions from every job in a
-   release train, merges them into the **release catalog**, and uses the
-   catalog to assemble and test a **release candidate**.
+4. The [RAPIDS release platform (in
+   development)](https://github.com/rapidsai/release-scripts/pull/113) reads the
+   companions from every job in a release train, merges them into the **release
+   catalog**, and uses the catalog to assemble and test a **release candidate**.
 
 "Release candidate" here means a set of artifacts that can be deployed to
 create a release, not a release-candidate version of one artifact.

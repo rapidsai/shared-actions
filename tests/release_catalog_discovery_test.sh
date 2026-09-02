@@ -3,6 +3,10 @@
 
 set -euo pipefail
 
+# Error output assertions below exercise the local rendering path. The
+# GitHub-specific rendering path is covered by release_catalog_error_test.sh.
+export GITHUB_ACTIONS=""
+
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "${temporary_directory}"' EXIT

@@ -9,6 +9,28 @@ A dispatch action is one that:
 * clones the shared-actions repository (repo/ref changeable using env vars)
 * runs (dispatches to) another action within the clone, using a relative path
 
+The checkout is the important part of the pattern. It gives every subsequent
+step a stable `./shared-actions` path and lets a caller test changes by setting
+`SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF` without changing the caller's
+`uses:` line. When those variables are absent, dispatch actions normally use
+`rapidsai/shared-actions` at `main`.
+
+The public action and its implementation may use either of two layouts:
+
+* A small dispatch action can invoke a separate implementation action under the
+  checked-out `./shared-actions` directory. This is useful when several public
+  actions share one implementation.
+* A self-dispatching action can keep its `action.yml`, scripts, schemas, and
+  documentation in one folder. After checkout, its shell steps invoke the files
+  in the corresponding `./shared-actions/<action-name>` folder. This is simpler
+  when the implementation has no independent callers.
+
+In both layouts, actions must use files from the checked-out `./shared-actions`
+tree rather than from the revision that initially loaded the public
+`action.yml`. Otherwise `SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF` would
+select only the wrapper while the implementation continued to come from a
+different revision.
+
 ## Example dispatch action
 
 ```yaml
@@ -24,9 +46,10 @@ runs:
     - name: Clone shared-actions repo
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.SHARED_ACTIONS_REPO }}
-        ref: ${{ env.SHARED_ACTIONS_REF }}
+        repository: ${{ env.SHARED_ACTIONS_REPO || 'rapidsai/shared-actions' }}
+        ref: ${{ env.SHARED_ACTIONS_REF || 'main' }}
         path: ./shared-actions
+        persist-credentials: false
     - name: Run local implementation action
       uses: ./shared-actions/impls/example-action
 ```

@@ -21,9 +21,10 @@ safe_prefix() {
   [[ "${prefix}" != /* && "${prefix}" != */ && "${prefix}" != *'//' && "${prefix}" != *'..'* ]]
 }
 
-for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY GITHUB_RUN_ID; do
+for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY GITHUB_RUN_ID; do
   require_value "${value}" "${!value:-}"
 done
+RELEASE_CANDIDATE_PREFIX="${RELEASE_CANDIDATE_PREFIX:-}"
 if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
   echo "RELEASE_CANDIDATE_TRAIN_SHA256 must be a SHA-256 hex digest" >&2
   exit 1
@@ -51,7 +52,10 @@ safe_relative_path() {
   [[ -n "${path}" && "${path}" != /* && "${path}" != ../* && "${path}" != */../* && "${path}" != *'/..' ]]
 }
 
-base_key="${RELEASE_CANDIDATE_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${RELEASE_SOURCE_ARTIFACT_NAME}"
+base_key="${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${RELEASE_SOURCE_ARTIFACT_NAME}"
+if [[ -n "${RELEASE_CANDIDATE_PREFIX}" ]]; then
+  base_key="${RELEASE_CANDIDATE_PREFIX}/${base_key}"
+fi
 # `signature` is optional, so select only declared string paths. Without the
 # filter, jq renders a missing optional value as the literal text `null` and
 # the uploader attempts to find a file with that name.

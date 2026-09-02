@@ -40,7 +40,7 @@ jobs:
             '{ecosystem: "archive", name: "smoke", version: "1.0"}' \
             >release-catalog-smoke/package-identity.json
       - name: Run release catalog dispatch smoke test
-        uses: ./release-catalog-dispatch
+        uses: ./release-catalog
         env:
           RAPIDS_SHA: ${{ github.sha }}
           SHARED_ACTIONS_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -55,12 +55,12 @@ jobs:
                 "package_identity_file": "package-identity.json"
               }]
             }
-          source-artifact-name: release-catalog-dispatch-smoke
+          source-artifact-name: release-catalog-smoke
       - name: Verify release catalog dispatch smoke test
         run: |
           jq -e '
             .producer == "rapidsai/shared-actions/release-catalog"
-            and .source.artifact == "release-catalog-dispatch-smoke"
+            and .source.artifact == "release-catalog-smoke"
             and .entries[0].release_catalog_key == "archive:smoke"
             and .entries[0].path == "package.tar.gz"
             and .entries[0].sbom_kind == "generated-identity"

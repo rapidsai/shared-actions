@@ -145,8 +145,9 @@ policy. A custom job should use `<ecosystem>:<release-group>`, such as
 ### `artifact_directory` and `artifacts`
 
 `artifact_directory` is the base directory containing the artifacts.
-For standard Conda and wheel jobs, omit `artifacts`; the action discovers all
-Conda packages and wheels below that directory and parses metadata from them.
+For standard Conda, wheel, and Maven JAR jobs, omit `artifacts`; the action
+discovers supported artifacts below that directory and parses package identity
+from their embedded metadata.
 
 ```yaml
 - name: Create wheel release catalog companion
@@ -173,12 +174,18 @@ resolves to zero files or multiple files results in an error.
         "release_catalog_key": "maven:cuvs-java",
         "artifact_directory": "java/cuvs-java/target",
         "artifacts": [{
-          "path": "cuvs-java-*-x86_64-cuda*.jar",
-          "package_identity_file": "cuvs-java.release-package-identity.json"
+          "path": "cuvs-java-*-x86_64-cuda*.jar"
         }]
       }
     source-artifact-name: cuvs-java
 ```
+
+For a JAR, the action requires exactly one
+`META-INF/maven/<groupId>/<artifactId>/pom.properties` file and reads its
+`groupId`, `artifactId`, and `version`. The directory coordinates must match
+the property values. JARs without this metadata, or shaded JARs containing
+multiple Maven descriptors, require `package_identity_file` so the action does
+not guess which package the artifact represents.
 
 #### Package identity file
 

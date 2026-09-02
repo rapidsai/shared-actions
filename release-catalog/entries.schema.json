@@ -27,6 +27,7 @@
       "not": {"pattern": "(^/)|((^|/)\\.\\.(/|$))"}
     },
     "source": {
+      "description": "GitHub Actions context for the job that produced this companion. It binds every entry to the built source revision and the workflow run that created it.",
       "type": "object",
       "additionalProperties": false,
       "required": ["artifact", "repository", "sha", "workflow_ref", "run_id", "run_attempt"],
@@ -40,6 +41,7 @@
       }
     },
     "package": {
+      "description": "Package identity used by release tooling and publication destinations. It is extracted from supported artifacts or supplied explicitly when the artifact format cannot provide it.",
       "type": "object",
       "additionalProperties": false,
       "required": ["ecosystem", "name", "version"],

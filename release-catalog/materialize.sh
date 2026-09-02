@@ -379,8 +379,9 @@ generated_evidence_path() {
   printf 'release-evidence/%s.%s.%s.json\n' "${artifact_label}" "${artifact_digest}" "${kind}"
 }
 
-# This CycloneDX document identifies the artifact and intentionally has no
-# component inventory or dependency graph.
+# This initial CycloneDX implementation identifies the artifact only. Component
+# inventory and the dependency graph are intentionally deferred until a future
+# implementation can accept evidence captured by the producer during the build.
 write_generated_cyclonedx_sbom() {
   local primary_path="$1"
   local package="$2"

@@ -46,6 +46,19 @@ def test_candidate_conda_channels_exclude_public_rapids_and_nvidia_channels():
         pytest.fail(f"candidate channel policy is incomplete: {missing}")
 
 
+def test_candidate_conda_lock_selection_is_repository_scoped():
+    setup = _SETUP.read_text()
+
+    expected_contracts = (
+        'repository="${GITHUB_REPOSITORY#*/}"',
+        ".scope.repository == $repository",
+        "exactly one repository-scoped Conda lock",
+    )
+    missing = [contract for contract in expected_contracts if contract not in setup]
+    if missing:
+        pytest.fail(f"repository-scoped Conda lock selection is incomplete: {missing}")
+
+
 def test_wheel_lock_selector_requires_one_exact_matrix_scope():
     expected = {
         "path": "locks/wheel/x86_64-manylinux_2_28/python-3.14/requirements.txt",

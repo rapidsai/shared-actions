@@ -39,6 +39,7 @@ fi
 
 root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
 train_key_prefix="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
+repository="${GITHUB_REPOSITORY#*/}"
 cuda_major="${RELEASE_CANDIDATE_CUDA_VERSION%%.*}"
 conda_platform="$(conda_platform_for_arch "${RELEASE_CANDIDATE_ARCH}")"
 wheel_platform="$(wheel_platform_for_arch "${RELEASE_CANDIDATE_ARCH}")"
@@ -466,11 +467,18 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     local section="$1"
     local record relative_path expected_sha256 lock_path actual_sha256 constraints package_name recipe activation_script package_script
     record="$(jq -cer \
+      --arg repository "${repository}" \
       --arg platform "${conda_platform}" \
       --arg cuda "${cuda_major}" \
       --arg environment "${section}" \
-      '(.conda // .input_locks.conda)[]
-       | select(.scope.platform == $platform and .scope.cuda == $cuda and .scope.environment == $environment)' \
+      '[ (.conda // .input_locks.conda)[]
+         | select(.scope.repository == $repository
+                  and .scope.platform == $platform
+                  and .scope.cuda == $cuda
+                  and .scope.environment == $environment) ]
+       | if length == 1 then .[0]
+         else error("release train must contain exactly one repository-scoped Conda lock")
+         end' \
       "${lock_source}")"
     relative_path="$(jq -r '.path' <<<"${record}")"
     expected_sha256="$(jq -r '.sha256' <<<"${record}")"

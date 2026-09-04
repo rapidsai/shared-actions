@@ -59,6 +59,21 @@ def test_candidate_conda_lock_selection_is_repository_scoped():
         pytest.fail(f"repository-scoped Conda lock selection is incomplete: {missing}")
 
 
+def test_candidate_setup_exports_cache_policy_and_train_input_identity():
+    setup = _SETUP.read_text()
+
+    expected_contracts = (
+        "candidate_build_policy.sccache",
+        "lock_receipt_sha256",
+        "variant_receipt_sha256",
+        "RELEASE_CANDIDATE_BUILD_INPUTS",
+        "RAPIDS_RELEASE_CANDIDATE_SCCACHE",
+    )
+    missing = [contract for contract in expected_contracts if contract not in setup]
+    if missing:
+        pytest.fail(f"candidate build-input identity is incomplete: {missing}")
+
+
 def test_wheel_lock_selector_requires_one_exact_matrix_scope():
     expected = {
         "path": "locks/wheel/x86_64-manylinux_2_28/python-3.14/requirements.txt",

@@ -149,7 +149,10 @@ For a release-candidate build, `release-candidate-dependencies` writes
 exact upstream Conda and wheel files actually materialized for the current job
 matrix. Each entry contains the file SHA-256 plus the producing RAPIDS
 repository SHA and build-input digest. `release-catalog` incorporates that lock
-into `build-record.json`, along with the train's frozen `shared-workflows`,
+into `build-record.json`. The same setup action writes
+`RELEASE_CANDIDATE_BUILD_INPUTS`, containing the checksum of the train lock
+receipt, the checksum of the train variant receipt, and the train's boolean
+`sccache` policy. The record also includes the frozen `shared-workflows`,
 `shared-actions`, and `gha-tools` revisions and any build timestamp supplied to
 the package build. The timestamp is included because Conda packages and wheels
 can embed it in their bytes; workflows that do not use one record an empty,
@@ -157,8 +160,10 @@ stable value. The record's SHA-256 determines the canonical
 artifact location. Therefore an unchanged build can be reused
 across candidate trains and GitHub retries, while a downstream build is
 necessarily distinct when an upstream package byte, selected upstream build, or
-shared build implementation changes. The lock intentionally omits GitHub run
-and attempt IDs.
+shared build implementation changes. Lock, variant, or cache-policy changes
+also create a different canonical artifact identity, so an `sccache`-assisted
+build cannot be reused as a clean build. The locks intentionally omit GitHub
+run and attempt IDs.
 
 Before a candidate job can use this mechanism, its dependency setup compares
 the running reusable workflow SHA and composite-action SHA with the train's

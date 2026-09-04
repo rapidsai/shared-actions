@@ -83,6 +83,17 @@ build_implementation_revisions="$(jq -ceS '
 gha_tools_revision="$(jq -r '."gha-tools"' <<<"${build_implementation_revisions}")"
 shared_actions_revision="$(jq -r '."shared-actions"' <<<"${build_implementation_revisions}")"
 shared_workflows_revision="$(jq -r '."shared-workflows"' <<<"${build_implementation_revisions}")"
+candidate_sccache="$(jq -r '
+  if ((.candidate_build_policy | type) == "object")
+     and ((.candidate_build_policy.sccache | type) == "boolean")
+  then .candidate_build_policy.sccache
+  else empty
+  end
+' "${workspace}/release-train.json")"
+if [[ "${candidate_sccache}" != "true" && "${candidate_sccache}" != "false" ]]; then
+  echo "release train must declare candidate_build_policy.sccache as true or false; regenerate the train" >&2
+  exit 1
+fi
 
 require_expected_revision() {
   local label="$1"
@@ -141,26 +152,44 @@ fi
 # Schema-2 trains keep generated input evidence in compact, checksum-addressed
 # receipts. Download those before resolving this job's lock packages. Older
 # trains retain the inline fields during the migration period.
-lock_source="${workspace}/release-train.json"
-variant_source="${workspace}/release-train.json"
-if jq -e '.input_receipts' "${workspace}/release-train.json" >/dev/null; then
-  for receipt_name in locks variants; do
-    receipt_path="$(jq -r --arg name "${receipt_name}" '.input_receipts[$name].path // empty' "${workspace}/release-train.json")"
-    receipt_sha256="$(jq -r --arg name "${receipt_name}" '.input_receipts[$name].sha256 // empty' "${workspace}/release-train.json")"
-    if [[ -z "${receipt_path}" || "${receipt_path}" == /* || "${receipt_path}" == *".."* || ! "${receipt_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
-      echo "release train contains an unsafe ${receipt_name} receipt reference" >&2
-      exit 1
-    fi
-    receipt_file="${workspace}/${receipt_name}-receipt.json"
-    aws s3 cp "${root}/inputs/${receipt_path}" "${receipt_file}"
-    if [[ "$(sha256sum "${receipt_file}" | awk '{print $1}')" != "${receipt_sha256}" ]]; then
-      echo "stored ${receipt_name} receipt does not match the release train" >&2
-      exit 1
-    fi
-  done
-  lock_source="${workspace}/locks-receipt.json"
-  variant_source="${workspace}/variants-receipt.json"
+if ! jq -e '.input_receipts | type == "object"' "${workspace}/release-train.json" >/dev/null; then
+  echo "release train must contain checksum-addressed input receipts; regenerate the train" >&2
+  exit 1
 fi
+lock_receipt_sha256=""
+variant_receipt_sha256=""
+for receipt_name in locks variants; do
+  receipt_path="$(jq -r --arg name "${receipt_name}" '.input_receipts[$name].path // empty' "${workspace}/release-train.json")"
+  receipt_sha256="$(jq -r --arg name "${receipt_name}" '.input_receipts[$name].sha256 // empty' "${workspace}/release-train.json")"
+  if [[ -z "${receipt_path}" || "${receipt_path}" == /* || "${receipt_path}" == *".."* || ! "${receipt_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
+    echo "release train contains an unsafe ${receipt_name} receipt reference" >&2
+    exit 1
+  fi
+  receipt_file="${workspace}/${receipt_name}-receipt.json"
+  aws s3 cp "${root}/inputs/${receipt_path}" "${receipt_file}"
+  if [[ "$(sha256sum "${receipt_file}" | awk '{print $1}')" != "${receipt_sha256}" ]]; then
+    echo "stored ${receipt_name} receipt does not match the release train" >&2
+    exit 1
+  fi
+  if [[ "${receipt_name}" == "locks" ]]; then
+    lock_receipt_sha256="${receipt_sha256}"
+  else
+    variant_receipt_sha256="${receipt_sha256}"
+  fi
+done
+lock_source="${workspace}/locks-receipt.json"
+variant_source="${workspace}/variants-receipt.json"
+candidate_build_inputs="${workspace}/candidate-build-inputs.json"
+jq -cnS \
+  --arg lock_receipt_sha256 "${lock_receipt_sha256}" \
+  --arg variant_receipt_sha256 "${variant_receipt_sha256}" \
+  --argjson sccache "${candidate_sccache}" \
+  '{schema_version: 1,
+    train_inputs: {
+      lock_receipt_sha256: $lock_receipt_sha256,
+      variant_receipt_sha256: $variant_receipt_sha256
+    },
+    build_policy: {sccache: $sccache}}' >"${candidate_build_inputs}"
 
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
   mapfile -t bootstrap_records < <(jq -cer '.bootstrap_conda[]?' "${lock_source}")
@@ -652,6 +681,8 @@ fi
   printf 'RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS=%s\n' "${build_implementation_revisions}"
   printf 'RELEASE_CANDIDATE_GHA_TOOLS_REVISION=%s\n' "${actual_gha_tools_revision}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
+  printf 'RELEASE_CANDIDATE_BUILD_INPUTS=%s\n' "${candidate_build_inputs}"
+  printf 'RAPIDS_RELEASE_CANDIDATE_SCCACHE=%s\n' "${candidate_sccache}"
   # Rattler installs CMake in its isolated prefixes, so this train value must
   # be available to the recipe patcher even when CMake is absent from the
   # outer workflow container at setup time.

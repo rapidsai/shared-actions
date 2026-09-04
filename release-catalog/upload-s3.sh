@@ -24,6 +24,11 @@ safe_prefix() {
 for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_CANDIDATE_BUILD_INPUTS RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
   require_value "${value}" "${!value:-}"
 done
+if [[ ! "${GITHUB_REPOSITORY}" =~ ^[^/]+/[^/]+$ ]]; then
+  echo "GITHUB_REPOSITORY must use owner/repository format" >&2
+  exit 1
+fi
+repository_name="${GITHUB_REPOSITORY##*/}"
 if [[ -n "${RAPIDS_DATETIME_STRING:-}" && ! "${RAPIDS_DATETIME_STRING}" =~ ^[0-9]{12}$ ]]; then
   echo "RAPIDS_DATETIME_STRING must use YYMMDDhhmmss format" >&2
   exit 1
@@ -182,10 +187,10 @@ if [[ ! "${attempt_id}" =~ ^[0-9]+\.[0-9]+$ ]]; then
   echo "GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be numeric for a candidate upload" >&2
   exit 1
 fi
-artifact_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${GITHUB_REPOSITORY}/${build_input_digest}/${RELEASE_SOURCE_ARTIFACT_NAME}"
+artifact_key="${RELEASE_CANDIDATE_CONTENT_PREFIX}/${repository_name}/${build_input_digest}/${RELEASE_SOURCE_ARTIFACT_NAME}"
 build_record_key="${artifact_key}/build-record.json"
 artifact_index_key="${artifact_key}/artifact-index.json"
-train_bundle_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${RELEASE_SOURCE_ARTIFACT_NAME}/${attempt_id}"
+train_bundle_key="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/${repository_name}/${RELEASE_SOURCE_ARTIFACT_NAME}/${attempt_id}"
 bundle_key="${train_bundle_key}/release-catalog-entries.json"
 train_key="${train_bundle_key}/bundle-reference.json"
 # Primary package bytes and deterministic SBOMs are canonical release content.

@@ -115,10 +115,10 @@ base_implementation_revisions='{"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 changed_implementation_revisions='{"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shared-actions":"dddddddddddddddddddddddddddddddddddddddd","shared-workflows":"cccccccccccccccccccccccccccccccccccccccc"}'
 
 run_upload 1 "${base_implementation_revisions}"
-artifact_root="${temporary_directory}/s3/candidate-store/artifacts/rapidsai/example"
+artifact_root="${temporary_directory}/s3/candidate-store/artifacts/example"
 artifact_digest="$(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)"
 canonical="${artifact_root}/${artifact_digest}/conda"
-train="${temporary_directory}/s3/candidate-store/train-state/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/rapidsai/example/conda"
+train="${temporary_directory}/s3/candidate-store/train-state/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/example/conda"
 test -f "${canonical}/artifact-index.json"
 test -f "${canonical}/linux-64/example-26.10.00.conda"
 test -f "${train}/101.1/release-catalog-entries.json"
@@ -161,7 +161,7 @@ cat >"${temporary_directory}/upstream-inputs.json" <<'EOF'
 {
   "schema_version": 1,
   "dependencies": [{
-    "artifact_key": "artifacts/rapidsai/rapids-logger/input/conda",
+    "artifact_key": "artifacts/rapids-logger/input/conda",
     "path": "noarch/rapids-logger-0.3.0.conda",
     "release_catalog_key": "conda:rapids-logger",
     "producer": {
@@ -195,7 +195,7 @@ if [[ -z "${upstream_digest}" ]]; then
 fi
 jq -e '
   .upstream_dependencies == [{
-    artifact_key: "artifacts/rapidsai/rapids-logger/input/conda",
+    artifact_key: "artifacts/rapids-logger/input/conda",
     path: "noarch/rapids-logger-0.3.0.conda",
     release_catalog_key: "conda:rapids-logger",
     producer: {

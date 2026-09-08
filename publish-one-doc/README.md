@@ -4,7 +4,7 @@ GitHub Action for publishing a single file to S3 and flushing the Akamai CDN cac
 
 The action uploads a local file to an S3 bucket, then submits an Akamai ECCU flush request so the updated content is served from `docs.nvidia.com`.
 
-N.B. This action assumes it is being run inside a RAPIDS CI image.
+N.B. This action installs its dependencies with `apt-get`, using `sudo` unless it is already running as root (as in the RAPIDS CI images). `rapids-pip-retry` from [gha-tools](https://github.com/rapidsai/gha-tools) must be on the `PATH`.
 
 ## Inputs
 

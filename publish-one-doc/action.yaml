@@ -69,15 +69,13 @@ runs:
 
     - name: Install Akamai CDN dependencies
       run: |
-        # Check if we're running inside a CI container
-        if [ -f /.dockerenv ]; then
-          apt-get update
-          apt-get install -y --no-install-recommends xsltproc;
-        # Otherwise we'll need sudo
-        else
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xsltproc;
+        # use sudo unless already running as root (e.g. inside a CI container)
+        sudo_cmd=()
+        if (( EUID != 0 )); then
+          sudo_cmd=(sudo)
         fi
+        "${sudo_cmd[@]}" apt-get update
+        "${sudo_cmd[@]}" apt-get install -y --no-install-recommends xsltproc
         rapids-pip-retry install --upgrade pip
         rapids-pip-retry install -q httpie-edgegrid
       shell: bash

@@ -1,0 +1,95 @@
+name: setup-caller-cache
+description: Restore or save caller-managed paths with an input- and matrix-scoped cache key.
+
+inputs:
+  cache-paths:
+    required: true
+    description: Newline-separated workspace-relative files or directories to cache.
+  cache-key-prefix:
+    required: true
+    description: Prefix for the cache key.
+  cache-key-files:
+    required: false
+    default: ""
+    description: Newline-separated tracked files or glob patterns to hash into the cache key.
+  cache-key-matrix-fields:
+    required: true
+    description: Newline-separated matrix fields to include in the cache key.
+  cache-environment:
+    required: false
+    default: ""
+    description: Newline-separated literal NAME=VALUE pairs to export for subsequent steps.
+  cache-read-only:
+    required: false
+    default: "false"
+    description: Restore the cache without saving it when the job completes.
+  matrix:
+    required: true
+    description: JSON-encoded job matrix.
+
+runs:
+  using: composite
+  steps:
+    - name: Validate cache configuration
+      shell: bash
+      run: |
+        if test -z "${INPUTS_CACHE_PATHS}" || test -z "${INPUTS_CACHE_KEY_PREFIX}"; then
+          echo "ERROR: cache-paths and cache-key-prefix must be provided together."
+          exit 1
+        fi
+      env:
+        INPUTS_CACHE_PATHS: ${{ inputs.cache-paths }}
+        INPUTS_CACHE_KEY_PREFIX: ${{ inputs.cache-key-prefix }}
+
+    - name: Compute cache key
+      id: cache-key
+      shell: bash
+      run: |
+        if test -z "${INPUTS_CACHE_KEY_FILES}"; then
+          key_files_hash=none
+        else
+          mapfile -t patterns < <(sed '/^[[:space:]]*$/d' <<< "${INPUTS_CACHE_KEY_FILES}")
+          key_files=$(mktemp)
+          trap 'rm -f "${key_files}"' EXIT
+          git ls-files -z -- "${patterns[@]}" | sort -z > "${key_files}"
+
+          if test -s "${key_files}"; then
+            key_files_hash=$(xargs -0 -r sha256sum < "${key_files}" | sha256sum | cut -d ' ' -f 1)
+          else
+            key_files_hash=none
+          fi
+        fi
+
+        matrix_key=$(jq -er --raw-output \
+          --arg fields "${INPUTS_CACHE_KEY_MATRIX_FIELDS}" \
+          '[($fields | split("\\n")[] | select(length > 0)) as $field | .[$field]] | join("-")' \
+          <<< "${MATRIX}")
+        echo "key-files-hash=${key_files_hash}" >> "$GITHUB_OUTPUT"
+        echo "matrix-key=${matrix_key}" >> "$GITHUB_OUTPUT"
+      env:
+        INPUTS_CACHE_KEY_FILES: ${{ inputs.cache-key-files }}
+        INPUTS_CACHE_KEY_MATRIX_FIELDS: ${{ inputs.cache-key-matrix-fields }}
+        MATRIX: ${{ inputs.matrix }}
+
+    - name: Restore cache paths
+      if: inputs.cache-read-only == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.cache-paths }}
+        key: ${{ inputs.cache-key-prefix }}-${{ steps.cache-key.outputs.matrix-key }}-${{ steps.cache-key.outputs.key-files-hash }}
+        restore-keys: ${{ inputs.cache-key-prefix }}-${{ steps.cache-key.outputs.matrix-key }}-
+
+    - name: Cache paths
+      if: inputs.cache-read-only != 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.cache-paths }}
+        key: ${{ inputs.cache-key-prefix }}-${{ steps.cache-key.outputs.matrix-key }}-${{ steps.cache-key.outputs.key-files-hash }}
+        restore-keys: ${{ inputs.cache-key-prefix }}-${{ steps.cache-key.outputs.matrix-key }}-
+
+    - name: Configure cache environment
+      if: inputs.cache-environment != ''
+      shell: bash
+      run: printf '%s\n' "$INPUTS_CACHE_ENVIRONMENT" >> "$GITHUB_ENV"
+      env:
+        INPUTS_CACHE_ENVIRONMENT: ${{ inputs.cache-environment }}

@@ -62,7 +62,7 @@ runs:
 
         matrix_key=$(jq -er --raw-output \
           --arg fields "${INPUTS_CACHE_KEY_MATRIX_FIELDS}" \
-          '[($fields | split("\\n")[] | select(length > 0)) as $field | .[$field]] | join("-")' \
+          '[($fields | split("\n")[] | select(length > 0)) as $field | .[$field]] | join("-")' \
           <<< "${MATRIX}")
         echo "key-files-hash=${key_files_hash}" >> "$GITHUB_OUTPUT"
         echo "matrix-key=${matrix_key}" >> "$GITHUB_OUTPUT"

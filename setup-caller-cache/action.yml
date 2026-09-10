@@ -90,6 +90,6 @@ runs:
     - name: Configure cache environment
       if: inputs.cache-environment != ''
       shell: bash
-      run: printf '%s\n' "$INPUTS_CACHE_ENVIRONMENT" >> "$GITHUB_ENV"
+      run: printf '%s\n' "$INPUTS_CACHE_ENVIRONMENT" >> "$GITHUB_ENV" # zizmor: ignore[github-env]
       env:
         INPUTS_CACHE_ENVIRONMENT: ${{ inputs.cache-environment }}

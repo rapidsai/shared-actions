@@ -1,0 +1,4 @@
+{
+  "release_catalog_key": "archive:smoke",
+  "artifacts": [{"path": "../smoke.tar.gz", "package_identity_file": "package.json"}]
+}

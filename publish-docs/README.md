@@ -23,6 +23,7 @@ N.B. This action installs its dependencies with `apt-get`, using `sudo` unless i
 | `target-aws-role-to-assume` | Yes | N/A | AWS role to assume |
 | `target-aws-secret-access-key` | Yes | N/A | AWS secret access key |
 | `target-s3-bucket` | Yes | N/A | The S3 bucket to upload files to |
+| `target-s3-exclude` | No | `""` | Newline-separated glob patterns, relative to `source-path`, to exclude from the sync |
 | `target-s3-key` | Yes | N/A | The S3 key to upload files to |
 | `target-s3-key-prefix` | No | `developer/docs` | Prefix prepended to `target-s3-key` |
 | `target-s3-key-suffix` | No | `""` | Suffix appended to `target-s3-key` |
@@ -36,6 +37,17 @@ s3://<target-s3-bucket>/<target-s3-key-prefix>/<target-s3-key>/<target-s3-key-su
 ```
 
 Leading and trailing slashes are stripped from each component before joining. Prefix and suffix are omitted from the path when empty.
+
+### Excluding a subtree
+
+The sync runs with `--delete`, so anything under the destination that is not in `source-path` is removed. Use `target-s3-exclude` when another workflow publishes a subtree below the same destination. Each pattern becomes an `aws s3 sync --exclude` flag, and the AWS CLI applies these filters to the destination as well, so excluded objects are neither uploaded nor deleted.
+
+```yaml
+    target-s3-key: datascience
+    target-s3-exclude: deployment/*
+```
+
+The Akamai flush still covers the whole `target-s3-key` path, including excluded subtrees. That only revalidates their cache and does not change their content.
 
 ## Example
 

@@ -51,6 +51,11 @@ inputs:
     description: The S3 bucket to upload files to
     required: true
     type: string
+  target-s3-exclude:
+    default: ""
+    description: Newline-separated glob patterns, relative to source-path, to exclude from the S3 sync (neither uploaded nor deleted)
+    required: false
+    type: string
   target-s3-key:
     description: The S3 key to upload files to
     required: true
@@ -128,13 +133,19 @@ runs:
       env:
         DRY_RUN: ${{ inputs.dry-run }}
         S3_BUCKET: ${{ steps.normalize-paths.outputs.target-s3-bucket }}
+        S3_EXCLUDE: ${{ inputs.target-s3-exclude }}
         S3_KEY: ${{ steps.normalize-paths.outputs.target-s3-key }}
       run: |
-        DRY_RUN_FLAG=""
+        sync_args=()
         if [[ "$DRY_RUN" == "true" ]]; then
-          DRY_RUN_FLAG="--dryrun"
+          sync_args+=(--dryrun)
         fi
-        aws s3 sync --delete $DRY_RUN_FLAG . "s3://$S3_BUCKET/$S3_KEY"
+        while read -r pattern; do
+          if [[ -n "$pattern" ]]; then
+            sync_args+=(--exclude "$pattern")
+          fi
+        done <<< "$S3_EXCLUDE"
+        aws s3 sync --delete "${sync_args[@]}" . "s3://$S3_BUCKET/$S3_KEY"
       shell: bash
       working-directory: ${{ inputs.source-path }}
 

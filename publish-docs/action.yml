@@ -83,6 +83,10 @@ runs:
         if (( EUID != 0 )); then
           sudo_cmd=(sudo)
         fi
+        cuda_source=/etc/apt/sources.list.d/cuda-ubuntu2604-x86_64.list
+        if [[ -e "${cuda_source}" ]]; then
+          "${sudo_cmd[@]}" rm -f -- "${cuda_source}"
+        fi
         "${sudo_cmd[@]}" apt-get update
         "${sudo_cmd[@]}" apt-get install -y --no-install-recommends jq xsltproc
         rapids-pip-retry install --upgrade pip

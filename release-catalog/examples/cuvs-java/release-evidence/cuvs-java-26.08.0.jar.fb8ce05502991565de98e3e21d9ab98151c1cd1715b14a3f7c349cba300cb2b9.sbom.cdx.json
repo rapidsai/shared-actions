@@ -1,0 +1,39 @@
+{
+  "bomFormat": "CycloneDX",
+  "metadata": {
+    "component": {
+      "bom-ref": "urn:sha256:fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9"
+        }
+      ],
+      "name": "ai.rapids:cuvs-java",
+      "properties": [
+        {
+          "name": "rapids:artifact:path",
+          "value": "cuvs-java-26.08.0.jar"
+        },
+        {
+          "name": "rapids:package:ecosystem",
+          "value": "maven"
+        }
+      ],
+      "type": "file",
+      "version": "26.08.0"
+    },
+    "timestamp": "2026-08-21T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "group": "rapidsai",
+          "name": "shared-actions/release-catalog",
+          "type": "application"
+        }
+      ]
+    }
+  },
+  "specVersion": "1.6",
+  "version": 1
+}

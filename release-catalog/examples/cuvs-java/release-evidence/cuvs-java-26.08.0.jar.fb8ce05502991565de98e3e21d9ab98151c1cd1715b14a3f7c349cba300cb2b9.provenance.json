@@ -1,0 +1,41 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://rapids.ai/release-platform/catalog-record/v1",
+      "externalParameters": {
+        "package": {
+          "ecosystem": "maven",
+          "name": "ai.rapids:cuvs-java",
+          "version": "26.08.0"
+        },
+        "release_catalog_key": "maven:cuvs-java"
+      },
+      "resolvedDependencies": [
+        {
+          "digest": {
+            "gitCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "uri": "git+https://github.com/NVIDIA/cuvs@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    "runDetails": {
+      "builder": {
+        "id": "https://github.com/NVIDIA/cuvs/.github/workflows/build.yaml@refs/heads/release/26.08"
+      },
+      "metadata": {
+        "invocationId": "https://github.com/NVIDIA/cuvs/actions/runs/1234/attempts/1"
+      }
+    }
+  },
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "fb8ce05502991565de98e3e21d9ab98151c1cd1715b14a3f7c349cba300cb2b9"
+      },
+      "name": "cuvs-java-26.08.0.jar"
+    }
+  ]
+}

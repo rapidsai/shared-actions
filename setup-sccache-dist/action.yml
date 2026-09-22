@@ -60,6 +60,7 @@ runs:
         SCCACHE_VERSION=$SCCACHE_VERSION
         SCCACHE_ERROR_LOG=$SCCACHE_ERROR_LOG
         SCCACHE_SERVER_LOG=$SCCACHE_SERVER_LOG
+        SCCACHE_DIST_AUTH_TYPE=token
         SCCACHE_DIST_AUTH_TOKEN=$(
           curl -fsSL -H "Authorization: Bearer $(
             curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \

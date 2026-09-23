@@ -37,17 +37,31 @@ runs:
     - name: Get PR info
       id: get-pr-info
       uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
-    - name: Fetch changed files
+    - name: Fetch changed files and compute merge base
+      id: fetch-changed-files-and-compute-merge-base
       shell: bash
       env:
         BASE_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
+        HEAD_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).head.sha }}
       run: |
         git fetch --depth 1 origin "$BASE_SHA"
+        merge_bases=()
+        for merge_base in "$(git merge-base -a "$BASE_SHA" "$HEAD_SHA")"; do
+          merge_bases+=("$merge_base")
+        done
+        if [[ "${#merge_base[@]}" -ne 1 ]]; then
+          echo "::error::Multiple merge bases:"
+          for merge_base in "${merge_base[@]}"; do
+            echo "  $merge_base"
+          done
+          exit 1
+        fi
+        echo "merge_base=$merge_bases" | tee "$GITHUB_OUTPUT"
     - name: Get changed files
       id: changed-files
       uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
       with:
-        base_sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
+        base_sha: ${{ steps.fetch-changed-files-and-compute-merge-base.outputs.merge_base }}
         sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).head.sha }}
         files_yaml: ${{ inputs.files_yaml }}
         write_output_files: true

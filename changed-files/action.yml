@@ -49,11 +49,14 @@ runs:
         for merge_base in $(git merge-base -a "$BASE_SHA" "$HEAD_SHA"); do
           merge_bases+=("$merge_base")
         done
-        if [[ "${#merge_bases[@]}" -ne 1 ]]; then
+        if [[ "${#merge_bases[@]}" -gt 1 ]]; then
           echo "::error::Multiple merge bases:"
           for merge_base in "${merge_bases[@]}"; do
             echo "  $merge_base"
           done
+          exit 1
+        elif [[ "${#merge_bases[@]}" -eq 0 ]]; then
+          echo "::error::No merge bases"
           exit 1
         fi
         echo "merge_base=$merge_bases" | tee "$GITHUB_OUTPUT"

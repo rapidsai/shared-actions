@@ -44,7 +44,7 @@ runs:
         BASE_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.sha }}
         HEAD_SHA: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).head.sha }}
       run: |
-        git fetch origin "$BASE_SHA" "$HEAD_SHA"
+        git fetch --unshallow origin "$BASE_SHA" "$HEAD_SHA"
         merge_bases=()
         for merge_base in $(git merge-base -a "$BASE_SHA" "$HEAD_SHA"); do
           echo "Adding $merge_base to merge_bases"

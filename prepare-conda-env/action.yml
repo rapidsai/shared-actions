@@ -1,0 +1,138 @@
+name: Create Locked Conda Environment
+description: |
+  Creates a locked conda environment for the given dependency key, CUDA version, architecture, and Python version.
+  The environment lock is local to this PR.
+inputs:
+  dependency-key:
+    required: true
+    description: |
+      The key of the dependency to generate, such as cpp, python, etc.
+  arch:
+    required: true
+    description: |
+      The architecture to build for, such as x86_64, aarch64, etc.
+  cuda-version:
+    required: true
+    description: |
+      The CUDA version to build for, such as 11.7, 12.1, etc.
+  py-version:
+    default: "none"
+    description: |
+      The Python version to build for, such as 3.10, 3.11, etc.
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: rapidsai/shared-actions/telemetry-impls/set-otel-service-name@main
+    - name: Get service name as cache key
+      id: cache-key
+      shell: bash
+      run: |
+        echo "cache-key=$(echo ${OTEL_SERVICE_NAME} | sed 's/[\/,]/ /g; s/[[:space:]]\+/-/g; s/--*/-/g')" >> $GITHUB_OUTPUT
+
+    - name: Get PR number
+      id: pr-number
+      shell: bash
+      run: |
+        echo "pr-number=$(echo ${GITHUB_REF_NAME} | sed 's/.*\///')" >> $GITHUB_OUTPUT
+
+    - name: Get lockfile filename
+      id: lockfile-filename
+      shell: bash
+      run: |
+        echo "filename=${{ steps.cache-key.outputs.cache-key }}-${{ steps.pr-number.outputs.pr-number }}.yml" >> $GITHUB_OUTPUT
+
+    - name: Retrieve any existing lockfile
+      uses: actions/cache@v4
+      with:
+        key: ${{ steps.cache-key.outputs.cache-key }}-${{ steps.pr-number.outputs.pr-number }}
+        path: ${{ steps.lockfile-filename.outputs.filename }}
+        restore-keys: |
+          ${{ steps.cache-key.outputs.cache-key }}-${{ steps.pr-number.outputs.pr-number }}
+
+    - name: Run conda-lock if needed
+      shell: bash
+      run: |
+        set -Eeuxo pipefail
+        export RAPIDS_UNZIP_DIR="$(pwd)/downloaded-packages"
+        mkdir -p $RAPIDS_UNZIP_DIR
+        CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
+        ls -lRa $RAPIDS_UNZIP_DIR
+
+        if [ ! -f "${{ steps.lockfile-filename.outputs.filename }}" ]; then
+          mamba install -c conda-forge conda-lock
+          rapids-logger "Generate testing dependencies"
+
+          ENV_YAML_DIR="$(mktemp -d)"
+          CUDA_VERSION=${{ inputs.cuda-version }}
+
+          MATRIX_STRING="cuda=${CUDA_VERSION%.*};arch=${{ inputs.arch }}"
+          if [ "${{ inputs.py-version }}" != "none" ]; then
+            MATRIX_STRING="${MATRIX_STRING};py=${{ inputs.py-version }}"
+          fi
+
+          rapids-dependency-file-generator \
+            --output conda \
+            --file-key test_${{ inputs.dependency-key }} \
+            --prepend-channel "${CPP_CHANNEL}" \
+            --matrix "${MATRIX_STRING}" | tee "${ENV_YAML_DIR}/env.yaml"
+
+          CONDA_ARCH="linux-$([ ${{ inputs.arch }} = 'amd64' ] && echo '64' || echo 'aarch64' )"
+
+          conda-lock -f "${ENV_YAML_DIR}/env.yaml" --kind env -p $CONDA_ARCH
+
+          mv conda-${CONDA_ARCH}.lock.yml ${{ steps.lockfile-filename.outputs.filename }}
+        else
+          rapids-logger "Re-using existing lockfile"
+        fi
+
+    - name: Unpin local file dependencies in lockfile
+      shell: python
+      run: |
+        import yaml
+        import os
+        import re
+        with open("${{ steps.lockfile-filename.outputs.filename }}", 'r') as f:
+          lockfile = yaml.safe_load(f)
+        local_file_pkg_names = {pkg.rsplit('-', 2)[0]: pkg.rsplit('-', 2)[1] for _, _, pkg_list in os.walk("downloaded-packages") for pkg in pkg_list if pkg.endswith('.conda')}
+        edited_dependencies = []
+        alpha_package_regex = re.compile(r'(.+?)a\d+$')
+        for pkg in lockfile['dependencies']:
+          if isinstance(pkg, str):
+            pkg_name, version, build = pkg.split('=')
+            if pkg_name in local_file_pkg_names:
+              # For local packages, we need to pick up the current local files. In other words, we need to replace
+              # the pins in the lockfile with pins for the current local files.
+              edited_dependencies.append(f'{pkg_name}={local_file_pkg_names[pkg_name]}')
+              continue
+            elif alpha_package_regex.match(version):
+              # Exact pins to alpha packages will break depending on the contents of the nightly builds.
+              # We need to unpin the alpha package to the version without the alpha, which will allow the current nightly build to be used.
+              version = alpha_package_regex.match(version).groups()[0]
+              edited_dependencies.append(f'{pkg_name}={version}')
+              continue
+          edited_dependencies.append(pkg)
+        lockfile['dependencies'] = edited_dependencies
+        with open("${{ steps.lockfile-filename.outputs.filename }}", 'w') as f:
+          yaml.dump(lockfile, f)
+    - name: archive lockfile for reference
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.lockfile-filename.outputs.filename }}
+        path: ${{ steps.lockfile-filename.outputs.filename }}
+
+    - name: Create environment
+      shell: bash
+      run: |
+        rapids-mamba-retry env create --yes -f ${{ steps.lockfile-filename.outputs.filename }} -n test
+
+        RESULTS_DIR=${RAPIDS_TESTS_DIR:-"$(mktemp -d)"}
+        RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR:-"${RESULTS_DIR}/test-results"}/
+        mkdir -p "${RAPIDS_TESTS_DIR}"
+        echo "RESULTS_DIR=${RESULTS_DIR}" >> $GITHUB_ENV
+        echo "RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR}" >> $GITHUB_ENV
+
+        rapids-print-env
+
+        rapids-logger "Check GPU usage"
+        nvidia-smi

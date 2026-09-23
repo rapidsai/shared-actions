@@ -47,11 +47,8 @@ runs:
         git fetch --unshallow origin "$BASE_SHA" "$HEAD_SHA"
         merge_bases=()
         for merge_base in $(git merge-base -a "$BASE_SHA" "$HEAD_SHA"); do
-          echo "Adding $merge_base to merge_bases"
           merge_bases+=("$merge_base")
-          echo "Done, merge_bases is ${merge_bases[@]}"
         done
-        echo "merge_bases has ${#merge_bases[@]} elements"
         if [[ "${#merge_bases[@]}" -ne 1 ]]; then
           echo "::error::Multiple merge bases:"
           for merge_base in "${merge_bases[@]}"; do

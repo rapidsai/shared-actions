@@ -46,7 +46,7 @@ runs:
       run: |
         git fetch --depth 1 origin "$BASE_SHA"
         merge_bases=()
-        for merge_base in "$(git merge-base -a "$BASE_SHA" "$HEAD_SHA")"; do
+        for merge_base in $(git merge-base -a "$BASE_SHA" "$HEAD_SHA"); do
           merge_bases+=("$merge_base")
         done
         if [[ "${#merge_bases[@]}" -ne 1 ]]; then

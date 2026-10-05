@@ -33,7 +33,7 @@ runs:
         path: ./shared-actions
         persist-credentials: false
     - name: Run check-nightly-success
-      uses: ./shared-actions/check_nightly_success/check-nightly-success
+      uses: ./shared-actions/check_nightly_success/check-nightly-success # zizmor: ignore[self-repository]
       with:
         repo: ${{ inputs.repo }}
         target-branch: ${{ inputs.target-branch }}

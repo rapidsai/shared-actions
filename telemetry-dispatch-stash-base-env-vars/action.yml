@@ -22,4 +22,4 @@ runs:
         path: ./shared-actions
         persist-credentials: false
     - name: Stash base env vars
-      uses: ./shared-actions/telemetry-impls/stash-base-env-vars
+      uses: ./shared-actions/telemetry-impls/stash-base-env-vars # zizmor: ignore[self-repository]

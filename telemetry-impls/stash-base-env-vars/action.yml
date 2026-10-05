@@ -36,4 +36,4 @@ runs:
         name: telemetry-tools-env-vars
         path: telemetry-env-vars
     - name: Re-export env vars so that defaults take effect
-      uses: ./shared-actions/telemetry-impls/load-base-env-vars
+      uses: ./shared-actions/telemetry-impls/load-base-env-vars # zizmor: ignore[self-repository]

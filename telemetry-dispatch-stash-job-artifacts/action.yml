@@ -14,7 +14,7 @@ runs:
       id: has_base_env_var_artifact
     # Stash current job's OTEL_RESOURCE_ATTRIBUTES and any files in the telemetry-artifacts directory
     - name: Stash job artifacts
-      uses: ./shared-actions/telemetry-impls/stash-job-artifacts
+      uses: ./shared-actions/telemetry-impls/stash-job-artifacts # zizmor: ignore[self-repository]
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
     - name: Output that setup was skipped if the base env var artifact was not found
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'false'

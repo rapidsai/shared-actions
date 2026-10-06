@@ -13,7 +13,7 @@ runs:
   steps:
     - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main # zizmor: ignore[unpinned-uses]
       id: has_base_env_var_artifact
-    - uses: ./shared-actions/telemetry-impls/summarize
+    - uses: ./shared-actions/telemetry-impls/summarize # zizmor: ignore[self-repository]
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
     - if: steps.has_base_env_var_artifact.outputs.artifact_found == 'false'
       shell: bash

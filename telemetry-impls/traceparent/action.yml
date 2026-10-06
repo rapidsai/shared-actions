@@ -18,11 +18,11 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - uses: ./shared-actions/telemetry-impls/ensure-otel-cli-available
+    - uses: ./shared-actions/telemetry-impls/ensure-otel-cli-available # zizmor: ignore[self-repository]
     # this ensures that OTEL_SERVICE_NAME is either set before this action, or sets it from the github job metadata
-    - uses: ./shared-actions/telemetry-impls/set-otel-service-name
+    - uses: ./shared-actions/telemetry-impls/set-otel-service-name # zizmor: ignore[self-repository]
       if: env.OTEL_SERVICE_NAME == ''
-    - uses: ./shared-actions/telemetry-impls/sanity-checks
+    - uses: ./shared-actions/telemetry-impls/sanity-checks # zizmor: ignore[self-repository]
 
     - shell: bash
       id: output-inputs

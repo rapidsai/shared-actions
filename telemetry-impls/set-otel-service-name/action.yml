@@ -18,7 +18,7 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - uses: ./shared-actions/telemetry-impls/github-actions-job-info
+    - uses: ./shared-actions/telemetry-impls/github-actions-job-info # zizmor: ignore[self-repository]
       id: github-job-info
     - shell: bash
       id: get-job-name

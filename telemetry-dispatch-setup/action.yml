@@ -26,7 +26,7 @@ runs:
     - name: Creating folder for job-created telemetry artifacts
       shell: bash
       run: mkdir -p telemetry-artifacts
-    - uses: ./shared-actions/telemetry-impls/github-actions-job-info
+    - uses: ./shared-actions/telemetry-impls/github-actions-job-info # zizmor: ignore[self-repository]
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
     - shell: bash
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
@@ -35,7 +35,7 @@ runs:
     # overrides loaded value.
     - name: Set OTEL_SERVICE_NAME from job
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
-      uses: ./shared-actions/telemetry-impls/set-otel-service-name
+      uses: ./shared-actions/telemetry-impls/set-otel-service-name # zizmor: ignore[self-repository]
     - name: Add attribute metadata beyond the stashed basic stuff
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'
       shell: bash

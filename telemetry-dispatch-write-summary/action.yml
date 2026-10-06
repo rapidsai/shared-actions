@@ -28,9 +28,9 @@ runs:
     # This is necessary because this action will generally be run in a job separately from
     # where the env vars are set
     - name: Load base environment variables
-      uses: ./shared-actions/telemetry-impls/load-base-env-vars
+      uses: ./shared-actions/telemetry-impls/load-base-env-vars # zizmor: ignore[self-repository]
     - name: Run summarize action
-      uses: ./shared-actions/telemetry-impls/summarize
+      uses: ./shared-actions/telemetry-impls/summarize # zizmor: ignore[self-repository]
       with:
         cert_concat: ${{ inputs.cert_concat }}
         extra_attributes: ${{ inputs.extra_attributes }}

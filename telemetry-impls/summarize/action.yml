@@ -15,7 +15,7 @@ runs:
       run: pip install -r './shared-actions/telemetry-impls/summarize/requirements.txt'
       shell: bash
     # Writes JSON file that jobs below consume
-    - uses: ./shared-actions/telemetry-impls/github-actions-job-info
+    - uses: ./shared-actions/telemetry-impls/github-actions-job-info # zizmor: ignore[self-repository]
       id: github-job-info
       with:
         all_jobs: true
@@ -45,7 +45,7 @@ runs:
         ls -lR telemetry-artifacts
         timeout 5m python3 ./shared-actions/telemetry-impls/summarize/send_trace.py
     - name: Clean up attributes artifacts from all jobs
-      uses: ./shared-actions/telemetry-impls/clean-up-artifacts
+      uses: ./shared-actions/telemetry-impls/clean-up-artifacts # zizmor: ignore[self-repository]
 
     - name: Add link in step summary
       shell: bash

@@ -26,4 +26,4 @@ jobs:
           name: telemetry-tools-attrs-1234
           path: file.txt
       - name: Clean up telemetry intermediary artifacts
-        uses: ./telemetry-impls/clean-up-artifacts
+        uses: $/telemetry-impls/clean-up-artifacts

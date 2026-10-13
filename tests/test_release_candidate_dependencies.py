@@ -74,6 +74,21 @@ def test_candidate_setup_exports_cache_policy_and_train_input_identity():
         pytest.fail(f"candidate build-input identity is incomplete: {missing}")
 
 
+def test_candidate_setup_fails_closed_when_shared_implementation_revisions_drift():
+    setup = _SETUP.read_text()
+
+    expected_contracts = (
+        '"gha-tools", "shared-actions", "shared-workflows"',
+        'test("^[0-9a-f]{40}$")',
+        '"${actual_repository}" != "${expected_repository}" || "${actual_revision}" != "${expected_revision}"',
+        "RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION",
+        "RELEASE_CANDIDATE_SHARED_WORKFLOWS_REVISION",
+    )
+    missing = [contract for contract in expected_contracts if contract not in setup]
+    if missing:
+        pytest.fail(f"candidate implementation revision contract is incomplete: {missing}")
+
+
 def test_wheel_lock_selector_requires_one_exact_matrix_scope():
     expected = {
         "path": "locks/wheel/x86_64-manylinux_2_28/python-3.14/requirements.txt",

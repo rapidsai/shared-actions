@@ -105,3 +105,27 @@ def test_missing_binding_is_bounded():
     with pytest.raises(ValueError, match="refusing to guess"):
         resolver.read_binding("bucket", "key", run=run, sleep=sleeps.append)
     assert sum(sleeps) == 55
+
+
+def test_binding_key_matches_producer_iam_repository_path():
+    key = resolver.binding_key("train-state", "rapidsai/rapids-logger", "42")
+
+    assert key == "train-state/run-bindings/rapidsai/rapids-logger/42.json"
+    # Producer IAM grants train-state/*/<repository-name>/* writes. Keep the
+    # repository name as its own key segment so the controller can publish
+    # this exact-run binding for the producer to read.
+    assert key.startswith("train-state/")
+    assert "/rapids-logger/" in key
+
+
+@pytest.mark.parametrize(
+    "prefix,repository,run_id",
+    [
+        ("train-state/../other", "rapidsai/rapids-logger", "42"),
+        ("train-state", "rapidsai/rapids-logger", "0"),
+        ("train-state", "rapidsai/../other", "42"),
+    ],
+)
+def test_binding_key_rejects_unsafe_identity(prefix, repository, run_id):
+    with pytest.raises(ValueError):
+        resolver.binding_key(prefix, repository, run_id)

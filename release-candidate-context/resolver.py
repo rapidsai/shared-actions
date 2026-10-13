@@ -60,6 +60,21 @@ def read_binding(bucket: str, key: str, run=subprocess.run, sleep=time.sleep, at
     raise ValueError("candidate run has no controller binding; refusing to guess a train")
 
 
+def binding_key(prefix: str, repository: str, run_id: str) -> str:
+    """Build the per-run binding key within the producer's IAM path scope."""
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
+        raise ValueError("invalid repository identity")
+    if re.fullmatch(r"[1-9][0-9]*", run_id) is None:
+        raise ValueError("invalid run identity")
+    if (
+        any(part in {"", ".", ".."} for part in prefix.split("/"))
+        or re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", prefix) is None
+    ):
+        raise ValueError("invalid candidate train-state prefix")
+    owner, repository_name = repository.split("/", maxsplit=1)
+    return f"{prefix}/run-bindings/{owner}/{repository_name}/{run_id}.json"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bucket", default="rapids-release-candidates")
@@ -69,9 +84,7 @@ def main() -> None:
     args = parser.parse_args()
     repository = os.environ["GITHUB_REPOSITORY"]
     run_id = os.environ["GITHUB_RUN_ID"]
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or not run_id.isdigit():
-        raise ValueError("invalid repository or run identity")
-    key = f"{args.prefix}/run-bindings/{repository}/{run_id}.json"
+    key = binding_key(args.prefix, repository, run_id)
     binding = read_binding(args.bucket, key)
     outputs = validate_binding(binding, os.environ, args.source_sha, args.script)
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:

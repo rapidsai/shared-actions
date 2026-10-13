@@ -13,7 +13,7 @@ from typing import Any
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
-def select_wheel_lock(document: dict[str, Any], platform: str, python_version: str) -> dict[str, Any]:
+def select_wheel_lock(document: dict[str, Any], platform: str, cuda_major: str, python_version: str) -> dict[str, Any]:
     """Return the unique wheel lock matching one CI matrix scope."""
     records = document.get("wheel", document.get("input_locks", {}).get("wheel", []))
     if not isinstance(records, list):
@@ -21,11 +21,13 @@ def select_wheel_lock(document: dict[str, Any], platform: str, python_version: s
     matches = [
         record
         for record in records
-        if isinstance(record, dict) and record.get("scope") == {"platform": platform, "python": python_version}
+        if isinstance(record, dict)
+        and record.get("scope") == {"platform": platform, "cuda": cuda_major, "python": python_version}
     ]
     if len(matches) != 1:
         raise ValueError(
-            f"release train must contain exactly one wheel lock for {platform}, Python {python_version}; "
+            f"release train must contain exactly one wheel lock for {platform}, CUDA {cuda_major}, "
+            f"Python {python_version}; "
             f"found {len(matches)}"
         )
     record = matches[0]
@@ -43,11 +45,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--locks", required=True)
     parser.add_argument("--platform", required=True)
+    parser.add_argument("--cuda-major", required=True)
     parser.add_argument("--python-version", required=True)
     arguments = parser.parse_args()
     with open(arguments.locks, encoding="utf-8") as stream:
         document = json.load(stream)
-    print(json.dumps(select_wheel_lock(document, arguments.platform, arguments.python_version), sort_keys=True))
+    print(
+        json.dumps(
+            select_wheel_lock(document, arguments.platform, arguments.cuda_major, arguments.python_version),
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

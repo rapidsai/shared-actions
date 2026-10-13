@@ -223,6 +223,7 @@ if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel" ]]; then
   wheel_lock_record="$(python3 "${script_directory}/select_lock.py" \
     --locks "${lock_source}" \
     --platform "${wheel_platform}" \
+    --cuda-major "${cuda_major}" \
     --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION}")"
   wheel_lock_path="$(jq -r '.path' <<<"${wheel_lock_record}")"
   wheel_lock_sha256="$(jq -r '.sha256' <<<"${wheel_lock_record}")"

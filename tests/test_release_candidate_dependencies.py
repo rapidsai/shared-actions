@@ -2,6 +2,7 @@
 
 import argparse
 import importlib.util
+import re
 import subprocess
 from pathlib import Path
 
@@ -74,6 +75,12 @@ def test_candidate_setup_exports_cache_policy_and_train_input_identity():
         pytest.fail(f"candidate build-input identity is incomplete: {missing}")
 
 
+def test_candidate_wheel_lock_lookup_passes_cuda_major():
+    setup = _SETUP.read_text()
+    if '--cuda-major "${cuda_major}"' not in setup:
+        pytest.fail("candidate wheel lock lookup must include the exact CUDA major")
+
+
 def test_candidate_setup_fails_closed_when_shared_implementation_revisions_drift():
     setup = _SETUP.read_text()
 
@@ -96,24 +103,57 @@ def test_wheel_lock_selector_requires_one_exact_matrix_scope():
     }
     receipt = {
         "wheel": [
-            {**expected, "scope": {"platform": "x86_64-manylinux_2_28", "python": "3.14"}},
+            {
+                **expected,
+                "scope": {"platform": "x86_64-manylinux_2_28", "cuda": "13", "python": "3.14"},
+            },
+            {
+                "path": "locks/wheel/x86_64-manylinux_2_28/cuda-12/python-3.14/requirements.txt",
+                "sha256": "c" * 64,
+                "scope": {"platform": "x86_64-manylinux_2_28", "cuda": "12", "python": "3.14"},
+            },
             {
                 "path": "locks/wheel/aarch64-manylinux_2_28/python-3.14/requirements.txt",
                 "sha256": "b" * 64,
-                "scope": {"platform": "aarch64-manylinux_2_28", "python": "3.14"},
+                "scope": {"platform": "aarch64-manylinux_2_28", "cuda": "13", "python": "3.14"},
             },
         ]
     }
 
-    selected = _LOCK_SELECTOR_MODULE.select_wheel_lock(receipt, "x86_64-manylinux_2_28", "3.14")
+    selected = _LOCK_SELECTOR_MODULE.select_wheel_lock(receipt, "x86_64-manylinux_2_28", "13", "3.14")
 
     if selected != expected:
         pytest.fail(f"wheel lock selector returned the wrong matrix lock: {selected}")
 
 
+def test_wheel_lock_selector_requires_the_exact_cuda_scope():
+    receipt = {
+        "wheel": [
+            {
+                "path": "locks/wheel/x86_64-manylinux_2_28/cuda-12/python-3.14/requirements.txt",
+                "sha256": "a" * 64,
+                "scope": {"platform": "x86_64-manylinux_2_28", "cuda": "12", "python": "3.14"},
+            }
+        ]
+    }
+
+    with pytest.raises(ValueError, match=re.escape("CUDA 13, Python 3.14")):
+        _LOCK_SELECTOR_MODULE.select_wheel_lock(receipt, "x86_64-manylinux_2_28", "13", "3.14")
+
+
+def test_wheel_lock_selector_rejects_duplicate_exact_scopes():
+    record = {
+        "path": "locks/wheel/x86_64-manylinux_2_28/python-3.14/requirements.txt",
+        "sha256": "a" * 64,
+        "scope": {"platform": "x86_64-manylinux_2_28", "cuda": "13", "python": "3.14"},
+    }
+    with pytest.raises(ValueError, match="exactly one wheel lock"):
+        _LOCK_SELECTOR_MODULE.select_wheel_lock({"wheel": [record, record]}, "x86_64-manylinux_2_28", "13", "3.14")
+
+
 def test_wheel_lock_selector_rejects_missing_and_unsafe_records():
     with pytest.raises(ValueError, match="exactly one wheel lock"):
-        _LOCK_SELECTOR_MODULE.select_wheel_lock({"wheel": []}, "x86_64-manylinux_2_28", "3.14")
+        _LOCK_SELECTOR_MODULE.select_wheel_lock({"wheel": []}, "x86_64-manylinux_2_28", "13", "3.14")
     with pytest.raises(ValueError, match="unsafe wheel lock path"):
         _LOCK_SELECTOR_MODULE.select_wheel_lock(
             {
@@ -121,11 +161,12 @@ def test_wheel_lock_selector_rejects_missing_and_unsafe_records():
                     {
                         "path": "../requirements.txt",
                         "sha256": "a" * 64,
-                        "scope": {"platform": "x86_64-manylinux_2_28", "python": "3.14"},
+                        "scope": {"platform": "x86_64-manylinux_2_28", "cuda": "13", "python": "3.14"},
                     }
                 ]
             },
             "x86_64-manylinux_2_28",
+            "13",
             "3.14",
         )
 

@@ -138,6 +138,10 @@ if [[ "${actual_gha_tools_revision}" != "${gha_tools_revision}" ]]; then
   exit 1
 fi
 PATH="${gha_tools_directory}/tools:${PATH}"
+# Candidate jobs freeze the package version in the source checkout's VERSION
+# file. Prefer that value over the Git-distance version computed by
+# gha-tools, while leaving non-candidate/custom invocations unchanged.
+bash "${script_directory}/install-version-override.sh" "${tools}"
 # scikit-build-core may use the CMake wheel rather than resolving `cmake` from
 # PATH, so its configure call can bypass the candidate CMake wrapper below.
 # Its supported environment configuration is additive and reaches both the
@@ -584,48 +588,9 @@ fi
 # Capture the family decision now: the generated helper runs later and should
 # not need a Conda-only setup variable in a wheel job.
 {
-  printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
+  printf '%s\n' '#!/usr/bin/env bash'
   printf 'prepare_conda_channel=%q\n' "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}"
-  cat <<'EOF'
-artifact_name="${1:?artifact name is required}"
-destination="${RAPIDS_UNZIP_DIR:-$(mktemp -d)}"
-reference_root="${RELEASE_CANDIDATE_DEPENDENCY_MANIFESTS:?candidate dependency manifests are required}/${GITHUB_REPOSITORY}"
-mapfile -t references < <(
-  find "${reference_root}" -type f -name 'bundle-reference.*.json' -print \
-    | while IFS= read -r reference; do
-        if [[ "$(jq -r '.source_artifact // empty' "${reference}")" == "${artifact_name}" ]]; then
-          printf '%s\n' "${reference}"
-        fi
-      done \
-    | sort
-)
-if [[ "${#references[@]}" -ne 1 ]]; then
-  echo "candidate artifact must have exactly one selected train reference: ${artifact_name}" >&2
-  exit 1
-fi
-reference="${references[0]}"
-artifact_key="$(jq -r '.artifact_key // empty' "${reference}")"
-if [[ -z "${artifact_key}" || ! "${artifact_key}" =~ ^artifacts/[^/]+/[0-9a-f]{64}$ ]]; then
-  echo "candidate artifact has an unsafe artifact reference: ${artifact_name}" >&2
-  exit 1
-fi
-source_prefix="s3://${RELEASE_CANDIDATE_BUCKET}/${artifact_key}/"
-# Callers capture this helper's stdout as the downloaded directory. Keep AWS
-# transfer diagnostics on stderr so they can never become part of a Conda URL.
-if ! aws s3 cp "${source_prefix}" "${destination}" --recursive >&2; then
-  echo "candidate artifact is not available in this train: ${artifact_name}" >&2
-  exit 1
-fi
-if [[ "${prepare_conda_channel}" == "true" ]] \
-  && find "${destination}" -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print -quit | grep -q .; then
-  # C++ outputs are also an input to the repository's Python build. That
-  # temporary same-job directory is a Conda channel too, so it needs empty
-  # noarch and platform indexes in addition to the downloaded package files.
-  mkdir -p "${destination}"/{linux-64,linux-aarch64,noarch}
-  conda index "${destination}" >&2
-fi
-printf '%s' "${destination}"
-EOF
+  tail -n +2 "${script_directory}/download-from-candidate.sh"
 } >"${tools}/rapids-download-from-github"
 chmod +x "${tools}/rapids-download-from-github"
 

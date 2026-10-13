@@ -1,7 +1,9 @@
 # Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 import argparse
+import hashlib
 import importlib.util
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -25,6 +27,7 @@ _PATCHER_SPEC.loader.exec_module(_PATCHER_MODULE)
 
 _LOCK_SELECTOR = Path(__file__).parents[1] / "release-candidate-dependencies" / "select_lock.py"
 _SETUP = Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh"
+_DOWNLOADER = Path(__file__).parents[1] / "release-candidate-dependencies" / "download-from-candidate.sh"
 _LOCK_SELECTOR_SPEC = importlib.util.spec_from_file_location("select_lock", _LOCK_SELECTOR)
 if _LOCK_SELECTOR_SPEC is None or _LOCK_SELECTOR_SPEC.loader is None:
     raise RuntimeError(f"unable to load lock selector: {_LOCK_SELECTOR}")
@@ -73,6 +76,216 @@ def test_candidate_setup_exports_cache_policy_and_train_input_identity():
     missing = [contract for contract in expected_contracts if contract not in setup]
     if missing:
         pytest.fail(f"candidate build-input identity is incomplete: {missing}")
+
+
+def test_same_run_downloader_fetches_exact_reference_and_verifies_canonical_bytes(tmp_path):
+    import os
+
+    bucket = "candidate-store"
+    train_sha256 = "a" * 64
+    build_input_digest = "b" * 64
+    artifact_digest = build_input_digest
+    repository = "rapidsai/kvikio"
+    artifact_name = "kvikio_conda_cpp_libkvikio_aarch64_cu12"
+    package_path = "linux-aarch64/libkvikio-26.10.0-h1234567_0.conda"
+    package_bytes = b"canonical package bytes"
+    package_sha256 = hashlib.sha256(package_bytes).hexdigest()
+    sbom_path = "release-evidence/libkvikio.cdx.json"
+    sbom_bytes = b"canonical SBOM bytes"
+    sbom_sha256 = hashlib.sha256(sbom_bytes).hexdigest()
+    fake_s3 = tmp_path / "s3"
+    train_prefix = f"train-state/{train_sha256}"
+    run_prefix = f"{train_prefix}/kvikio/12345.2"
+    reference_path = fake_s3 / bucket / run_prefix / build_input_digest / f"bundle-reference.{artifact_name}.json"
+    catalog_key = f"{run_prefix}/{build_input_digest}/release-catalog-entries.{artifact_name}.json"
+    artifact_key = f"artifacts/kvikio/{artifact_digest}"
+    catalog_path = fake_s3 / bucket / catalog_key
+    index_path = fake_s3 / bucket / artifact_key / "artifact-index.json"
+    package_file = fake_s3 / bucket / artifact_key / package_path
+    sbom_file = fake_s3 / bucket / artifact_key / sbom_path
+    reference_path.parent.mkdir(parents=True)
+    catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    package_file.parent.mkdir(parents=True)
+    sbom_file.parent.mkdir(parents=True)
+    reference_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "storage_layout": 2,
+                "train_sha256": train_sha256,
+                "repository": repository,
+                "source_artifact": artifact_name,
+                "source_run_id": "12345",
+                "source_run_attempt": "2",
+                "build_input_digest": build_input_digest,
+                "artifact_key": artifact_key,
+                "artifact_index_key": f"{artifact_key}/artifact-index.json",
+                "bundle_key": catalog_key,
+            }
+        )
+    )
+    prior_attempt_reference = (
+        fake_s3 / bucket / f"{train_prefix}/kvikio/12345.1/{build_input_digest}/bundle-reference.{artifact_name}.json"
+    )
+    prior_attempt_reference.parent.mkdir(parents=True)
+    prior_attempt_reference.write_text('{"source_run_id":"12345","source_run_attempt":"1"}')
+    catalog_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {
+                    "artifact": artifact_name,
+                    "repository": repository,
+                    "run_id": "12345",
+                    "run_attempt": "2",
+                    "sha": "d" * 40,
+                },
+                "entries": [],
+            }
+        )
+    )
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "build_input_digest": build_input_digest,
+                "source_artifact": artifact_name,
+                "entries": [
+                    {
+                        "path": package_path,
+                        "sha256": package_sha256,
+                        "sbom": {"path": sbom_path, "sha256": sbom_sha256},
+                    }
+                ],
+            }
+        )
+    )
+    package_file.write_bytes(package_bytes)
+    sbom_file.write_bytes(sbom_bytes)
+
+    aws = tmp_path / "aws"
+    aws.write_text(
+        """#!/usr/bin/env python3
+import fnmatch
+import os
+import shutil
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+
+_, service, operation, source, destination, *options = sys.argv
+assert service == "s3" and operation == "cp"
+parsed = urlparse(source)
+source_path = Path(os.environ["FAKE_S3_ROOT"]) / parsed.netloc / parsed.path.lstrip("/")
+destination_path = Path(destination)
+if "--recursive" in options:
+    includes = [options[index + 1] for index, value in enumerate(options[:-1]) if value == "--include"]
+    for path in source_path.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(source_path).as_posix()
+        if not includes or any(fnmatch.fnmatch(relative, pattern) for pattern in includes):
+            target = destination_path / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, target)
+else:
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_path, destination_path)
+"""
+    )
+    aws.chmod(0o755)
+    output = tmp_path / "download"
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "FAKE_S3_ROOT": str(fake_s3),
+        "GITHUB_REPOSITORY": repository,
+        "GITHUB_RUN_ID": "12345",
+        "GITHUB_RUN_ATTEMPT": "2",
+        "GITHUB_SHA": "d" * 40,
+        "RELEASE_CANDIDATE_BUCKET": bucket,
+        "RELEASE_CANDIDATE_TRAIN_PREFIX": "train-state",
+        "RELEASE_CANDIDATE_TRAIN_SHA256": train_sha256,
+        "RAPIDS_UNZIP_DIR": str(output),
+    }
+
+    def run_downloader():
+        return subprocess.run(  # noqa: S603
+            [str(_DOWNLOADER), artifact_name], env=env, capture_output=True, text=True, check=False
+        )
+
+    result = run_downloader()
+
+    if result.returncode != 0:
+        pytest.fail(result.stderr)
+    if (
+        result.stdout != str(output)
+        or (output / package_path).read_bytes() != package_bytes
+        or (output / sbom_path).read_bytes() != sbom_bytes
+    ):
+        pytest.fail("same-run downloader did not return the verified canonical artifact")
+
+    reference = json.loads(reference_path.read_text())
+    reference["artifact_key"] = f"artifacts/another-repository/{build_input_digest}"
+    reference_path.write_text(json.dumps(reference))
+    wrong_repository_result = run_downloader()
+    if (
+        wrong_repository_result.returncode == 0
+        or "unsafe or inconsistent storage keys" not in wrong_repository_result.stderr
+    ):
+        pytest.fail("same-run downloader accepted a canonical artifact key for another repository")
+    reference["artifact_key"] = artifact_key
+    reference["artifact_index_key"] = f"{artifact_key}/other-index.json"
+    reference_path.write_text(json.dumps(reference))
+    wrong_index_key_result = run_downloader()
+    if (
+        wrong_index_key_result.returncode == 0
+        or "unsafe or inconsistent storage keys" not in wrong_index_key_result.stderr
+    ):
+        pytest.fail("same-run downloader accepted a noncanonical artifact-index key")
+    reference["artifact_index_key"] = f"{artifact_key}/artifact-index.json"
+    reference_path.write_text(json.dumps(reference))
+
+    catalog = json.loads(catalog_path.read_text())
+    catalog["source"]["artifact"] = "another-artifact"
+    catalog_path.write_text(json.dumps(catalog))
+    wrong_artifact_result = run_downloader()
+    if (
+        wrong_artifact_result.returncode == 0
+        or "does not match the current repository" not in wrong_artifact_result.stderr
+    ):
+        pytest.fail("same-run downloader accepted a catalog for another source artifact")
+
+    catalog["source"]["artifact"] = artifact_name
+    catalog["source"]["sha"] = "e" * 40
+    catalog_path.write_text(json.dumps(catalog))
+    wrong_sha_result = run_downloader()
+    if (
+        wrong_sha_result.returncode == 0
+        or "does not match the current repository, run, attempt, and SHA" not in wrong_sha_result.stderr
+    ):
+        pytest.fail("same-run downloader accepted a catalog from another source SHA")
+
+    catalog["source"]["sha"] = "d" * 40
+    catalog_path.write_text(json.dumps(catalog))
+    sbom_file.write_bytes(b"changed after canonical indexing")
+    changed_result = run_downloader()
+    if changed_result.returncode == 0 or "do not match the committed index" not in changed_result.stderr:
+        pytest.fail("same-run downloader accepted bytes that disagree with the canonical index")
+
+    index = json.loads(index_path.read_text())
+    index["entries"] = []
+    index_path.write_text(json.dumps(index))
+    empty_index_result = run_downloader()
+    if empty_index_result.returncode == 0 or "does not match its committed reference" not in empty_index_result.stderr:
+        pytest.fail("same-run downloader accepted an empty canonical artifact index")
+
+
+def test_same_run_downloader_is_installed_by_candidate_dependency_setup():
+    setup = _SETUP.read_text()
+    if 'tail -n +2 "${script_directory}/download-from-candidate.sh"' not in setup:
+        pytest.fail("candidate setup does not install the same-run downloader")
 
 
 def test_candidate_wheel_lock_lookup_passes_cuda_major():

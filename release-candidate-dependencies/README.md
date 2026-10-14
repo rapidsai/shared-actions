@@ -42,6 +42,11 @@ materialize a train-owned source in a container:
 - `RAPIDS_RELEASE_CANDIDATE_UNIT_VERSIONS` contains the frozen family and
   unit-specific package version maps from `version_contract`.
 - `RAPIDS_RELEASE_CANDIDATE_VERSION` is the train's YY.MM release version.
+- For wheel jobs, the resolver writes a separate CMake source-version override
+  from the matching frozen Conda unit version (or the frozen Conda family
+  version). This keeps RAPIDS CMake's padded source version distinct from the
+  Python wheel's normalized wheel version; project-specific Conda overrides,
+  such as rapids-logger's `0.3.0`, remain intact.
 
 Source repositories that are not represented by the frozen train are not
 available through these mappings. Callers must fail closed instead of cloning

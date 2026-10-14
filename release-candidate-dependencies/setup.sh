@@ -225,6 +225,10 @@ PATH="${gha_tools_directory}/tools:${PATH}"
 # Candidate jobs freeze the package version in the source checkout's VERSION
 # file. Prefer that value over the Git-distance version computed by
 # gha-tools, while leaving non-candidate/custom invocations unchanged.
+if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel" ]]; then
+  RAPIDS_RELEASE_CANDIDATE_CMAKE_VERSION="$(bash "${script_directory}/select-cmake-source-version.sh" "${workspace}/release-train.json" "${candidate_unit_id}")"
+  export RAPIDS_RELEASE_CANDIDATE_CMAKE_VERSION
+fi
 bash "${script_directory}/install-version-override.sh" "${tools}"
 # scikit-build-core may use the CMake wheel rather than resolving `cmake` from
 # PATH, so its configure call can bypass the candidate CMake wrapper below.

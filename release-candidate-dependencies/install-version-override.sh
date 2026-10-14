@@ -4,7 +4,7 @@
 set -euo pipefail
 
 tools_directory="${1:?usage: install-version-override.sh TOOLS_DIRECTORY}"
-candidate_version="${RAPIDS_RELEASE_CANDIDATE_VERSION:-}"
+candidate_version="${RAPIDS_RELEASE_CANDIDATE_CMAKE_VERSION:-${RAPIDS_RELEASE_CANDIDATE_VERSION:-}}"
 
 # Custom candidate jobs may not declare a VERSION file. Keep their train-pinned
 # gha-tools command untouched when the shared workflow did not select a version.
@@ -13,7 +13,7 @@ if [[ -z "${candidate_version}" ]]; then
 fi
 
 if [[ ! "${candidate_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "RAPIDS_RELEASE_CANDIDATE_VERSION must be a final numeric X.YY.Z version" >&2
+  echo "candidate CMake version must be a final numeric X.YY.Z version" >&2
   exit 1
 fi
 

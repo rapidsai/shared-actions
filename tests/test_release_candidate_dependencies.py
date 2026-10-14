@@ -763,6 +763,7 @@ def test_candidate_cmake_wrapper_pins_rapids_cmake_for_configure(tmp_path):
             "RAPIDS_CANDIDATE_ORIGINAL_CMAKE": str(original),
             "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA": "a" * 40,
             "TEST_OUTPUT": str(output),
+            "PATH": str(tmp_path),
         },
     )
 
@@ -794,6 +795,7 @@ def test_candidate_cmake_wrapper_does_not_modify_build_mode(tmp_path):
             "RAPIDS_CANDIDATE_ORIGINAL_CMAKE": str(original),
             "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA": "a" * 40,
             "TEST_OUTPUT": str(output),
+            "PATH": str(tmp_path),
         },
     )
 

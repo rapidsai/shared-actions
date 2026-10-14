@@ -12,17 +12,30 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 
+CONTROLLER_BINDING_PREFIX = "controller-state/run-bindings"
+
 
 def validate_binding(binding: Mapping, environment: Mapping[str, str], source_sha: str, script: str) -> dict[str, str]:
     """Reject unrelated runs/sources and custom jobs not enrolled by the controller."""
+    try:
+        run_attempt = int(environment["GITHUB_RUN_ATTEMPT"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("candidate run attempt is missing or invalid") from error
+    if run_attempt < 1 or str(run_attempt) != environment["GITHUB_RUN_ATTEMPT"]:
+        raise ValueError("candidate run attempt is missing or invalid")
+
     expected = {
-        "schema_version": 1,
+        "schema_version": 2,
         "repository": environment["GITHUB_REPOSITORY"],
         "run_id": environment["GITHUB_RUN_ID"],
+        "run_attempt": run_attempt,
         "source_sha": source_sha,
+        "event_name": "workflow_dispatch",
     }
+    if type(binding.get("run_attempt")) is not int:
+        raise ValueError("candidate binding run attempt must be an integer")
     if any(binding.get(key) != value for key, value in expected.items()):
-        raise ValueError("candidate binding does not match this repository, run, or source SHA")
+        raise ValueError("candidate binding does not match this repository, run, attempt, or source SHA")
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", source_sha):
         raise ValueError("candidate source SHA must be a full object ID")
     if binding.get("workflow") != "build.yaml":
@@ -60,31 +73,28 @@ def read_binding(bucket: str, key: str, run=subprocess.run, sleep=time.sleep, at
     raise ValueError("candidate run has no controller binding; refusing to guess a train")
 
 
-def binding_key(prefix: str, repository: str, run_id: str) -> str:
-    """Build the per-run binding key within the producer's IAM path scope."""
+def binding_key(repository: str, run_id: str, run_attempt: str) -> str:
+    """Build the exact controller-owned key that producers can only read."""
     if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
         raise ValueError("invalid repository identity")
     if re.fullmatch(r"[1-9][0-9]*", run_id) is None:
         raise ValueError("invalid run identity")
-    if (
-        any(part in {"", ".", ".."} for part in prefix.split("/"))
-        or re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", prefix) is None
-    ):
-        raise ValueError("invalid candidate train-state prefix")
+    if re.fullmatch(r"[1-9][0-9]*", run_attempt) is None:
+        raise ValueError("invalid run attempt")
     owner, repository_name = repository.split("/", maxsplit=1)
-    return f"{prefix}/run-bindings/{owner}/{repository_name}/{run_id}.json"
+    return f"{CONTROLLER_BINDING_PREFIX}/{owner}/{repository_name}/{run_id}.{run_attempt}.json"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bucket", default="rapids-release-candidates")
-    parser.add_argument("--prefix", default="train-state")
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--script", default="")
     args = parser.parse_args()
     repository = os.environ["GITHUB_REPOSITORY"]
     run_id = os.environ["GITHUB_RUN_ID"]
-    key = binding_key(args.prefix, repository, run_id)
+    run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    key = binding_key(repository, run_id, run_attempt)
     binding = read_binding(args.bucket, key)
     outputs = validate_binding(binding, os.environ, args.source_sha, args.script)
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:

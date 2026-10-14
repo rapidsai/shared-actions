@@ -39,4 +39,13 @@ runs:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         SOURCE_SHA: ${{ inputs.source-sha }}
         CUSTOM_SCRIPT: ${{ inputs.script }}
-      run: python "${IMPLEMENTATION_PATH}/resolver.py" --source-sha "${SOURCE_SHA}" --script "${CUSTOM_SCRIPT}"
+      run: |
+        if command -v python3 >/dev/null 2>&1; then
+          python_bin=python3
+        elif command -v python >/dev/null 2>&1 && python -c 'import sys; raise SystemExit(sys.version_info.major != 3)' >/dev/null 2>&1; then
+          python_bin=python
+        else
+          echo "Python 3 is required to resolve the release-candidate run binding" >&2
+          exit 1
+        fi
+        "${python_bin}" "${IMPLEMENTATION_PATH}/resolver.py" --source-sha "${SOURCE_SHA}" --script "${CUSTOM_SCRIPT}"

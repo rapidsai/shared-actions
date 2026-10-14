@@ -338,6 +338,25 @@ def test_candidate_setup_fails_closed_when_shared_implementation_revisions_drift
         pytest.fail(f"candidate implementation revision contract is incomplete: {missing}")
 
 
+def test_direct_candidate_setup_skips_only_reusable_workflow_revision_check():
+    setup = _SETUP.read_text()
+    action = (Path(__file__).parents[1] / "release-candidate-dependencies" / "action.yml").read_text()
+
+    if "implementation-mode:" not in action or "default: reusable" not in action:
+        pytest.fail("candidate dependency action must default to reusable-workflow verification")
+    if "RELEASE_CANDIDATE_IMPLEMENTATION_MODE: ${{ inputs.implementation-mode }}" not in action:
+        pytest.fail("candidate dependency action does not pass its implementation mode")
+    if 'implementation_mode="${RELEASE_CANDIDATE_IMPLEMENTATION_MODE:-reusable}"' not in setup:
+        pytest.fail("candidate setup does not default to the reusable implementation mode")
+    if '[[ "${implementation_mode}" != "reusable" && "${implementation_mode}" != "direct" ]]' not in setup:
+        pytest.fail("candidate setup does not reject unsupported implementation modes")
+    direct_mode = setup.split('if [[ "${implementation_mode}" == "reusable" ]]; then', maxsplit=1)
+    if len(direct_mode) != 2 or '"shared-workflows"' not in direct_mode[1]:
+        pytest.fail("the reusable-workflow source assertion is not guarded by implementation mode")
+    if setup.index('"shared-actions"') > setup.index('if [[ "${implementation_mode}" == "reusable" ]]; then'):
+        pytest.fail("direct mode must retain exact shared-actions source verification")
+
+
 def test_wheel_lock_selector_requires_one_exact_matrix_scope():
     expected = {
         "path": "locks/wheel/x86_64-manylinux_2_28/python-3.14/requirements.txt",

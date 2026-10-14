@@ -24,6 +24,10 @@ inputs:
     description: Exact release-train unit ID when it differs from <artifact-family>:<repository>.
     required: false
     default: ""
+  implementation-mode:
+    description: Whether this action runs through the frozen reusable workflow or directly in the producer workflow.
+    required: false
+    default: reusable
   arch:
     description: Canonical RAPIDS architecture for this job matrix.
     required: true
@@ -64,6 +68,7 @@ runs:
         RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL: ${{ inputs.prepare-conda-channel }}
         RELEASE_CANDIDATE_ARTIFACT_FAMILY: ${{ inputs.artifact-family }}
         RELEASE_CANDIDATE_UNIT_ID: ${{ inputs.candidate-unit-id }}
+        RELEASE_CANDIDATE_IMPLEMENTATION_MODE: ${{ inputs.implementation-mode }}
         RELEASE_CANDIDATE_ARCH: ${{ inputs.arch }}
         RELEASE_CANDIDATE_CUDA_VERSION: ${{ inputs.cuda-version }}
         RELEASE_CANDIDATE_PYTHON_VERSION: ${{ inputs.python-version }}

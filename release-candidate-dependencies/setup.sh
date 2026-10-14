@@ -50,6 +50,11 @@ if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "container" \
   exit 1
 fi
 candidate_unit_id="${RELEASE_CANDIDATE_UNIT_ID:-${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${GITHUB_REPOSITORY##*/}}"
+implementation_mode="${RELEASE_CANDIDATE_IMPLEMENTATION_MODE:-reusable}"
+if [[ "${implementation_mode}" != "reusable" && "${implementation_mode}" != "direct" ]]; then
+  echo "release-candidate implementation mode must be reusable or direct" >&2
+  exit 1
+fi
 if [[ ! "${candidate_unit_id}" =~ ^${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:[A-Za-z0-9_.-]+$ ]]; then
   echo "RELEASE_CANDIDATE_UNIT_ID must use the selected family and a safe train unit name" >&2
   exit 1
@@ -163,13 +168,15 @@ require_expected_revision \
   "${RELEASE_CANDIDATE_SHARED_ACTIONS_REPOSITORY:-}" \
   "${RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION:-}" \
   "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY:-${GITHUB_REPOSITORY}}"
-require_expected_revision \
-  "shared-workflows" \
-  "$(jq -r '."shared-workflows"' <<<"${build_implementation_repositories}")" \
-  "${shared_workflows_revision}" \
-  "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY:-}" \
-  "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REVISION:-}" \
-  "${GITHUB_REPOSITORY}"
+if [[ "${implementation_mode}" == "reusable" ]]; then
+  require_expected_revision \
+    "shared-workflows" \
+    "$(jq -r '."shared-workflows"' <<<"${build_implementation_repositories}")" \
+    "${shared_workflows_revision}" \
+    "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY:-}" \
+    "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REVISION:-}" \
+    "${GITHUB_REPOSITORY}"
+fi
 
 if ! command -v git >/dev/null; then
   echo "git is required to install the train-locked gha-tools revision" >&2

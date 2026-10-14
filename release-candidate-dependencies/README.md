@@ -17,6 +17,14 @@ repository name (for example, a Java package built in the `cudf` repository
 may use `maven:cudf-java`). The resolver verifies that the ID uses the chosen
 family and exists in the frozen train.
 
+The action defaults `implementation-mode` to `reusable`, which verifies that
+the caller is running through the exact frozen `shared-workflows` revision.
+Set `implementation-mode: direct` only when a producer workflow invokes this
+action itself rather than using the reusable workflow. Direct mode still
+verifies the exact frozen `shared-actions` repository and revision, train
+membership, and selected source/run bindings; it skips only the
+`shared-workflows` caller-revision assertion.
+
 For `maven`, the action extracts verified tar.gz Maven repository archives into
 `MAVEN_LOCAL_REPO` and appends that path to `MAVEN_OPTS`. For docs and container
 jobs, set `prepare-conda-channel: true` to build a job-local Conda channel from

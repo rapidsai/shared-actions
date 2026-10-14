@@ -1,12 +1,15 @@
+# Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# pytest assertions are intentional; subprocess scripts come from this repository's action definition.
+# ruff: noqa: S101
+
 import hashlib
 import json
 import os
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 
 import pytest
 import yaml
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = yaml.safe_load((ROOT / "build-devcontainer" / "action.yml").read_text())
@@ -52,8 +55,8 @@ def _run_step(step, tmp_path, *, push, output_path=""):
         "workspace_dir": ".",
         "devcontainer_json": "devcontainer.json",
     }
-    result = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", script],
+    result = subprocess.run(  # noqa: S603  # nosec B603, B607
+        ["bash", "-euo", "pipefail", "-c", script],  # noqa: S607
         cwd=ROOT,
         env=env,
         capture_output=True,
@@ -69,7 +72,12 @@ def _run_step(step, tmp_path, *, push, output_path=""):
 
 def test_false_push_exports_oci_archive_and_reports_metadata(tmp_path):
     archive = tmp_path / "artifacts" / "example.oci.tar"
-    result, args, outputs = _run_step(_step("Build ${{ inputs.repo }}:${{ inputs.tag }} (${{ inputs.arch }})"), tmp_path, push="false", output_path=str(archive))
+    result, args, outputs = _run_step(
+        _step("Build ${{ inputs.repo }}:${{ inputs.tag }} (${{ inputs.arch }})"),
+        tmp_path,
+        push="false",
+        output_path=str(archive),
+    )
 
     assert result.returncode == 0, result.stderr
     assert args[args.index("--output") + 1] == f"type=oci,dest={archive}"
@@ -82,7 +90,9 @@ def test_false_push_exports_oci_archive_and_reports_metadata(tmp_path):
 
 
 def test_legacy_false_push_without_output_path_keeps_no_export(tmp_path):
-    result, args, outputs = _run_step(_step("Build ${{ inputs.repo }}:${{ inputs.tag }} (${{ inputs.arch }})"), tmp_path, push="false")
+    result, args, outputs = _run_step(
+        _step("Build ${{ inputs.repo }}:${{ inputs.tag }} (${{ inputs.arch }})"), tmp_path, push="false"
+    )
 
     assert result.returncode == 0, result.stderr
     assert "--output" not in args
@@ -92,7 +102,9 @@ def test_legacy_false_push_without_output_path_keeps_no_export(tmp_path):
 
 
 def test_legacy_push_without_output_path_keeps_image_push(tmp_path):
-    result, args, outputs = _run_step(_step("Build ${{ inputs.repo }}:${{ inputs.tag }} (${{ inputs.arch }})"), tmp_path, push="true")
+    result, args, outputs = _run_step(
+        _step("Build ${{ inputs.repo }}:${{ inputs.tag }} (${{ inputs.arch }})"), tmp_path, push="true"
+    )
 
     assert result.returncode == 0, result.stderr
     assert args[args.index("--output") + 1].startswith("type=image,")
@@ -104,16 +116,16 @@ def test_legacy_push_without_output_path_keeps_image_push(tmp_path):
 @pytest.mark.parametrize(
     ("push", "output_path", "message"),
     [
-        ("true", "/tmp/image.oci.tar", "output-path can only be used"),
+        ("true", "image.oci.tar", "output-path can only be used"),
         ("maybe", "", "push must be 'true' or 'false'"),
-        ("false", "/tmp/image,other.oci.tar", "cannot contain newlines or commas"),
+        ("false", "image,other.oci.tar", "cannot contain newlines or commas"),
     ],
 )
 def test_invalid_build_mode_fails_before_setup(push, output_path, message, tmp_path):
     step = _step("Validate devcontainer build mode")
     script = step["run"]
-    result = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", script],
+    result = subprocess.run(  # noqa: S603  # nosec B603, B607
+        ["bash", "-euo", "pipefail", "-c", script],  # noqa: S607
         cwd=ROOT,
         env={**os.environ, "push": push, "output_path": output_path},
         capture_output=True,

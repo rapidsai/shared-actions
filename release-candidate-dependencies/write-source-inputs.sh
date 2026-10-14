@@ -82,6 +82,13 @@ jq -n -e -S \
             then error("build tool revision is invalid: " + $name)
             else {key: $name, value: {repository: $tool_repositories[$name], revision: $revision}}
             end] | from_entries) as $build_tools
-      | {schema_version: 1, sources: $sources, build_tools: $build_tools}
+      | (if $document | has("rapids_metadata_revision") then
+           $document.rapids_metadata_revision as $revision
+           | if ($revision | type) != "string" or ($revision | test("^[0-9a-f]{40}$")) | not then
+               error("metadata source revision is invalid")
+             else $build_tools + {"rapids-metadata": {repository:"rapidsai/rapids-metadata", revision:$revision}}
+             end
+         else $build_tools end) as $tools_with_metadata
+      | {schema_version: 1, sources: $sources, build_tools: $tools_with_metadata}
     end
   ' "${train}" >"${output}"

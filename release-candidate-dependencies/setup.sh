@@ -685,6 +685,13 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" \
   index_candidate_conda_channel
 fi
 
+# Apply the checksum-bound system pin policy to this disposable checkout before
+# product scripts build or resolve dependencies. Legacy receipts are a no-op.
+candidate_checkout="$(git rev-parse --show-toplevel)"
+python3 "${script_directory}/apply_dependency_pins.py" \
+  --receipt "${variant_source}" \
+  --checkout "${candidate_checkout}"
+
 # Repository build scripts already name their same-run intermediate artifact.
 # Preserve that interface, but resolve only that exact bundle from candidate S3.
 # Capture the family decision now: the generated helper runs later and should

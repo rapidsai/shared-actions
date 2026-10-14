@@ -125,6 +125,26 @@ def test_conda_lock_selector_handles_full_train_matrix_and_exact_cuda_minor():
         pytest.fail(f"Conda lock selector returned {selected}, expected {expected}")
 
 
+@pytest.mark.parametrize(
+    ("locked_cuda", "requested_cuda"),
+    [("13.3", "13.3.0"), ("12.9", "12.9.1")],
+)
+def test_conda_lock_selector_normalizes_patch_versions_to_minor_scope(locked_cuda, requested_cuda):
+    lock = _conda_lock("locks/conda/build-constraints.txt", "cucim", "linux-64", locked_cuda, "build")
+
+    selected = _SELECTOR_MODULE.select_conda_lock({"conda": [lock]}, "cucim", "linux-64", requested_cuda, "build")
+
+    if selected != {"path": lock["path"], "sha256": lock["sha256"]}:
+        pytest.fail(f"Conda lock selector returned {selected} for CUDA {requested_cuda}")
+
+
+def test_conda_lock_selector_does_not_collapse_cuda_to_major_only():
+    lock = _conda_lock("locks/conda/build-constraints.txt", "cucim", "linux-64", "12.9", "build")
+
+    with pytest.raises(ValueError, match=r"CUDA 12\.0\.0, build\); found 0"):
+        _SELECTOR_MODULE.select_conda_lock({"conda": [lock]}, "cucim", "linux-64", "12.0.0", "build")
+
+
 def test_conda_lock_selector_rejects_major_only_wrong_environment_and_duplicates():
     receipt = {
         "input_locks": {

@@ -10,7 +10,7 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main # zizmor: ignore[unpinned-uses]
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@39fc31647bd5514c99fca7b0463d45c2446148b7
       id: has_base_env_var_artifact
     # Stash current job's OTEL_RESOURCE_ATTRIBUTES and any files in the telemetry-artifacts directory
     - name: Stash job artifacts

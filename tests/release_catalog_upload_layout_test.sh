@@ -14,6 +14,15 @@ cat >"${temporary_directory}/bin/aws" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "$1" == "s3" && "$2" == "cp" ]]; then
+  source="$3"
+  destination="$4"
+  bucket_key="${source#s3://}"
+  bucket="${bucket_key%%/*}"
+  key="${bucket_key#*/}"
+  cp "${FAKE_S3}/${bucket}/${key}" "${destination}"
+  exit 0
+fi
 [[ "$1" == "s3api" ]]
 operation="$2"
 shift 2
@@ -77,7 +86,33 @@ printf '{"spdxVersion":"SPDX-2.3"}\n' >"${temporary_directory}/bundle/release-ev
 printf '{"run":"101"}\n' >"${temporary_directory}/bundle/release-evidence/example.intoto.jsonl"
 printf '{"schema_version":1,"dependencies":[]}\n' >"${temporary_directory}/upstream-inputs.json"
 implementation_repositories='{"gha-tools":"rapidsai/gha-tools","shared-actions":"rapidsai/shared-actions","shared-workflows":"rapidsai/shared-workflows"}'
-printf '%s\n' '{"schema_version":1,"train_inputs":{"lock_receipt_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","variant_receipt_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"build_policy":{"sccache":true},"build_implementation_repositories":{"gha-tools":"rapidsai/gha-tools","shared-actions":"rapidsai/shared-actions","shared-workflows":"rapidsai/shared-workflows"}}' >"${temporary_directory}/candidate-build-inputs.json"
+cat >"${temporary_directory}/release-train.json" <<'EOF'
+{
+  "release_units": [
+    {"id":"conda:example","artifact_family":"conda","dependencies":["source:foo"]},
+    {"id":"source:foo","artifact_family":"source","repository":"foo","source_revision":"ffffffffffffffffffffffffffffffffffffffff"}
+  ],
+  "source_revisions": {"foo":"ffffffffffffffffffffffffffffffffffffffff"},
+  "github_repositories": {"foo":"rapidsai/foo"},
+  "build_tool_revisions": {
+    "dependency-file-generator":"1111111111111111111111111111111111111111",
+    "rapids-build-backend":"2222222222222222222222222222222222222222",
+    "rapids-cmake":"3333333333333333333333333333333333333333"
+  }
+}
+EOF
+train_sha256="$(jq -cSj 'del(.train_sha256)' "${temporary_directory}/release-train.json" | sha256sum | awk '{print $1}')"
+mkdir -p "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}"
+cp "${temporary_directory}/release-train.json" \
+  "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}/release-train.json"
+bash "${repository_root}/release-candidate-dependencies/write-source-inputs.sh" \
+  --train "${temporary_directory}/release-train.json" \
+  --output "${temporary_directory}/source-inputs.json" \
+  --target-unit conda:example
+jq -cnS \
+  --argjson source_inputs "$(cat "${temporary_directory}/source-inputs.json")" \
+  '{schema_version:1,train_inputs:{lock_receipt_sha256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",variant_receipt_sha256:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},build_policy:{sccache:true},build_implementation_repositories:{"gha-tools":"rapidsai/gha-tools","shared-actions":"rapidsai/shared-actions","shared-workflows":"rapidsai/shared-workflows"},source_inputs:$source_inputs}' \
+  >"${temporary_directory}/candidate-build-inputs.json"
 
 run_upload() {
   local implementation_revisions="$2"
@@ -104,7 +139,7 @@ run_upload() {
     RELEASE_CANDIDATE_BUCKET="candidate-store" \
     RELEASE_CANDIDATE_CONTENT_PREFIX="artifacts" \
     RELEASE_CANDIDATE_TRAIN_PREFIX="train-state" \
-    RELEASE_CANDIDATE_TRAIN_SHA256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
+    RELEASE_CANDIDATE_TRAIN_SHA256="${train_sha256}" \
     RELEASE_SOURCE_ARTIFACT_NAME="conda" \
     GITHUB_REPOSITORY="rapidsai/example" \
     GITHUB_RUN_ID="101" \
@@ -116,6 +151,7 @@ run_upload() {
     RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION="${shared_actions_revision}" \
     RELEASE_CANDIDATE_UPSTREAM_INPUTS="${temporary_directory}/upstream-inputs.json" \
     RELEASE_CANDIDATE_BUILD_INPUTS="${temporary_directory}/candidate-build-inputs.json" \
+    RELEASE_CANDIDATE_SOURCE_INPUTS="${temporary_directory}/source-inputs.json" \
     RAPIDS_DATETIME_STRING="${build_datetime}" \
     "${repository_root}/release-catalog/upload-candidate-s3.sh"
 }
@@ -127,7 +163,7 @@ run_upload 1 "${base_implementation_revisions}"
 artifact_root="${temporary_directory}/s3/candidate-store/artifacts/example"
 artifact_digest="$(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)"
 canonical="${artifact_root}/${artifact_digest}"
-train="${temporary_directory}/s3/candidate-store/train-state/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/example"
+train="${temporary_directory}/s3/candidate-store/train-state/${train_sha256}/example"
 test -f "${canonical}/artifact-index.json"
 test -f "${canonical}/linux-64/example-26.10.00.conda"
 test -f "${train}/101.1/${artifact_digest}/release-catalog-entries.conda.json"
@@ -136,6 +172,7 @@ test ! -d "${artifact_root}/${artifact_digest}/attempts"
 jq -e '.upstream_dependencies == []' "${canonical}/build-record.json" >/dev/null
 jq -e '.schema_version == 5 and .storage_layout == 2 and .build_datetime == "260901120000"' "${canonical}/build-record.json" >/dev/null
 jq -e '.candidate_build_inputs.build_implementation_repositories == {"gha-tools":"rapidsai/gha-tools","shared-actions":"rapidsai/shared-actions","shared-workflows":"rapidsai/shared-workflows"}' "${canonical}/build-record.json" >/dev/null
+jq -e '.candidate_build_inputs.source_inputs.sources.foo == {"repository":"rapidsai/foo","revision":"ffffffffffffffffffffffffffffffffffffffff"} and (.candidate_build_inputs.source_inputs.build_tools | length) == 3' "${canonical}/build-record.json" >/dev/null
 jq -e '.schema_version == 3 and .source_artifact == "conda"' "${canonical}/artifact-index.json" >/dev/null
 artifact_line="$(grep -nF "${artifact_digest}/linux-64/example-26.10.00.conda" "${temporary_directory}/put-objects.log" | cut -d: -f1)"
 index_line="$(grep -nF "${artifact_digest}/artifact-index.json" "${temporary_directory}/put-objects.log" | cut -d: -f1)"
@@ -150,6 +187,14 @@ if jq -e 'tostring | test("run_id|run_attempt")' "${canonical}/artifact-index.js
 fi
 jq -e '.source_run_id == "101" and .source_run_attempt == "1"' \
   "${train}/101.1/${artifact_digest}/bundle-reference.conda.json" >/dev/null
+cp "${temporary_directory}/source-inputs.json" "${temporary_directory}/source-inputs.valid.json"
+jq '.sources.foo.revision = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"' \
+  "${temporary_directory}/source-inputs.valid.json" >"${temporary_directory}/source-inputs.json"
+if run_upload 6 "${base_implementation_revisions}" >/dev/null 2>&1; then
+  echo "upload accepted source inputs that differ from the frozen train" >&2
+  exit 1
+fi
+mv "${temporary_directory}/source-inputs.valid.json" "${temporary_directory}/source-inputs.json"
 if run_upload 9 "${base_implementation_revisions}" "dddddddddddddddddddddddddddddddddddddddd" >/dev/null 2>&1; then
   echo "upload accepted a gha-tools revision that does not match the release train" >&2
   exit 1
@@ -230,21 +275,21 @@ if [[ "${#artifact_digests[@]}" -ne 5 ]]; then
   echo "empty build timestamp was not accepted as a stable build input" >&2
   exit 1
 fi
-printf '%s\n' '{"schema_version":1,"train_inputs":{"lock_receipt_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","variant_receipt_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"build_policy":{"sccache":true}}' >"${temporary_directory}/candidate-build-inputs.json"
+jq -cnS --argjson source_inputs "$(cat "${temporary_directory}/source-inputs.json")" '{schema_version:1,train_inputs:{lock_receipt_sha256:"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",variant_receipt_sha256:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},build_policy:{sccache:true},source_inputs:$source_inputs}' >"${temporary_directory}/candidate-build-inputs.json"
 run_upload 7 "${base_implementation_revisions}"
 mapfile -t artifact_digests < <(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
 if [[ "${#artifact_digests[@]}" -ne 6 ]]; then
   echo "train lock receipt change did not create a distinct build-input digest" >&2
   exit 1
 fi
-printf '%s\n' '{"schema_version":1,"train_inputs":{"lock_receipt_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","variant_receipt_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},"build_policy":{"sccache":true}}' >"${temporary_directory}/candidate-build-inputs.json"
+jq -cnS --argjson source_inputs "$(cat "${temporary_directory}/source-inputs.json")" '{schema_version:1,train_inputs:{lock_receipt_sha256:"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",variant_receipt_sha256:"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},build_policy:{sccache:true},source_inputs:$source_inputs}' >"${temporary_directory}/candidate-build-inputs.json"
 run_upload 8 "${base_implementation_revisions}"
 mapfile -t artifact_digests < <(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
 if [[ "${#artifact_digests[@]}" -ne 7 ]]; then
   echo "train variant receipt change did not create a distinct build-input digest" >&2
   exit 1
 fi
-printf '%s\n' '{"schema_version":1,"train_inputs":{"lock_receipt_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","variant_receipt_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"build_policy":{"sccache":false}}' >"${temporary_directory}/candidate-build-inputs.json"
+jq -cnS --argjson source_inputs "$(cat "${temporary_directory}/source-inputs.json")" '{schema_version:1,train_inputs:{lock_receipt_sha256:"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",variant_receipt_sha256:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},build_policy:{sccache:false},source_inputs:$source_inputs}' >"${temporary_directory}/candidate-build-inputs.json"
 run_upload 9 "${base_implementation_revisions}"
 mapfile -t artifact_digests < <(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
 if [[ "${#artifact_digests[@]}" -ne 8 ]]; then
@@ -260,9 +305,30 @@ if [[ "${#artifact_digests[@]}" -ne 9 ]]; then
 fi
 fork_record="$(find "${artifact_root}" -name build-record.json -exec grep -l 'msarahan/shared-actions' {} \; | head -n 1)"
 jq -e '.build_implementation_repositories."shared-actions" == "msarahan/shared-actions"' "${fork_record}" >/dev/null
-printf '%s\n' '{"schema_version":1,"train_inputs":{"lock_receipt_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","variant_receipt_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"build_policy":{"sccache":true}}' >"${temporary_directory}/candidate-build-inputs.json"
+jq '.source_revisions.foo = "9999999999999999999999999999999999999999" | .release_units[1].source_revision = "9999999999999999999999999999999999999999"' \
+  "${temporary_directory}/release-train.json" >"${temporary_directory}/release-train.changed.json"
+mv "${temporary_directory}/release-train.changed.json" "${temporary_directory}/release-train.json"
+train_sha256="$(jq -cSj 'del(.train_sha256)' "${temporary_directory}/release-train.json" | sha256sum | awk '{print $1}')"
+mkdir -p "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}"
+cp "${temporary_directory}/release-train.json" \
+  "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}/release-train.json"
+bash "${repository_root}/release-candidate-dependencies/write-source-inputs.sh" \
+  --train "${temporary_directory}/release-train.json" \
+  --output "${temporary_directory}/source-inputs.json" \
+  --target-unit conda:example
+jq -cS --argjson source_inputs "$(cat "${temporary_directory}/source-inputs.json")" \
+  '.source_inputs = $source_inputs' "${temporary_directory}/candidate-build-inputs.json" \
+  >"${temporary_directory}/candidate-build-inputs.changed.json"
+mv "${temporary_directory}/candidate-build-inputs.changed.json" \
+  "${temporary_directory}/candidate-build-inputs.json"
+run_upload 11 "${base_implementation_revisions}"
+mapfile -t artifact_digests < <(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+if [[ "${#artifact_digests[@]}" -ne 10 ]]; then
+  echo "source-only dependency revision change did not create a distinct build-input digest" >&2
+  exit 1
+fi
 printf 'different bytes\n' >"${temporary_directory}/bundle/linux-64/example-26.10.00.conda"
-if run_upload 6 "${base_implementation_revisions}" >/dev/null 2>&1; then
+if run_upload 12 "${base_implementation_revisions}" >/dev/null 2>&1; then
   echo "upload accepted different canonical package bytes" >&2
   exit 1
 fi

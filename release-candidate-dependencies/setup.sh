@@ -240,18 +240,6 @@ done
 lock_source="${workspace}/locks-receipt.json"
 variant_source="${workspace}/variants-receipt.json"
 candidate_build_inputs="${workspace}/candidate-build-inputs.json"
-jq -cnS \
-  --arg lock_receipt_sha256 "${lock_receipt_sha256}" \
-  --arg variant_receipt_sha256 "${variant_receipt_sha256}" \
-  --argjson build_implementation_repositories "${build_implementation_repositories}" \
-  --argjson sccache "${candidate_sccache}" \
-  '{schema_version: 1,
-    train_inputs: {
-      lock_receipt_sha256: $lock_receipt_sha256,
-      variant_receipt_sha256: $variant_receipt_sha256
-    },
-    build_policy: {sccache: $sccache},
-    build_implementation_repositories: $build_implementation_repositories}' >"${candidate_build_inputs}"
 
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
   mapfile -t bootstrap_records < <(jq -cer '.bootstrap_conda[]?' "${lock_source}")
@@ -388,6 +376,25 @@ if ! jq -e --arg target "${target_unit}" '.release_units[] | select(.id == $targ
   echo "release train has no candidate build unit for ${target_unit}" >&2
   exit 1
 fi
+candidate_source_inputs="${workspace}/candidate-source-inputs.json"
+bash "${script_directory}/write-source-inputs.sh" \
+  --train "${workspace}/release-train.json" \
+  --output "${candidate_source_inputs}" \
+  --target-unit "${target_unit}"
+jq -cnS \
+  --arg lock_receipt_sha256 "${lock_receipt_sha256}" \
+  --arg variant_receipt_sha256 "${variant_receipt_sha256}" \
+  --argjson build_implementation_repositories "${build_implementation_repositories}" \
+  --argjson source_inputs "$(cat "${candidate_source_inputs}")" \
+  --argjson sccache "${candidate_sccache}" \
+  '{schema_version: 1,
+    train_inputs: {
+      lock_receipt_sha256: $lock_receipt_sha256,
+      variant_receipt_sha256: $variant_receipt_sha256
+    },
+    build_policy: {sccache: $sccache},
+    build_implementation_repositories: $build_implementation_repositories,
+    source_inputs: $source_inputs}' >"${candidate_build_inputs}"
 
 # Shell globstar has a clear, portable meaning here and keeps the jq program
 # focused on schema fields rather than filesystem traversal.
@@ -766,6 +773,7 @@ fi
   printf 'RELEASE_CANDIDATE_GHA_TOOLS_REVISION=%s\n' "${actual_gha_tools_revision}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
   printf 'RELEASE_CANDIDATE_BUILD_INPUTS=%s\n' "${candidate_build_inputs}"
+  printf 'RELEASE_CANDIDATE_SOURCE_INPUTS=%s\n' "${candidate_source_inputs}"
   printf 'RELEASE_CANDIDATE_SOURCE_MANIFEST=%s\n' "${source_manifest}"
   printf 'RAPIDS_RELEASE_CANDIDATE_TRAIN_FILE=%s\n' "${workspace}/release-train.json"
   unit_versions="$(jq -ceS '

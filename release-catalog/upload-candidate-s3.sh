@@ -21,7 +21,7 @@ safe_prefix() {
   [[ "${prefix}" != /* && "${prefix}" != */ && "${prefix}" != *'//' && "${prefix}" != *'..'* ]]
 }
 
-for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_CANDIDATE_BUILD_INPUTS RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
+for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_CANDIDATE_BUILD_INPUTS RELEASE_CANDIDATE_SOURCE_INPUTS RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
   require_value "${value}" "${!value:-}"
 done
 if [[ ! "${GITHUB_REPOSITORY}" =~ ^[^/]+/[^/]+$ ]]; then
@@ -94,7 +94,49 @@ if [[ ! -f "${RELEASE_CANDIDATE_BUILD_INPUTS}" ]]; then
   echo "RELEASE_CANDIDATE_BUILD_INPUTS does not name a readable candidate input record" >&2
   exit 1
 fi
-candidate_build_inputs="$(jq -ceS --argjson repositories "${build_implementation_repositories}" '
+if [[ ! -f "${RELEASE_CANDIDATE_SOURCE_INPUTS}" ]]; then
+  echo "RELEASE_CANDIDATE_SOURCE_INPUTS does not name a readable source input record" >&2
+  exit 1
+fi
+bundle_root="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
+entries_name="release-catalog-entries.${RELEASE_SOURCE_ARTIFACT_NAME}.json"
+entries_path="${bundle_root}/${entries_name}"
+if [[ ! -f "${entries_path}" ]]; then
+  echo "release catalog entries are missing: ${entries_path}" >&2
+  exit 1
+fi
+
+validation_directory="$(mktemp -d)"
+train_path="${validation_directory}/release-train.json"
+aws s3 cp \
+  "s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}/release-train.json" \
+  "${train_path}"
+actual_train_sha256="$(jq -cSj 'del(.train_sha256)' "${train_path}" | sha256sum | awk '{print $1}')"
+if [[ "${actual_train_sha256}" != "${RELEASE_CANDIDATE_TRAIN_SHA256}" ]]; then
+  echo "stored release train does not match RELEASE_CANDIDATE_TRAIN_SHA256" >&2
+  exit 1
+fi
+mapfile -t source_input_targets < <(jq -er '[.entries[].release_catalog_key] | unique | .[]' "${entries_path}")
+if [[ "${#source_input_targets[@]}" -eq 0 ]]; then
+  echo "release catalog entries contain no package identities" >&2
+  exit 1
+fi
+source_input_arguments=()
+for target in "${source_input_targets[@]}"; do
+  source_input_arguments+=(--target-unit "${target}")
+done
+expected_source_inputs_path="${validation_directory}/source-inputs.json"
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "${script_directory}/../release-candidate-dependencies/write-source-inputs.sh" \
+  --train "${train_path}" \
+  --output "${expected_source_inputs_path}" \
+  "${source_input_arguments[@]}"
+expected_source_inputs="$(cat "${expected_source_inputs_path}")"
+if ! jq -eS --argjson expected "${expected_source_inputs}" '. == $expected' "${RELEASE_CANDIDATE_SOURCE_INPUTS}" >/dev/null; then
+  echo "RELEASE_CANDIDATE_SOURCE_INPUTS does not match the frozen source and build-tool dependencies" >&2
+  exit 1
+fi
+candidate_build_inputs="$(jq -ceS --argjson repositories "${build_implementation_repositories}" --argjson source_inputs "${expected_source_inputs}" '
   if .schema_version != 1
      or ((.train_inputs | type) != "object")
      or ((.train_inputs.lock_receipt_sha256 | type) != "string")
@@ -104,6 +146,7 @@ candidate_build_inputs="$(jq -ceS --argjson repositories "${build_implementation
      or ((.build_policy | type) != "object")
      or ((.build_policy.sccache | type) != "boolean")
      or (.build_implementation_repositories != $repositories)
+     or (.source_inputs != $source_inputs)
   then error("candidate build inputs must contain lock, variant, and sccache identities")
   else {
     schema_version: 1,
@@ -112,21 +155,14 @@ candidate_build_inputs="$(jq -ceS --argjson repositories "${build_implementation
       variant_receipt_sha256: .train_inputs.variant_receipt_sha256
     },
     build_policy: {sccache: .build_policy.sccache},
-    build_implementation_repositories: .build_implementation_repositories
+    build_implementation_repositories: .build_implementation_repositories,
+    source_inputs: .source_inputs
   }
   end
 ' "${RELEASE_CANDIDATE_BUILD_INPUTS}")" || {
   echo "RELEASE_CANDIDATE_BUILD_INPUTS is invalid" >&2
   exit 1
 }
-
-bundle_root="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
-entries_name="release-catalog-entries.${RELEASE_SOURCE_ARTIFACT_NAME}.json"
-entries_path="${bundle_root}/${entries_name}"
-if [[ ! -f "${entries_path}" ]]; then
-  echo "release catalog entries are missing: ${entries_path}" >&2
-  exit 1
-fi
 
 # Catalog paths are relative to the build bundle. Reject traversal before an
 # S3 key is constructed, even though materialize.sh already validates them.
@@ -228,7 +264,7 @@ mapfile -t execution_paths < <(jq -r '([.entries[] | .provenance, .signature? | 
 head_metadata="$(mktemp)"
 artifact_index_entries="$(mktemp)"
 artifact_index_path="$(mktemp)"
-trap 'rm -f "${head_metadata}" "${build_record_path}" "${artifact_index_entries}" "${artifact_index_path}"' EXIT
+trap 'rm -f "${head_metadata}" "${build_record_path}" "${artifact_index_entries}" "${artifact_index_path}"; rm -rf "${validation_directory}"' EXIT
 
 upload_immutable() {
   local local_path="$1"
@@ -325,7 +361,7 @@ done
 upload_immutable "${entries_path}" "${bundle_key}"
 
 reference_path="$(mktemp)"
-trap 'rm -f "${head_metadata}" "${build_record_path}" "${reference_path}"' EXIT
+trap 'rm -f "${head_metadata}" "${build_record_path}" "${reference_path}"; rm -rf "${validation_directory}"' EXIT
 jq -n \
   --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
   --arg repository "${GITHUB_REPOSITORY}" \

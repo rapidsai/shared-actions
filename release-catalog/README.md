@@ -250,7 +250,11 @@ repository SHA and build-input digest. `release-catalog` incorporates that lock
 into `build-record.json`. The same setup action writes
 `RELEASE_CANDIDATE_BUILD_INPUTS`, containing the checksum of the train lock
 receipt, the checksum of the train variant receipt, and the train's boolean
-`sccache` policy. The record also includes the frozen `shared-workflows`,
+`sccache` policy. It also records the frozen source-only dependency closure
+and build-tool revisions in `source_inputs`. The catalog uploader derives that
+map again from the hashed train and catalog unit identities before accepting
+it, so a producer cannot omit or substitute an output-affecting source
+checkout. The record also includes the frozen `shared-workflows`,
 `shared-actions`, and `gha-tools` revisions and any build timestamp supplied to
 the package build. The timestamp is included because Conda packages and wheels
 can embed it in their bytes; workflows that do not use one record an empty,

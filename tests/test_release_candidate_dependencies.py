@@ -28,6 +28,7 @@ _PATCHER_SPEC.loader.exec_module(_PATCHER_MODULE)
 _LOCK_SELECTOR = Path(__file__).parents[1] / "release-candidate-dependencies" / "select_lock.py"
 _SETUP = Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh"
 _DOWNLOADER = Path(__file__).parents[1] / "release-candidate-dependencies" / "download-from-candidate.sh"
+_SOURCE_INPUTS = Path(__file__).parents[1] / "release-candidate-dependencies" / "write-source-inputs.sh"
 _LOCK_SELECTOR_SPEC = importlib.util.spec_from_file_location("select_lock", _LOCK_SELECTOR)
 if _LOCK_SELECTOR_SPEC is None or _LOCK_SELECTOR_SPEC.loader is None:
     raise RuntimeError(f"unable to load lock selector: {_LOCK_SELECTOR}")
@@ -76,6 +77,99 @@ def test_candidate_setup_exports_cache_policy_and_train_input_identity():
     missing = [contract for contract in expected_contracts if contract not in setup]
     if missing:
         pytest.fail(f"candidate build-input identity is incomplete: {missing}")
+
+
+def test_source_inputs_follow_recursive_source_dependencies_and_frozen_build_tools(tmp_path):
+    train = {
+        "release_units": [
+            {"id": "conda:app", "artifact_family": "conda", "dependencies": ["source:app"]},
+            {
+                "id": "source:app",
+                "artifact_family": "source",
+                "repository": "app",
+                "source_revision": "a" * 40,
+                "dependencies": ["source:library"],
+            },
+            {"id": "source:library", "artifact_family": "source", "repository": "library", "source_revision": "b" * 40},
+        ],
+        "source_revisions": {"app": "a" * 40, "library": "b" * 40},
+        "github_repositories": {"app": "rapidsai/app", "library": "rapidsai/library"},
+        "build_tool_revisions": {
+            "dependency-file-generator": "c" * 40,
+            "rapids-build-backend": "d" * 40,
+            "rapids-cmake": "e" * 40,
+        },
+    }
+    train_path = tmp_path / "release-train.json"
+    output_path = tmp_path / "source-inputs.json"
+    train_path.write_text(json.dumps(train), encoding="utf-8")
+
+    subprocess.run(  # noqa: S603
+        [
+            "/bin/bash",
+            str(_SOURCE_INPUTS),
+            "--train",
+            str(train_path),
+            "--output",
+            str(output_path),
+            "--target-unit",
+            "conda:app",
+        ],
+        check=True,
+    )
+    result = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result == {  # noqa: S101
+        "schema_version": 1,
+        "sources": {
+            "app": {"repository": "rapidsai/app", "revision": "a" * 40},
+            "library": {"repository": "rapidsai/library", "revision": "b" * 40},
+        },
+        "build_tools": {
+            "dependency-file-generator": {"repository": "rapidsai/dependency-file-generator", "revision": "c" * 40},
+            "rapids-build-backend": {"repository": "rapidsai/rapids-build-backend", "revision": "d" * 40},
+            "rapids-cmake": {"repository": "rapidsai/rapids-cmake", "revision": "e" * 40},
+        },
+    }
+
+    train["source_revisions"]["library"] = "f" * 40
+    train["release_units"][2]["source_revision"] = "f" * 40
+    train_path.write_text(json.dumps(train), encoding="utf-8")
+    result_process = subprocess.run(  # noqa: S603
+        [
+            "/bin/bash",
+            str(_SOURCE_INPUTS),
+            "--train",
+            str(train_path),
+            "--output",
+            str(output_path),
+            "--target-unit",
+            "conda:app",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result_process.returncode == 0  # noqa: S101
+    assert json.loads(output_path.read_text(encoding="utf-8"))["sources"]["library"]["revision"] == "f" * 40  # noqa: S101
+
+    train["release_units"][0]["dependencies"] = ["source:missing"]
+    train_path.write_text(json.dumps(train), encoding="utf-8")
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.run(  # noqa: S603
+            [
+                "/bin/bash",
+                str(_SOURCE_INPUTS),
+                "--train",
+                str(train_path),
+                "--output",
+                str(output_path),
+                "--target-unit",
+                "conda:app",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
 
 def test_candidate_archive_families_use_train_dependencies_and_frozen_sources():

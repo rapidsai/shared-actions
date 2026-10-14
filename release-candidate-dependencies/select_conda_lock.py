@@ -11,15 +11,18 @@ from pathlib import PurePosixPath
 from typing import Any
 
 SHA256 = re.compile(r"[0-9a-f]{64}")
-CUDA_VERSION = re.compile(r"^(\d+)\.(\d+)(?:\.\d+)*$")
+CUDA_VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
 
 
-def _cuda_minor_version(value: str) -> str:
-    """Normalize a numeric CUDA version to the major/minor lock scope."""
-    match = CUDA_VERSION.fullmatch(value)
-    if match is None:
-        return value
-    return f"{match.group(1)}.{match.group(2)}"
+def _cuda_scope_matches(scope: Any, requested: str) -> bool:
+    """Match by the precision explicitly recorded in the frozen lock scope."""
+    if not isinstance(scope, str) or not isinstance(requested, str):
+        return False
+    if CUDA_VERSION.fullmatch(scope) is None or CUDA_VERSION.fullmatch(requested) is None:
+        return False
+    scope_parts = scope.split(".")
+    requested_parts = requested.split(".")
+    return len(scope_parts) <= len(requested_parts) and scope_parts == requested_parts[: len(scope_parts)]
 
 
 def select_conda_lock(
@@ -40,7 +43,7 @@ def select_conda_lock(
         and isinstance(record.get("scope"), dict)
         and record["scope"].get("repository") == repository
         and record["scope"].get("platform") == platform
-        and _cuda_minor_version(record["scope"].get("cuda", "")) == _cuda_minor_version(cuda_version)
+        and _cuda_scope_matches(record["scope"].get("cuda"), cuda_version)
         and record["scope"].get("environment") == environment
     ]
     if len(matches) != 1:

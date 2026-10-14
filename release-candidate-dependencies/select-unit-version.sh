@@ -16,10 +16,18 @@ jq -r --arg unit_id "${unit_id}" '
           or (($contract.unit_package_versions // {}) | type) != "object"
           or (($contract.package_versions // {}) | type) != "object"
         then error("release train version contract is invalid")
-        else ($contract.unit_package_versions[$unit_id]
-              // $contract.package_versions[$unit.version_profile]
-              // "")
-          | if type == "string" and (length == 0 or test("^[0-9]+\\.[0-9]+(\\.[0-9]+)?$")) then .
+        else ($unit.version_profile // "") as $profile
+          | ($contract.unit_package_versions[$unit_id]
+             // $contract.package_versions[$profile]
+             // null) as $version
+          | if $version == null then
+              if (["conda", "wheel", "maven"] | index($profile)) != null
+              then error("release train is missing the frozen package version for \($unit_id)")
+              else ""
+              end
+            elif ($version | type) == "string"
+                 and ($version | test("^[0-9]+\\.[0-9]+(\\.[0-9]+)?$"))
+              then $version
             else error("release train unit version is invalid")
             end
         end

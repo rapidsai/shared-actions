@@ -135,20 +135,51 @@ def test_candidate_unit_version_selector_allows_units_without_package_versions(t
         json.dumps(
             {
                 "version_contract": {"package_versions": {"conda": "26.12.00"}},
-                "release_units": [{"id": "docs:deployment", "version_profile": "docs"}],
+                "release_units": [
+                    {"id": "docs:deployment", "version_profile": "docs"},
+                    {"id": "source:ucxx", "version_profile": "source"},
+                    {"id": "container:rapids-docker", "version_profile": "container"},
+                ],
+            }
+        )
+    )
+
+    for unit_id in ("docs:deployment", "source:ucxx", "container:rapids-docker"):
+        result = subprocess.run(
+            ["bash", str(UNIT_VERSION_SELECTOR), str(train_file), unit_id],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ""
+
+
+@pytest.mark.parametrize(
+    ("unit_id", "version_profile"),
+    [("conda:ucxx", "conda"), ("wheel:ucxx", "wheel"), ("maven:cuvs-java", "maven")],
+)
+def test_candidate_unit_version_selector_rejects_missing_package_version(tmp_path, unit_id, version_profile):
+    train_file = tmp_path / "release-train.json"
+    train_file.write_text(
+        json.dumps(
+            {
+                "version_contract": {"package_versions": {}},
+                "release_units": [{"id": unit_id, "version_profile": version_profile}],
             }
         )
     )
 
     result = subprocess.run(
-        ["bash", str(UNIT_VERSION_SELECTOR), str(train_file), "docs:deployment"],
+        ["bash", str(UNIT_VERSION_SELECTOR), str(train_file), unit_id],
         check=False,
         capture_output=True,
         text=True,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == ""
+    assert result.returncode != 0
+    assert "missing the frozen package version" in result.stderr
 
 
 def test_candidate_unit_version_selector_rejects_a_missing_unit(tmp_path):

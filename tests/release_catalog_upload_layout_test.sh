@@ -29,11 +29,17 @@ shift 2
 bucket=""
 key=""
 body=""
+conditional=""
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --bucket) bucket="$2"; shift 2 ;;
     --key) key="$2"; shift 2 ;;
     --body) body="$2"; shift 2 ;;
+    --if-none-match) conditional="$2"; shift 2 ;;
+    --tagging)
+      echo "AccessDenied: producers cannot set retention tags, including during creation" >&2
+      exit 1
+      ;;
     *) shift ;;
   esac
 done
@@ -45,6 +51,7 @@ case "${operation}" in
     printf '{"ChecksumSHA256":"%s"}\n' "${checksum}"
     ;;
   put-object)
+    [[ "${conditional}" == '*' ]]
     [[ ! -e "${path}" ]]
     mkdir -p "$(dirname "${path}")"
     cp "${body}" "${path}"
@@ -160,6 +167,9 @@ base_implementation_revisions='{"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 changed_implementation_revisions='{"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shared-actions":"dddddddddddddddddddddddddddddddddddddddd","shared-workflows":"cccccccccccccccccccccccccccccccccccccccc"}'
 
 run_upload 1 "${base_implementation_revisions}"
+initial_created="$(wc -l <"${temporary_directory}/put-objects.log")"
+run_upload 1 "${base_implementation_revisions}"
+[[ "$(wc -l <"${temporary_directory}/put-objects.log")" == "${initial_created}" ]]
 artifact_root="${temporary_directory}/s3/candidate-store/artifacts/example"
 artifact_digest="$(find "${artifact_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)"
 canonical="${artifact_root}/${artifact_digest}"
@@ -327,7 +337,34 @@ if [[ "${#artifact_digests[@]}" -ne 10 ]]; then
   echo "source-only dependency revision change did not create a distinct build-input digest" >&2
   exit 1
 fi
+
+# The legacy uploader must also work with a producer identity that cannot tag
+# newly created objects. Its identical retry must not rewrite any bytes.
+cp "${temporary_directory}/bundle/release-catalog-entries.conda.json" \
+  "${temporary_directory}/bundle/release-catalog-entries.json"
+run_legacy_upload() {
+  PATH="${temporary_directory}/bin:${PATH}" \
+    FAKE_S3="${temporary_directory}/s3" \
+    FAKE_LOG="${temporary_directory}/legacy-put-objects.log" \
+    RELEASE_ARTIFACT_DIRECTORY="${temporary_directory}/bundle" \
+    RELEASE_CANDIDATE_BUCKET="candidate-store" \
+    RELEASE_CANDIDATE_PREFIX="legacy" \
+    RELEASE_CANDIDATE_TRAIN_SHA256="${train_sha256}" \
+    RELEASE_SOURCE_ARTIFACT_NAME="conda" \
+    GITHUB_REPOSITORY="rapidsai/example" \
+    GITHUB_RUN_ID=101 \
+    GITHUB_STEP_SUMMARY="${temporary_directory}/summary" \
+    "${repository_root}/release-catalog/upload-s3.sh"
+}
+run_legacy_upload
+legacy_created="$(wc -l <"${temporary_directory}/legacy-put-objects.log")"
+run_legacy_upload
+[[ "$(wc -l <"${temporary_directory}/legacy-put-objects.log")" == "${legacy_created}" ]]
 printf 'different bytes\n' >"${temporary_directory}/bundle/linux-64/example-26.10.00.conda"
+if run_legacy_upload >/dev/null 2>&1; then
+  echo "legacy upload accepted changed existing bytes" >&2
+  exit 1
+fi
 if run_upload 12 "${base_implementation_revisions}" >/dev/null 2>&1; then
   echo "upload accepted different canonical package bytes" >&2
   exit 1

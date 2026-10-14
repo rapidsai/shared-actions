@@ -203,6 +203,7 @@ def _run_container_setup_without_a_channel(tmp_path, dependencies, prepare_conda
         "release_units": [
             {"id": "container:ci-images", "artifact_family": "container", "dependencies": dependencies},
             {"id": "conda:unrelated", "artifact_family": "conda", "dependencies": []},
+            {"id": "conda:transitive", "artifact_family": "conda", "dependencies": ["conda:unrelated"]},
             {"id": "source:ci-images", "artifact_family": "source", "dependencies": []},
         ]
     }
@@ -267,6 +268,13 @@ def test_container_with_conda_dependency_cannot_skip_private_channel(tmp_path):
     assert result.returncode != 0  # noqa: S101
     assert "train declares a Conda dependency but prepare-conda-channel is false" in result.stderr  # noqa: S101
     assert "release train must lock rapids-cmake" not in result.stderr  # noqa: S101
+
+
+def test_container_transitive_conda_dependency_cannot_skip_private_channel(tmp_path):
+    result = _run_container_setup_without_a_channel(tmp_path, ["conda:transitive"])
+
+    assert result.returncode != 0  # noqa: S101
+    assert "train declares a Conda dependency but prepare-conda-channel is false" in result.stderr  # noqa: S101
 
 
 def test_container_unknown_dependency_cannot_be_treated_as_empty(tmp_path):

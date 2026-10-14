@@ -7,13 +7,14 @@ import os
 import subprocess
 from pathlib import Path
 
-import yaml
 import pytest
+import yaml
 
 ROOT = Path(__file__).parents[1]
 _SELECTOR_PATH = ROOT / "release-candidate-dependencies" / "select_conda_lock.py"
 _SELECTOR_SPEC = importlib.util.spec_from_file_location("select_conda_lock", _SELECTOR_PATH)
-assert _SELECTOR_SPEC is not None and _SELECTOR_SPEC.loader is not None
+if _SELECTOR_SPEC is None or _SELECTOR_SPEC.loader is None:
+    raise RuntimeError(f"unable to load Conda lock selector: {_SELECTOR_PATH}")
 _SELECTOR_MODULE = importlib.util.module_from_spec(_SELECTOR_SPEC)
 _SELECTOR_SPEC.loader.exec_module(_SELECTOR_MODULE)
 
@@ -26,7 +27,7 @@ def test_context_action_runs_with_python3_when_python_alias_is_absent(tmp_path):
     invocations = tmp_path / "python3-arguments"
     fake_python3 = executable_dir / "python3"
     fake_python3.write_text(
-        "#!/bin/bash\nprintf '%s\\n' \"$@\" >> \"${PYTHON3_INVOCATIONS}\"\n",
+        '#!/bin/bash\nprintf \'%s\\n\' "$@" >> "${PYTHON3_INVOCATIONS}"\n',
         encoding="utf-8",
     )
     fake_python3.chmod(0o755)
@@ -41,7 +42,7 @@ def test_context_action_runs_with_python3_when_python_alias_is_absent(tmp_path):
         "PYTHON3_INVOCATIONS": str(invocations),
     }
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - executes the checked-in composite action step under Bash.
         ["/bin/bash", "-e", "-c", resolve_step["run"]],
         env=environment,
         check=False,
@@ -49,14 +50,17 @@ def test_context_action_runs_with_python3_when_python_alias_is_absent(tmp_path):
         text=True,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert invocations.read_text().splitlines() == [
+    if result.returncode != 0:
+        pytest.fail(f"candidate context step failed with Python 3 only on PATH: {result.stderr}")
+    expected_invocation = [
         str(tmp_path / "resolver.py"),
         "--source-sha",
         "a" * 40,
         "--script",
         "",
     ]
+    if invocations.read_text().splitlines() != expected_invocation:
+        pytest.fail("candidate context action did not invoke its resolver with the expected arguments")
 
 
 def _conda_lock(path, repository, platform, cuda, environment):
@@ -116,7 +120,9 @@ def test_conda_lock_selector_handles_full_train_matrix_and_exact_cuda_minor():
 
     selected = _SELECTOR_MODULE.select_conda_lock(receipt, "cucim", "linux-64", "12.9", "host")
 
-    assert selected == {"path": target_lock["path"], "sha256": "a" * 64}
+    expected = {"path": target_lock["path"], "sha256": "a" * 64}
+    if selected != expected:
+        pytest.fail(f"Conda lock selector returned {selected}, expected {expected}")
 
 
 def test_conda_lock_selector_rejects_major_only_wrong_environment_and_duplicates():
@@ -156,6 +162,10 @@ def test_conda_lock_selector_rejects_unsafe_references(path, sha256, message):
 def test_setup_uses_exact_conda_cuda_scope_instead_of_cuda_major():
     setup = (ROOT / "release-candidate-dependencies" / "setup.sh").read_text()
 
-    assert '"${script_directory}/select_conda_lock.py"' in setup
-    assert '--cuda-version "${RELEASE_CANDIDATE_CUDA_VERSION}"' in setup
-    assert '--cuda "${cuda_major}"' not in setup
+    expected_arguments = (
+        '"${script_directory}/select_conda_lock.py"',
+        '--cuda-version "${RELEASE_CANDIDATE_CUDA_VERSION}"',
+    )
+    missing = [argument for argument in expected_arguments if argument not in setup]
+    if missing or '--cuda "${cuda_major}"' in setup:
+        pytest.fail(f"candidate setup does not select the exact Conda CUDA scope: {missing}")

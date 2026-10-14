@@ -43,12 +43,7 @@ def select_conda_lock(
     record = matches[0]
     path = record.get("path")
     sha256 = record.get("sha256")
-    if (
-        not isinstance(path, str)
-        or not path
-        or PurePosixPath(path).is_absolute()
-        or ".." in PurePosixPath(path).parts
-    ):
+    if not isinstance(path, str) or not path or PurePosixPath(path).is_absolute() or ".." in PurePosixPath(path).parts:
         raise ValueError("release train contains an unsafe Conda lock path")
     if not isinstance(sha256, str) or SHA256.fullmatch(sha256) is None:
         raise ValueError("release train contains an invalid Conda lock checksum")

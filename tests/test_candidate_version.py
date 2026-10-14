@@ -65,7 +65,7 @@ def test_candidate_version_overrides_train_gha_tools_generator(tmp_path):
         ("wheel:rapids-logger", {"conda:rapids-logger": "0.3.0"}, "0.3.0"),
     ],
 )
-def test_wheel_cmake_source_version_uses_frozen_conda_contract(tmp_path, unit_id, unit_versions, expected):
+def test_candidate_cmake_source_version_uses_frozen_conda_contract(tmp_path, unit_id, unit_versions, expected):
     train_file = tmp_path / "release-train.json"
     train_file.write_text(
         json.dumps(
@@ -148,6 +148,8 @@ def test_candidate_setup_installs_override_before_adding_candidate_tools_to_path
     source = SETUP_SCRIPT.read_text()
 
     install = source.index('install-version-override.sh" "${tools}"')
+    source_version = source.index('RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel"')
     path_add = source.index('printf \'%s\\n\' "${tools}" >>"${GITHUB_PATH}"')
 
+    assert source_version < install
     assert install < path_add

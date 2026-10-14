@@ -222,9 +222,9 @@ if [[ "${actual_gha_tools_revision}" != "${gha_tools_revision}" ]]; then
   exit 1
 fi
 PATH="${gha_tools_directory}/tools:${PATH}"
-# Candidate jobs freeze the package version in the source checkout's VERSION
-# file. Prefer that value over the Git-distance version computed by
-# gha-tools, while leaving non-candidate/custom invocations unchanged.
+# Wheel builds may expose a normalized package version that RAPIDS CMake cannot
+# parse. Use the frozen Conda source version for the CMake generator, while
+# leaving wheel package metadata independent.
 if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel" ]]; then
   RAPIDS_RELEASE_CANDIDATE_CMAKE_VERSION="$(bash "${script_directory}/select-cmake-source-version.sh" "${workspace}/release-train.json" "${candidate_unit_id}")"
   export RAPIDS_RELEASE_CANDIDATE_CMAKE_VERSION

@@ -26,6 +26,9 @@ select = [
     "PERF",
     # flake8-pie
     "PIE",
+    # Preserve bugbear B037 constructor return/yield coverage in Ruff.
+    "PLE0100",
+    "PLE0101",
     # flake8-return
     "RET",
     # ruff-exclusive checks

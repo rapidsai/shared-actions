@@ -196,6 +196,96 @@ def test_candidate_archive_families_use_train_dependencies_and_frozen_sources():
         pytest.fail(f"candidate archive dependency contract is incomplete: {missing}")
 
 
+def _run_container_setup_without_a_channel(tmp_path, dependencies, prepare_conda_channel="false"):
+    import os
+
+    train = {
+        "release_units": [
+            {"id": "container:ci-images", "artifact_family": "container", "dependencies": dependencies},
+            {"id": "conda:unrelated", "artifact_family": "conda", "dependencies": []},
+            {"id": "source:ci-images", "artifact_family": "source", "dependencies": []},
+        ]
+    }
+    train_without_digest = json.dumps(train, sort_keys=True, separators=(",", ":"))
+    train_sha256 = hashlib.sha256(train_without_digest.encode()).hexdigest()
+    train["train_sha256"] = train_sha256
+    train_path = tmp_path / "release-train.json"
+    train_path.write_text(json.dumps(train), encoding="utf-8")
+
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    aws = stub_bin / "aws"
+    aws.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'if [[ "$1" != "s3" || "$2" != "cp" || "$3" != *"/release-train.json" ]]; then\n'
+        '  echo "unexpected aws request" >&2\n'
+        "  exit 91\n"
+        "fi\n"
+        'cp "${CANDIDATE_TEST_TRAIN}" "$4"\n',
+        encoding="utf-8",
+    )
+    aws.chmod(0o755)
+
+    env = {
+        **os.environ,
+        "PATH": f"{stub_bin}:{os.environ['PATH']}",
+        "CANDIDATE_TEST_TRAIN": str(train_path),
+        "GITHUB_ENV": str(tmp_path / "github-env"),
+        "GITHUB_PATH": str(tmp_path / "github-path"),
+        "RUNNER_TEMP": str(tmp_path / "runner-temp"),
+        "GITHUB_REPOSITORY": "rapidsai/ci-imgs",
+        "RELEASE_CANDIDATE_BUCKET": "candidate-test",
+        "RELEASE_CANDIDATE_TRAIN_PREFIX": "train-state",
+        "RELEASE_CANDIDATE_TRAIN_SHA256": train_sha256,
+        "RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL": prepare_conda_channel,
+        "RELEASE_CANDIDATE_ARTIFACT_FAMILY": "container",
+        "RELEASE_CANDIDATE_UNIT_ID": "container:ci-images",
+        "RELEASE_CANDIDATE_ARCH": "amd64",
+        "RELEASE_CANDIDATE_CUDA_VERSION": "12.2",
+    }
+    return subprocess.run(  # noqa: S603
+        ["/bin/bash", str(_SETUP)],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_container_without_conda_dependencies_may_skip_private_channel(tmp_path):
+    result = _run_container_setup_without_a_channel(tmp_path, [])
+
+    assert result.returncode != 0  # noqa: S101
+    assert "private Conda channel" not in result.stderr  # noqa: S101
+    assert "release train must lock rapids-cmake" in result.stderr  # noqa: S101
+
+
+def test_container_with_conda_dependency_cannot_skip_private_channel(tmp_path):
+    result = _run_container_setup_without_a_channel(tmp_path, ["conda:unrelated"])
+
+    assert result.returncode != 0  # noqa: S101
+    assert "train declares a Conda dependency but prepare-conda-channel is false" in result.stderr  # noqa: S101
+    assert "release train must lock rapids-cmake" not in result.stderr  # noqa: S101
+
+
+def test_container_unknown_dependency_cannot_be_treated_as_empty(tmp_path):
+    result = _run_container_setup_without_a_channel(tmp_path, ["conda:missing"])
+
+    assert result.returncode != 0  # noqa: S101
+    assert "unable to verify candidate dependencies from the release train" in result.stderr  # noqa: S101
+    assert "release train must lock rapids-cmake" not in result.stderr  # noqa: S101
+
+
+def test_container_with_conda_dependency_keeps_private_channel_mode(tmp_path):
+    result = _run_container_setup_without_a_channel(tmp_path, ["conda:unrelated"], prepare_conda_channel="true")
+
+    assert result.returncode != 0  # noqa: S101
+    assert "private Conda channel" not in result.stderr  # noqa: S101
+    assert "train declares a Conda dependency but prepare-conda-channel is false" not in result.stderr  # noqa: S101
+    assert "release train must lock rapids-cmake" in result.stderr  # noqa: S101
+
+
 def test_maven_dependency_resolution_does_not_require_a_python_matrix():
     action = (Path(__file__).parents[1] / "release-candidate-dependencies" / "action.yml").read_text()
 

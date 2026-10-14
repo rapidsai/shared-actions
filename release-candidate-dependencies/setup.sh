@@ -44,11 +44,6 @@ if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel" && -z "${RELEASE_CANDIDA
   echo "RELEASE_CANDIDATE_PYTHON_VERSION is required for wheel candidate dependencies" >&2
   exit 1
 fi
-if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "container" \
-  && "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" != "true" ]]; then
-  echo "container candidate dependencies require a private Conda channel" >&2
-  exit 1
-fi
 candidate_unit_id="${RELEASE_CANDIDATE_UNIT_ID:-${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${GITHUB_REPOSITORY##*/}}"
 implementation_mode="${RELEASE_CANDIDATE_IMPLEMENTATION_MODE:-reusable}"
 if [[ "${implementation_mode}" != "reusable" && "${implementation_mode}" != "direct" ]]; then
@@ -84,6 +79,39 @@ actual_train_sha256="$(jq -cSj 'del(.train_sha256)' "${workspace}/release-train.
 if [[ "${actual_train_sha256}" != "${RELEASE_CANDIDATE_TRAIN_SHA256}" ]]; then
   echo "stored release train does not match RELEASE_CANDIDATE_TRAIN_SHA256" >&2
   exit 1
+fi
+dependency_summary="$(jq -cer --arg target "${candidate_unit_id}" '
+  (.release_units | map({key: .id, value: .}) | from_entries) as $units
+  | def closure($id):
+      ($units[$id].dependencies // []) as $dependencies
+      | if ($dependencies | type) != "array" then
+          error("release unit dependencies must be an array")
+        elif any($dependencies[]; type != "string" or $units[.] == null) then
+          error("release unit references an unknown dependency")
+        else
+          $dependencies
+          | map(select($units[.] != null and $units[.].artifact_family != "source") | ., closure(.))
+          | flatten | unique
+        end;
+  if ($units[$target] == null or $units[$target].artifact_family == "source") then
+    error("release train has no candidate build unit")
+  else
+    closure($target) as $dependencies
+    | {dependency_count: ($dependencies | length),
+       conda_dependency_count: ([$dependencies[] | select(startswith("conda:"))] | length)}
+  end
+' "${workspace}/release-train.json")" || {
+  echo "unable to verify candidate dependencies from the release train" >&2
+  exit 1
+}
+dependency_count="$(jq -r '.dependency_count' <<<"${dependency_summary}")"
+conda_dependency_count="$(jq -r '.conda_dependency_count' <<<"${dependency_summary}")"
+if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "container" \
+  && "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" != "true" ]]; then
+  if [[ "${conda_dependency_count}" != "0" ]]; then
+    echo "train declares a Conda dependency but prepare-conda-channel is false" >&2
+    exit 1
+  fi
 fi
 rapids_cmake_sha="$(jq -r '.build_tool_revisions["rapids-cmake"] // empty' "${workspace}/release-train.json")"
 if [[ ! "${rapids_cmake_sha}" =~ ^[[:xdigit:]]{40}$ ]]; then
@@ -371,11 +399,6 @@ selected="${workspace}/selected-artifacts.json"
 resolved_inputs="${workspace}/resolved-upstream-inputs.jsonl"
 upstream_inputs="${workspace}/upstream-inputs.json"
 : >"${resolved_inputs}"
-if ! jq -e --arg target "${target_unit}" '.release_units[] | select(.id == $target and .artifact_family != "source")' \
-  "${workspace}/release-train.json" >/dev/null; then
-  echo "release train has no candidate build unit for ${target_unit}" >&2
-  exit 1
-fi
 candidate_source_inputs="${workspace}/candidate-source-inputs.json"
 bash "${script_directory}/write-source-inputs.sh" \
   --train "${workspace}/release-train.json" \
@@ -399,14 +422,6 @@ jq -cnS \
 # Shell globstar has a clear, portable meaning here and keeps the jq program
 # focused on schema fields rather than filesystem traversal.
 manifest_paths=("${manifests}"/**/release-catalog-entries.*.json)
-dependency_count="$(jq -r --arg target "${target_unit}" '
-  (.release_units | map({key: .id, value: .}) | from_entries) as $units
-  | def closure($id):
-      ($units[$id].dependencies // [])
-      | map(select($units[.] != null and $units[.].artifact_family != "source") | ., closure(.))
-      | flatten | unique;
-  closure($target) | length
-' "${workspace}/release-train.json")"
 if [[ "${#manifest_paths[@]}" -eq 0 ]]; then
   if [[ "${dependency_count}" -ne 0 ]]; then
     echo "no completed candidate catalog envelopes found for ${target_unit}'s declared dependencies" >&2

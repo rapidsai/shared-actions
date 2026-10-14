@@ -7,6 +7,9 @@ inputs:
   script:
     description: Custom job script requiring a centrally reviewed policy; empty for standard builds.
     default: ''
+  audit-boundary:
+    description: Probe private candidate policy boundaries after resolving this exact controller binding.
+    default: 'false'
 outputs:
   train-sha256:
     description: Exact release train bound to this workflow run.
@@ -49,3 +52,20 @@ runs:
           exit 1
         fi
         "${python_bin}" "${IMPLEMENTATION_PATH}/resolver.py" --source-sha "${SOURCE_SHA}" --script "${CUSTOM_SCRIPT}"
+    - name: Audit private workload boundaries
+      if: ${{ inputs.audit-boundary == 'true' }}
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+        TRAIN_SHA256: ${{ steps.resolve.outputs.train-sha256 }}
+      run: |
+        if command -v python3 >/dev/null 2>&1; then
+          python_bin=python3
+        elif command -v python >/dev/null 2>&1 && python -c 'import sys; raise SystemExit(sys.version_info.major != 3)' >/dev/null 2>&1; then
+          python_bin=python
+        else
+          echo "Python 3 is required for the private workload boundary audit" >&2
+          exit 1
+        fi
+        "${python_bin}" "${IMPLEMENTATION_PATH}/boundary_probe.py" --source-sha "${SOURCE_SHA}" --train-sha256 "${TRAIN_SHA256}"

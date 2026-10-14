@@ -10,7 +10,7 @@
     "schema_version": {"const": 1},
     "producer": {
       "description": "The tool that generated this document. Matches metadata.tools in the CycloneDX SBOM.",
-      "const": "rapidsai/shared-actions/release-catalog"
+      "pattern": "^[A-Za-z0-9_.-]+/shared-actions/release-catalog$"
     },
     "source": {"$ref": "#/$defs/source"},
     "entries": {

@@ -83,6 +83,7 @@ runs:
         RELEASE_CANDIDATE_MATRIX_ARCH: ${{ inputs.candidate-matrix-arch }}
         RELEASE_CANDIDATE_MATRIX_CUDA_VERSION: ${{ inputs.candidate-matrix-cuda-version }}
         RELEASE_CANDIDATE_MATRIX_PYTHON_VERSION: ${{ inputs.candidate-matrix-python-version }}
+        RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
       run: "${IMPLEMENTATION_PATH}/materialize.sh"
     - name: Write release-candidate bundle to S3
       if: ${{ inputs.upload-to-s3 == 'true' }}

@@ -73,6 +73,31 @@ diff -u \
   "${example_directory}/${example_provenance_path}" \
   "${canonical_bundle_directory}/${example_provenance_path}"
 
+# A train may pin the reviewed action from an explicitly named fork. The
+# generated catalog producer and CycloneDX tool identity use that exact owner,
+# while a different executing owner is rejected.
+fork_bundle_directory="${temporary_directory}/fork-bundle"
+mkdir -p "${fork_bundle_directory}"
+cp "${bundle_directory}/cuvs-java-26.08.0.jar" "${fork_bundle_directory}/"
+cp "${bundle_directory}/cuvs-java-package-identity.json" "${fork_bundle_directory}/"
+RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES='{"gha-tools":"rapidsai/gha-tools","shared-actions":"msarahan/shared-actions","shared-workflows":"rapidsai/shared-workflows"}' \
+RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY="msarahan/shared-actions" \
+RELEASE_ARTIFACT_DIRECTORY="${fork_bundle_directory}" \
+"${repository_root}/release-catalog/materialize.sh"
+fork_entries_path="${fork_bundle_directory}/release-catalog-entries.json"
+jq -e '.producer == "msarahan/shared-actions/release-catalog" and (.entries | length == 1)' \
+  "${fork_entries_path}" >/dev/null
+fork_sbom_path="$(jq -r '.entries[0].sbom' "${fork_entries_path}")"
+jq -e '.metadata.tools.components[0].group == "msarahan" and .metadata.tools.components[0].name == "shared-actions/release-catalog"' \
+  "${fork_bundle_directory}/${fork_sbom_path}" >/dev/null
+if RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES='{"gha-tools":"rapidsai/gha-tools","shared-actions":"msarahan/shared-actions","shared-workflows":"rapidsai/shared-workflows"}' \
+  RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY="rapidsai/shared-actions" \
+  RELEASE_ARTIFACT_DIRECTORY="${fork_bundle_directory}" \
+  "${repository_root}/release-catalog/materialize.sh" >/dev/null 2>&1; then
+  echo "catalog materializer accepted an owner that differs from the frozen train" >&2
+  exit 1
+fi
+
 isolated_companion_directory="${temporary_directory}/isolated-companion"
 mkdir -p "${isolated_companion_directory}"
 cp "${entries_path}" "${isolated_companion_directory}/"

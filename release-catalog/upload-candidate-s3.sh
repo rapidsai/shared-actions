@@ -21,7 +21,7 @@ safe_prefix() {
   [[ "${prefix}" != /* && "${prefix}" != */ && "${prefix}" != *'//' && "${prefix}" != *'..'* ]]
 }
 
-for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_CANDIDATE_BUILD_INPUTS RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
+for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_CANDIDATE_BUILD_INPUTS RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
   require_value "${value}" "${!value:-}"
 done
 if [[ ! "${GITHUB_REPOSITORY}" =~ ^[^/]+/[^/]+$ ]]; then
@@ -37,10 +37,6 @@ if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
   echo "RELEASE_CANDIDATE_TRAIN_SHA256 must be a SHA-256 hex digest" >&2
   exit 1
 fi
-if [[ "${RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY}" != "rapidsai/shared-actions" ]]; then
-  echo "release catalog action must execute from rapidsai/shared-actions" >&2
-  exit 1
-fi
 build_implementation_revisions="$(jq -ceS '
   . as $revisions
   | if ($revisions | type) != "object" then error("build implementation revisions must be an object")
@@ -54,6 +50,30 @@ build_implementation_revisions="$(jq -ceS '
   echo "RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS is invalid" >&2
   exit 1
 }
+build_implementation_repositories="$(jq -ceS '
+  . as $repositories
+  | if ($repositories | type) != "object" then error("build implementation repositories must be an object")
+    elif (["gha-tools", "shared-actions", "shared-workflows"] | sort) != ($repositories | keys | sort)
+      then error("build implementation repositories must name exactly the supported tools")
+    elif ($repositories | all(to_entries[];
+      (.key | type) == "string"
+      and (.value | type) == "string"
+      and (.value | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))))
+      and ($repositories["gha-tools"] | endswith("/gha-tools"))
+      and ($repositories["shared-actions"] | endswith("/shared-actions"))
+      and ($repositories["shared-workflows"] | endswith("/shared-workflows"))
+      then $repositories
+    else error("invalid build implementation repository")
+    end
+' <<<"${RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES}")" || {
+  echo "RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES is invalid" >&2
+  exit 1
+}
+frozen_shared_actions_repository="$(jq -r '."shared-actions"' <<<"${build_implementation_repositories}")"
+if [[ "${RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY}" != "${frozen_shared_actions_repository}" ]]; then
+  echo "release catalog action repository does not match the frozen release train" >&2
+  exit 1
+fi
 if [[ "${RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION}" != "$(jq -r '."shared-actions"' <<<"${build_implementation_revisions}")" ]]; then
   echo "release catalog shared-actions revision does not match the frozen release train" >&2
   exit 1
@@ -74,7 +94,7 @@ if [[ ! -f "${RELEASE_CANDIDATE_BUILD_INPUTS}" ]]; then
   echo "RELEASE_CANDIDATE_BUILD_INPUTS does not name a readable candidate input record" >&2
   exit 1
 fi
-candidate_build_inputs="$(jq -ceS '
+candidate_build_inputs="$(jq -ceS --argjson repositories "${build_implementation_repositories}" '
   if .schema_version != 1
      or ((.train_inputs | type) != "object")
      or ((.train_inputs.lock_receipt_sha256 | type) != "string")
@@ -83,6 +103,7 @@ candidate_build_inputs="$(jq -ceS '
      or ((.train_inputs.variant_receipt_sha256 | test("^[0-9a-f]{64}$")) | not)
      or ((.build_policy | type) != "object")
      or ((.build_policy.sccache | type) != "boolean")
+     or (.build_implementation_repositories != $repositories)
   then error("candidate build inputs must contain lock, variant, and sccache identities")
   else {
     schema_version: 1,
@@ -90,7 +111,8 @@ candidate_build_inputs="$(jq -ceS '
       lock_receipt_sha256: .train_inputs.lock_receipt_sha256,
       variant_receipt_sha256: .train_inputs.variant_receipt_sha256
     },
-    build_policy: {sccache: .build_policy.sccache}
+    build_policy: {sccache: .build_policy.sccache},
+    build_implementation_repositories: .build_implementation_repositories
   }
   end
 ' "${RELEASE_CANDIDATE_BUILD_INPUTS}")" || {
@@ -163,6 +185,7 @@ fi
 build_record_path="$(mktemp)"
 jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
   --argjson build_implementation_revisions "${build_implementation_revisions}" \
+  --argjson build_implementation_repositories "${build_implementation_repositories}" \
   --argjson candidate_build_inputs "${candidate_build_inputs}" \
   --arg build_datetime "${RAPIDS_DATETIME_STRING:-}" '
   {
@@ -172,6 +195,7 @@ jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
     source: (.source | {artifact, repository, sha, workflow_ref, matrix}),
     build_datetime: $build_datetime,
     build_implementation_revisions: $build_implementation_revisions,
+    build_implementation_repositories: $build_implementation_repositories,
     candidate_build_inputs: $candidate_build_inputs,
     upstream_dependencies: $upstream_dependencies,
     packages: [

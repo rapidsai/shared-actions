@@ -78,6 +78,35 @@ def test_candidate_setup_exports_cache_policy_and_train_input_identity():
         pytest.fail(f"candidate build-input identity is incomplete: {missing}")
 
 
+def test_candidate_archive_families_use_train_dependencies_and_frozen_sources():
+    setup = _SETUP.read_text()
+
+    expected_contracts = (
+        '"container" ]]; then',
+        'if $family == "docs" or $family == "container" or $family == "maven" then ["conda:", "maven:"]',
+        "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}",
+        "write_source_manifest.py",
+        "RAPIDS_RELEASE_CANDIDATE_TRAIN_FILE",
+        "RAPIDS_RELEASE_CANDIDATE_UNIT_VERSIONS",
+        "RELEASE_CANDIDATE_SOURCE_MANIFEST",
+        "RELEASE_CANDIDATE_UNIT_ID",
+        'target_unit="${candidate_unit_id}"',
+        "index-conda-channel.sh",
+        "train declares a Conda dependency but prepare-conda-channel is false",
+    )
+    missing = [contract for contract in expected_contracts if contract not in setup]
+    if missing:
+        pytest.fail(f"candidate archive dependency contract is incomplete: {missing}")
+
+
+def test_maven_dependency_resolution_does_not_require_a_python_matrix():
+    action = (Path(__file__).parents[1] / "release-candidate-dependencies" / "action.yml").read_text()
+
+    python_input = action.split("  python-version:", maxsplit=1)[1].split("\nruns:", maxsplit=1)[0]
+    if "required: false" not in python_input:
+        pytest.fail("Maven candidate dependency action unexpectedly requires a Python matrix")
+
+
 def test_same_run_downloader_fetches_exact_reference_and_verifies_canonical_bytes(tmp_path):
     import os
 

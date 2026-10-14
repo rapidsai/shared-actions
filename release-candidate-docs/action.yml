@@ -1,5 +1,5 @@
 name: Stage release-candidate documentation
-description: Replace public documentation publication with train-scoped private S3 staging.
+description: Replace public documentation publication with a deterministic local archive for the release catalog.
 
 inputs:
   candidate-train-sha256:
@@ -10,7 +10,7 @@ inputs:
     required: false
     default: rapids-release-candidates
   candidate-train-prefix:
-    description: Root prefix for immutable candidate train records and documentation.
+    description: Retained for compatibility; the candidate catalog uploader writes the archive.
     required: false
     default: train-state
 

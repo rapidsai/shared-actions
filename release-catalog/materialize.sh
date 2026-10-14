@@ -75,6 +75,21 @@ if [[ ! "${github_repository}" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
   release_catalog_error "GITHUB_REPOSITORY must have owner/repository form"
   exit 1
 fi
+catalog_producer_repository="rapidsai/shared-actions"
+if [[ -n "${RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES:-}" ]]; then
+  candidate_shared_actions_repository="$(jq -er '
+    ."shared-actions"
+    | select(type == "string" and test("^[A-Za-z0-9_.-]+/shared-actions$"))
+  ' <<<"${RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES}")" || {
+    release_catalog_error "frozen shared-actions repository identity is invalid"
+    exit 1
+  }
+  if [[ "${RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY:-}" != "${candidate_shared_actions_repository}" ]]; then
+    release_catalog_error "release catalog action repository does not match the frozen train"
+    exit 1
+  fi
+  catalog_producer_repository="${candidate_shared_actions_repository}"
+fi
 require_positive_integer "GITHUB_RUN_ATTEMPT" "${github_run_attempt}"
 require_positive_integer "GITHUB_RUN_ID" "${github_run_id}"
 
@@ -424,6 +439,7 @@ write_generated_cyclonedx_sbom() {
   artifact_digest="$(sha256sum "${artifact_directory}/${primary_path}" | awk '{print $1}')"
   mkdir -p "$(dirname "${artifact_directory}/${destination}")"
   jq -n -S \
+    --arg producer_repository "${catalog_producer_repository}" \
     --arg artifact_digest "${artifact_digest}" \
     --arg artifact_path "${primary_path}" \
     --argjson package "${package}" \
@@ -436,7 +452,7 @@ write_generated_cyclonedx_sbom() {
         tools: {
           components: [{
             type: "application",
-            group: "rapidsai",
+            group: ($producer_repository | split("/") | .[0]),
             name: "shared-actions/release-catalog"
           }]
         },
@@ -552,6 +568,7 @@ fi
 # the top level rather than on every entry. The release platform keeps this
 # association when it merges companions from many jobs into the catalog.
 jq -n -S \
+  --arg producer_repository "${catalog_producer_repository}" \
   --arg artifact_name "${RELEASE_SOURCE_ARTIFACT_NAME}" \
   --arg repository "${github_repository}" \
   --arg run_attempt "${github_run_attempt}" \
@@ -564,7 +581,7 @@ jq -n -S \
   --argjson entries "$(jq -c '.entries' "${temporary_manifest}")" \
   '{
     schema_version: 1,
-    producer: "rapidsai/shared-actions/release-catalog",
+    producer: ($producer_repository + "/release-catalog"),
     source: {
       artifact: $artifact_name,
       repository: $repository,

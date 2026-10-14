@@ -21,7 +21,7 @@ require_value() {
   fi
 }
 
-for value in GITHUB_ENV GITHUB_PATH RUNNER_TEMP GITHUB_REPOSITORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL RELEASE_CANDIDATE_ARTIFACT_FAMILY RELEASE_CANDIDATE_ARCH RELEASE_CANDIDATE_CUDA_VERSION RELEASE_CANDIDATE_PYTHON_VERSION; do
+for value in GITHUB_ENV GITHUB_PATH RUNNER_TEMP GITHUB_REPOSITORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL RELEASE_CANDIDATE_ARTIFACT_FAMILY RELEASE_CANDIDATE_ARCH RELEASE_CANDIDATE_CUDA_VERSION; do
   require_value "${value}" "${!value:-}"
 done
 if [[ ! "${RELEASE_CANDIDATE_TRAIN_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; then
@@ -32,8 +32,26 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" != "true" && "${RELEASE_CANDI
   echo "RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL must be true or false" >&2
   exit 1
 fi
-if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "conda" && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "wheel" ]]; then
-  echo "RELEASE_CANDIDATE_ARTIFACT_FAMILY must be conda or wheel" >&2
+if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "conda" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "wheel" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "maven" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "docs" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "container" ]]; then
+  echo "RELEASE_CANDIDATE_ARTIFACT_FAMILY must be conda, wheel, maven, docs, or container" >&2
+  exit 1
+fi
+if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel" && -z "${RELEASE_CANDIDATE_PYTHON_VERSION:-}" ]]; then
+  echo "RELEASE_CANDIDATE_PYTHON_VERSION is required for wheel candidate dependencies" >&2
+  exit 1
+fi
+if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "container" \
+  && "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" != "true" ]]; then
+  echo "container candidate dependencies require a private Conda channel" >&2
+  exit 1
+fi
+candidate_unit_id="${RELEASE_CANDIDATE_UNIT_ID:-${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${GITHUB_REPOSITORY##*/}}"
+if [[ ! "${candidate_unit_id}" =~ ^${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:[A-Za-z0-9_.-]+$ ]]; then
+  echo "RELEASE_CANDIDATE_UNIT_ID must use the selected family and a safe train unit name" >&2
   exit 1
 fi
 
@@ -80,6 +98,29 @@ build_implementation_revisions="$(jq -ceS '
   echo "release train must lock shared-workflows, shared-actions, and gha-tools; regenerate the train" >&2
   exit 1
 }
+build_implementation_repositories="$(jq -ceS '
+  (.build_implementation_repositories // {
+    "gha-tools": "rapidsai/gha-tools",
+    "shared-actions": "rapidsai/shared-actions",
+    "shared-workflows": "rapidsai/shared-workflows"
+  }) as $repositories
+  | if ($repositories | type) != "object" then error("build implementation repositories must be an object")
+    elif (["gha-tools", "shared-actions", "shared-workflows"] | sort) != ($repositories | keys | sort)
+      then error("build implementation repositories must name exactly the supported tools")
+    elif ($repositories | all(to_entries[];
+      (.key | type) == "string"
+      and (.value | type) == "string"
+      and (.value | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))))
+      and ($repositories["gha-tools"] | endswith("/gha-tools"))
+      and ($repositories["shared-actions"] | endswith("/shared-actions"))
+      and ($repositories["shared-workflows"] | endswith("/shared-workflows"))
+      then $repositories
+    else error("invalid build implementation repository")
+    end
+' "${workspace}/release-train.json")" || {
+  echo "release train has invalid build_implementation_repositories" >&2
+  exit 1
+}
 gha_tools_revision="$(jq -r '."gha-tools"' <<<"${build_implementation_revisions}")"
 shared_actions_revision="$(jq -r '."shared-actions"' <<<"${build_implementation_revisions}")"
 shared_workflows_revision="$(jq -r '."shared-workflows"' <<<"${build_implementation_revisions}")"
@@ -94,6 +135,13 @@ if [[ "${candidate_sccache}" != "true" && "${candidate_sccache}" != "false" ]]; 
   echo "release train must declare candidate_build_policy.sccache as true or false; regenerate the train" >&2
   exit 1
 fi
+candidate_release_version="$(jq -er '.release_version | select(type == "string" and test("^[0-9]{2}\\.[0-9]{2}$"))' "${workspace}/release-train.json")" || {
+  echo "release train has no valid release_version" >&2
+  exit 1
+}
+source_manifest="${workspace}/source-manifest.json"
+python3 "${script_directory}/write_source_manifest.py" \
+  --train "${workspace}/release-train.json" --output "${source_manifest}"
 
 require_expected_revision() {
   local label="$1"
@@ -110,14 +158,14 @@ require_expected_revision() {
 
 require_expected_revision \
   "shared-actions" \
-  "rapidsai/shared-actions" \
+  "$(jq -r '."shared-actions"' <<<"${build_implementation_repositories}")" \
   "${shared_actions_revision}" \
   "${RELEASE_CANDIDATE_SHARED_ACTIONS_REPOSITORY:-}" \
   "${RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION:-}" \
   "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY:-${GITHUB_REPOSITORY}}"
 require_expected_revision \
   "shared-workflows" \
-  "rapidsai/shared-workflows" \
+  "$(jq -r '."shared-workflows"' <<<"${build_implementation_repositories}")" \
   "${shared_workflows_revision}" \
   "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY:-}" \
   "${RELEASE_CANDIDATE_SHARED_WORKFLOWS_REVISION:-}" \
@@ -129,7 +177,8 @@ if ! command -v git >/dev/null; then
 fi
 gha_tools_directory="${workspace}/gha-tools"
 git init --quiet "${gha_tools_directory}"
-git -C "${gha_tools_directory}" remote add origin https://github.com/rapidsai/gha-tools.git
+gha_tools_repository="$(jq -r '."gha-tools"' <<<"${build_implementation_repositories}")"
+git -C "${gha_tools_directory}" remote add origin "https://github.com/${gha_tools_repository}.git"
 git -C "${gha_tools_directory}" fetch --quiet --depth 1 origin "${gha_tools_revision}"
 git -C "${gha_tools_directory}" checkout --quiet --detach FETCH_HEAD
 actual_gha_tools_revision="$(git -C "${gha_tools_directory}" rev-parse HEAD)"
@@ -187,13 +236,15 @@ candidate_build_inputs="${workspace}/candidate-build-inputs.json"
 jq -cnS \
   --arg lock_receipt_sha256 "${lock_receipt_sha256}" \
   --arg variant_receipt_sha256 "${variant_receipt_sha256}" \
+  --argjson build_implementation_repositories "${build_implementation_repositories}" \
   --argjson sccache "${candidate_sccache}" \
   '{schema_version: 1,
     train_inputs: {
       lock_receipt_sha256: $lock_receipt_sha256,
       variant_receipt_sha256: $variant_receipt_sha256
     },
-    build_policy: {sccache: $sccache}}' >"${candidate_build_inputs}"
+    build_policy: {sccache: $sccache},
+    build_implementation_repositories: $build_implementation_repositories}' >"${candidate_build_inputs}"
 
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
   mapfile -t bootstrap_records < <(jq -cer '.bootstrap_conda[]?' "${lock_source}")
@@ -320,7 +371,7 @@ for reference_path in "${reference_paths[@]}"; do
 done
 
 repository="${GITHUB_REPOSITORY##*/}"
-target_unit="${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${repository}"
+target_unit="${candidate_unit_id}"
 selected="${workspace}/selected-artifacts.json"
 resolved_inputs="${workspace}/resolved-upstream-inputs.jsonl"
 upstream_inputs="${workspace}/upstream-inputs.json"
@@ -372,7 +423,8 @@ jq -n \
         | map(select($units[.] != null and $units[.].artifact_family != "source") | ., closure(.))
         | flatten | unique;
     closure($target) as $dependencies
-    | [ $dependencies[] | select(startswith($family + ":")) ] as $family_dependencies
+    | (if $family == "docs" or $family == "container" or $family == "maven" then ["conda:", "maven:"] else [$family + ":"] end) as $family_prefixes
+    | [ $dependencies[] | select(. as $dependency | $family_prefixes | any(startswith($dependency))) ] as $family_dependencies
     | [ $records[0][]
         | . as $record
         | .entries[]
@@ -384,6 +436,11 @@ jq -n \
         | select(
             $family != "conda"
             or (.package.platform == "noarch" or .package.platform == $conda_platform)
+          )
+        | select(
+            ($family != "maven" and $family != "docs" and $family != "container")
+            or (.package.ecosystem != "maven")
+            or (.package.platform == ($arch + "-cuda" + $cuda_major))
           )
         | {
           release_catalog_key: .release_catalog_key,
@@ -445,7 +502,10 @@ while IFS= read -r selection; do
   source="s3://${RELEASE_CANDIDATE_BUCKET}/${artifact_key}/${artifact_path}"
   case "${artifact_path}" in
     *.conda|*.tar.bz2)
-      [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]] || continue
+      if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" != "true" ]]; then
+        echo "train declares a Conda dependency but prepare-conda-channel is false" >&2
+        exit 1
+      fi
       platform="$(jq -r '.package.platform // ""' <<<"${selection}")"
       case "${platform}" in
         linux-64|linux-aarch64|noarch) destination="${channel}/${platform}" ;;
@@ -462,6 +522,23 @@ while IFS= read -r selection; do
       aws s3 cp "${source}" "${wheelhouse}/$(basename "${artifact_path}")"
       record_resolved_input "${selection}" "${wheelhouse}/$(basename "${artifact_path}")"
       ;;
+    *.tar.gz)
+      if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "maven" \
+        && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "docs" \
+        && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "container" ]]; then
+        echo "candidate archive dependency is unsupported for ${RELEASE_CANDIDATE_ARTIFACT_FAMILY}: ${artifact_path}" >&2
+        exit 1
+      fi
+      archive_discriminator="$(printf '%s' "${artifact_key}/${artifact_path}" | sha256sum | cut -c1-16)"
+      archive_path="${workspace}/${archive_discriminator}-$(basename "${artifact_path}")"
+      aws s3 cp "${source}" "${archive_path}"
+      record_resolved_input "${selection}" "${archive_path}"
+      if [[ "$(jq -r '.package.ecosystem' <<<"${selection}")" == "maven" ]]; then
+        maven_repository="${workspace}/maven-repository"
+        python3 "${script_directory}/extract_maven_repository.py" \
+          --archive "${archive_path}" --destination "${maven_repository}"
+      fi
+      ;;
     *) echo "candidate catalog has unsupported package type: ${artifact_path}" >&2; exit 1 ;;
   esac
 done < <(jq -c '.[]' "${selected}")
@@ -477,12 +554,12 @@ jq -sS \
       | sort_by(.release_catalog_key, .artifact_key, .path, .sha256))}' \
   "${resolved_inputs}" >"${upstream_inputs}"
 
+index_candidate_conda_channel() {
+  bash "${script_directory}/index-conda-channel.sh" "${channel}"
+}
+
 if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
-  if ! command -v conda >/dev/null; then
-    echo "conda is required to index the private candidate channel" >&2
-    exit 1
-  fi
-  conda index "${channel}"
+  index_candidate_conda_channel
 fi
 
 original_download="$(command -v rapids-download-from-github || true)"
@@ -493,18 +570,29 @@ if [[ -z "${original_download}" ]]; then
   echo "RAPIDS gha-tools must be installed before candidate dependency setup" >&2
   exit 1
 fi
-if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" && -z "${original_rattler}" ]]; then
+if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "container" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "docs" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "maven" \
+  && -z "${original_rattler}" ]]; then
   echo "rapids-rattler-channel-string is required for a candidate Conda build" >&2
   exit 1
 fi
-if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" && -z "${original_rattler_build}" ]]; then
+if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "container" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "docs" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "maven" \
+  && -z "${original_rattler_build}" ]]; then
   echo "rattler-build is required for a candidate Conda build" >&2
   exit 1
 fi
 # A lock metapackage has no payload. Its run constraints are nevertheless part
 # of the build/host solve once this package is injected into a recipe. Keeping
 # it in the job-local candidate channel avoids publishing CI-only lock packages.
-if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
+if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "container" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "docs" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "maven" ]]; then
   lock_workspace="${workspace}/train-locks"
   mkdir -p "${lock_workspace}"
 
@@ -565,22 +653,22 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     printf '%s' "${package_name}"
   }
 
-  lock_build_package="$(prepare_lock_metapackage build)"
-  lock_host_package="$(prepare_lock_metapackage host)"
-  variant_record="$(jq -cer 'if has("configuration_path") then {path: .configuration_path, sha256: .configuration_sha256} else .input_variants | {path: .configuration_path, sha256: .configuration_sha256} end' "${variant_source}")"
-  variant_path="$(jq -r '.path' <<<"${variant_record}")"
-  variant_sha256="$(jq -r '.sha256' <<<"${variant_record}")"
-  if [[ "${variant_path}" == /* || "${variant_path}" == *".."* || ! "${variant_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
-    echo "release train contains an unsafe variant configuration reference" >&2
-    exit 1
-  fi
-  variant_config="${lock_workspace}/train-variants.yaml"
-  aws s3 cp "${root}/inputs/${variant_path}" "${variant_config}"
-  if [[ "$(sha256sum "${variant_config}" | awk '{print $1}')" != "${variant_sha256}" ]]; then
-    echo "stored variant configuration does not match the release train" >&2
-    exit 1
-  fi
-  conda index "${channel}"
+    lock_build_package="$(prepare_lock_metapackage build)"
+    lock_host_package="$(prepare_lock_metapackage host)"
+    variant_record="$(jq -cer 'if has("configuration_path") then {path: .configuration_path, sha256: .configuration_sha256} else .input_variants | {path: .configuration_path, sha256: .configuration_sha256} end' "${variant_source}")"
+    variant_path="$(jq -r '.path' <<<"${variant_record}")"
+    variant_sha256="$(jq -r '.sha256' <<<"${variant_record}")"
+    if [[ "${variant_path}" == /* || "${variant_path}" == *".."* || ! "${variant_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
+      echo "release train contains an unsafe variant configuration reference" >&2
+      exit 1
+    fi
+    variant_config="${lock_workspace}/train-variants.yaml"
+    aws s3 cp "${root}/inputs/${variant_path}" "${variant_config}"
+    if [[ "$(sha256sum "${variant_config}" | awk '{print $1}')" != "${variant_sha256}" ]]; then
+      echo "stored variant configuration does not match the release train" >&2
+      exit 1
+    fi
+  index_candidate_conda_channel
 fi
 
 # Repository build scripts already name their same-run intermediate artifact.
@@ -604,7 +692,10 @@ fi
 
 printf 'RELEASE_CANDIDATE_DEPENDENCY_MANIFESTS=%s\n' "${manifests}" >>"${GITHUB_ENV}"
 
-if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
+if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "container" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "docs" \
+  && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "maven" ]]; then
 cat >"${tools}/rapids-rattler-channel-string" <<'EOF'
 #!/usr/bin/env bash
 RAPIDS_PREPENDED_CONDA_CHANNELS=("${RAPIDS_CANDIDATE_CONDA_CHANNEL}" "${RAPIDS_PREPENDED_CONDA_CHANNELS[@]:-}")
@@ -664,9 +755,38 @@ fi
   printf 'RELEASE_CANDIDATE_TRAIN_PREFIX=%s\n' "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
   printf 'RELEASE_CANDIDATE_TRAIN_SHA256=%s\n' "${RELEASE_CANDIDATE_TRAIN_SHA256}"
   printf 'RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS=%s\n' "${build_implementation_revisions}"
+  printf 'RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES=%s\n' "${build_implementation_repositories}"
   printf 'RELEASE_CANDIDATE_GHA_TOOLS_REVISION=%s\n' "${actual_gha_tools_revision}"
   printf 'RELEASE_CANDIDATE_UPSTREAM_INPUTS=%s\n' "${upstream_inputs}"
   printf 'RELEASE_CANDIDATE_BUILD_INPUTS=%s\n' "${candidate_build_inputs}"
+  printf 'RELEASE_CANDIDATE_SOURCE_MANIFEST=%s\n' "${source_manifest}"
+  printf 'RAPIDS_RELEASE_CANDIDATE_TRAIN_FILE=%s\n' "${workspace}/release-train.json"
+  unit_versions="$(jq -ceS '
+    (.version_contract // {}) as $contract
+    | if ($contract | type) != "object"
+      then error("version_contract must be an object")
+      elif (($contract.package_versions // {}) | type) != "object"
+        or (($contract.unit_package_versions // {}) | type) != "object"
+        then error("package version maps must be objects")
+      elif ((($contract.package_versions // {}) + ($contract.unit_package_versions // {}))
+        | all(to_entries[]; (.key | type) == "string" and (.value | type) == "string" and (.value | length) > 0))
+        then {package_versions: ($contract.package_versions // {}), unit_package_versions: ($contract.unit_package_versions // {})}
+      else error("package version maps contain invalid entries")
+      end
+  ' "${workspace}/release-train.json")" || {
+    echo "release train contains an invalid frozen package version contract" >&2
+    exit 1
+  }
+  printf 'RAPIDS_RELEASE_CANDIDATE_UNIT_VERSIONS=%s\n' "${unit_versions}"
+  printf 'RAPIDS_RELEASE_CANDIDATE_VERSION=%s\n' "${candidate_release_version}"
+  if [[ -n "${maven_repository:-}" ]]; then
+    printf 'MAVEN_LOCAL_REPO=%s\n' "${maven_repository}"
+    maven_opts="${MAVEN_OPTS:-}"
+    if [[ -n "${maven_opts}" ]]; then
+      maven_opts+=" "
+    fi
+    printf 'MAVEN_OPTS=%s-Dmaven.repo.local=%s\n' "${maven_opts}" "${maven_repository}"
+  fi
   printf 'RAPIDS_RELEASE_CANDIDATE_SCCACHE=%s\n' "${candidate_sccache}"
   # Rattler installs CMake in its isolated prefixes, so this train value must
   # be available to the recipe patcher even when CMake is absent from the
@@ -678,12 +798,16 @@ fi
   fi
   if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" ]]; then
     printf 'RAPIDS_CANDIDATE_CONDA_CHANNEL=%s\n' "${channel}"
-    printf 'RAPIDS_CANDIDATE_ORIGINAL_RATTLER_CHANNEL_STRING=%s\n' "${original_rattler}"
-    printf 'RAPIDS_CANDIDATE_ORIGINAL_RATTLER_BUILD=%s\n' "${original_rattler_build}"
-    printf 'RAPIDS_CANDIDATE_RECIPE_PATCHER=%s\n' "${IMPLEMENTATION_PATH}/patch_recipe.py"
-    printf 'RAPIDS_CANDIDATE_BUILD_LOCK_PACKAGE=%s\n' "${lock_build_package}"
-    printf 'RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE=%s\n' "${lock_host_package}"
-    printf 'RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG=%s\n' "${variant_config}"
+    if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "container" \
+    && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "docs" \
+    && "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "maven" ]]; then
+      printf 'RAPIDS_CANDIDATE_ORIGINAL_RATTLER_CHANNEL_STRING=%s\n' "${original_rattler}"
+      printf 'RAPIDS_CANDIDATE_ORIGINAL_RATTLER_BUILD=%s\n' "${original_rattler_build}"
+      printf 'RAPIDS_CANDIDATE_RECIPE_PATCHER=%s\n' "${IMPLEMENTATION_PATH}/patch_recipe.py"
+      printf 'RAPIDS_CANDIDATE_BUILD_LOCK_PACKAGE=%s\n' "${lock_build_package}"
+      printf 'RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE=%s\n' "${lock_host_package}"
+      printf 'RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG=%s\n' "${variant_config}"
+    fi
   fi
   if [[ -n "${wheel_constraint}" ]]; then
     printf 'PIP_CONSTRAINT=%s\n' "${wheel_constraint}"

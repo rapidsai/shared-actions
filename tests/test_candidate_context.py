@@ -21,6 +21,7 @@ def environment():
     return {
         "GITHUB_REPOSITORY": "rapidsai/rapids-logger",
         "GITHUB_RUN_ID": "42",
+        "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_WORKFLOW_REF": "rapidsai/rapids-logger/.github/workflows/build.yaml@refs/heads/main",
         "GITHUB_EVENT_NAME": "workflow_dispatch",
     }
@@ -29,12 +30,14 @@ def environment():
 @pytest.fixture
 def binding():
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "repository": "rapidsai/rapids-logger",
         "run_id": "42",
+        "run_attempt": 1,
         "source_sha": "a" * 40,
         "workflow": "build.yaml",
         "workflow_ref": "main",
+        "event_name": "workflow_dispatch",
         "train_sha256": "f" * 64,
         "custom_jobs": {"ci/build_static.sh": "test", "ci/build_dynamic.sh": "test"},
     }
@@ -56,11 +59,13 @@ def test_logger_custom_tests_need_no_project_changes(binding, environment, scrip
     "key,value",
     [
         ("run_id", "43"),
+        ("run_attempt", 2),
         ("repository", "rapidsai/kvikio"),
         ("source_sha", "b" * 40),
         ("workflow_ref", "canary"),
         ("train_sha256", "bad\noutput=wrong"),
-        ("schema_version", 2),
+        ("schema_version", 1),
+        ("event_name", "push"),
     ],
 )
 def test_mismatched_binding_fails_closed(binding, environment, key, value):
@@ -107,25 +112,34 @@ def test_missing_binding_is_bounded():
     assert sum(sleeps) == 55
 
 
-def test_binding_key_matches_producer_iam_repository_path():
-    key = resolver.binding_key("train-state", "rapidsai/rapids-logger", "42")
+def test_binding_key_uses_controller_only_namespace_and_attempt():
+    key = resolver.binding_key("rapidsai/rapids-logger", "42", "1")
 
-    assert key == "train-state/run-bindings/rapidsai/rapids-logger/42.json"
-    # Producer IAM grants train-state/*/<repository-name>/* writes. Keep the
-    # repository name as its own key segment so the controller can publish
-    # this exact-run binding for the producer to read.
-    assert key.startswith("train-state/")
-    assert "/rapids-logger/" in key
+    assert key == "controller-state/run-bindings/rapidsai/rapids-logger/42.1.json"
+    assert not key.startswith("train-state/")
 
 
 @pytest.mark.parametrize(
-    "prefix,repository,run_id",
+    "repository,run_id,run_attempt",
     [
-        ("train-state/../other", "rapidsai/rapids-logger", "42"),
-        ("train-state", "rapidsai/rapids-logger", "0"),
-        ("train-state", "rapidsai/../other", "42"),
+        ("rapidsai/../other", "42", "1"),
+        ("rapidsai/rapids-logger", "0", "1"),
+        ("rapidsai/rapids-logger", "42", "0"),
+        ("rapidsai/rapids-logger", "42", "01"),
     ],
 )
-def test_binding_key_rejects_unsafe_identity(prefix, repository, run_id):
+def test_binding_key_rejects_unsafe_identity(repository, run_id, run_attempt):
     with pytest.raises(ValueError):
-        resolver.binding_key(prefix, repository, run_id)
+        resolver.binding_key(repository, run_id, run_attempt)
+
+
+def test_missing_or_invalid_attempt_fails_closed(binding, environment):
+    environment.pop("GITHUB_RUN_ATTEMPT")
+    with pytest.raises(ValueError, match="attempt"):
+        resolver.validate_binding(binding, environment, "a" * 40, "")
+
+
+def test_attempt_must_be_an_integer_in_controller_binding(binding, environment):
+    binding["run_attempt"] = True
+    with pytest.raises(ValueError, match="attempt"):
+        resolver.validate_binding(binding, environment, "a" * 40, "")

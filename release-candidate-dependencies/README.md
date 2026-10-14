@@ -41,12 +41,20 @@ materialize a train-owned source in a container:
   a full commit SHA.
 - `RAPIDS_RELEASE_CANDIDATE_UNIT_VERSIONS` contains the frozen family and
   unit-specific package version maps from `version_contract`.
-- `RAPIDS_RELEASE_CANDIDATE_VERSION` is the train's YY.MM release version.
+- `RAPIDS_RELEASE_CANDIDATE_VERSION` is the train's YY.MM release version;
+  `RAPIDS_RELEASE_CANDIDATE_UNIT_VERSION` is the selected unit's exact frozen
+  package version when the unit declares one.
 - For wheel jobs, the resolver writes a separate CMake source-version override
   from the matching frozen Conda unit version (or the frozen Conda family
   version). This keeps RAPIDS CMake's padded source version distinct from the
   Python wheel's normalized wheel version; project-specific Conda overrides,
   such as rapids-logger's `0.3.0`, remain intact.
+- UCXX declares its Conda and wheel package version as `0.53`, while its source
+  root version is `0.53.00`. For the `wheel:ucxx` unit only, the resolver
+  validates the three frozen metadata symlinks and materializes their contents
+  as the exact unit version before the build. The CMake generator separately
+  receives `0.53.0`, which satisfies UCXX's three-component CMake parser while
+  leaving wheel metadata at the exact frozen `0.53` string.
 
 Source repositories that are not represented by the frozen train are not
 available through these mappings. Callers must fail closed instead of cloning

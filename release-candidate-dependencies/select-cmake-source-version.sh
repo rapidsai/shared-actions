@@ -19,7 +19,8 @@ jq -er --arg unit_id "conda:${unit_name}" '
       error("release train version contract is invalid")
     else
       ($unit_versions[$unit_id] // $family_versions.conda) as $version
-      | if ($version | type) == "string" and ($version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) then $version
+      | if ($version | type) == "string" and ($version | test("^[0-9]+\\.[0-9]+(\\.[0-9]+)?$")) then
+          ($version | if test("^[0-9]+\\.[0-9]+$") then . + ".0" else . end)
         else error("release train has no final numeric Conda source version for this wheel unit")
         end
     end

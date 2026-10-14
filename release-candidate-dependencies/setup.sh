@@ -172,6 +172,16 @@ candidate_release_version="$(jq -er '.release_version | select(type == "string" 
   echo "release train has no valid release_version" >&2
   exit 1
 }
+candidate_unit_version="$(bash "${script_directory}/select-unit-version.sh" \
+  "${workspace}/release-train.json" "${candidate_unit_id}")" || {
+  echo "release train has no valid version contract for ${candidate_unit_id}" >&2
+  exit 1
+}
+if [[ "${candidate_unit_id}" == "wheel:ucxx" ]]; then
+  require_value GITHUB_WORKSPACE "${GITHUB_WORKSPACE:-}"
+  bash "${script_directory}/prepare-ucxx-wheel-version.sh" \
+    "${GITHUB_WORKSPACE}" "${candidate_unit_id}" "${candidate_unit_version}"
+fi
 source_manifest="${workspace}/source-manifest.json"
 python3 "${script_directory}/write_source_manifest.py" \
   --train "${workspace}/release-train.json" --output "${source_manifest}"
@@ -812,6 +822,7 @@ fi
   }
   printf 'RAPIDS_RELEASE_CANDIDATE_UNIT_VERSIONS=%s\n' "${unit_versions}"
   printf 'RAPIDS_RELEASE_CANDIDATE_VERSION=%s\n' "${candidate_release_version}"
+  printf 'RAPIDS_RELEASE_CANDIDATE_UNIT_VERSION=%s\n' "${candidate_unit_version}"
   if [[ -n "${maven_repository:-}" ]]; then
     printf 'MAVEN_LOCAL_REPO=%s\n' "${maven_repository}"
     maven_opts="${MAVEN_OPTS:-}"

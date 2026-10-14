@@ -17,7 +17,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main # zizmor: ignore[unpinned-uses]
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@39fc31647bd5514c99fca7b0463d45c2446148b7
       id: has_base_env_var_artifact
     - name: Output that setup was skipped if the base env var artifact was not found
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'false'

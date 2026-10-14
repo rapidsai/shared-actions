@@ -103,3 +103,9 @@ repos:
         additional_dependencies: [pytest]
         pass_filenames: false
         files: ^(release-candidate-context/|tests/test_candidate_context.py)
+      - id: telemetry-action-pins
+        name: check telemetry action pins
+        entry: bash tests/telemetry_action_pins_test.sh
+        language: system
+        pass_filenames: false
+        files: ^(telemetry-dispatch-(setup|stash-job-artifacts)/action.yml|tests/telemetry_action_pins_test.sh)$

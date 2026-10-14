@@ -457,7 +457,7 @@ jq -n \
         | flatten | unique;
     closure($target) as $dependencies
     | (if $family == "docs" or $family == "container" or $family == "maven" then ["conda:", "maven:"] else [$family + ":"] end) as $family_prefixes
-    | [ $dependencies[] | select(. as $dependency | $family_prefixes | any(startswith($dependency))) ] as $family_dependencies
+    | [ $dependencies[] | select(. as $dependency | $family_prefixes | any(. as $prefix | $dependency | startswith($prefix))) ] as $family_dependencies
     | [ $records[0][]
         | . as $record
         | .entries[]

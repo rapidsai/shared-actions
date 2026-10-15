@@ -54,6 +54,28 @@ if [[ ! "${candidate_unit_id}" =~ ^${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:[A-Za-z0
   echo "RELEASE_CANDIDATE_UNIT_ID must use the selected family and a safe train unit name" >&2
   exit 1
 fi
+image_preflight_file="${RELEASE_CANDIDATE_IMAGE_PREFLIGHT_FILE:-}"
+image_preflight_consumer="${RELEASE_CANDIDATE_CONSUMER_ID:-}"
+runtime_image_reference="${RELEASE_CANDIDATE_RUNTIME_IMAGE_REFERENCE:-}"
+if [[ -n "${image_preflight_file}" || -n "${image_preflight_consumer}" || -n "${runtime_image_reference}" ]]; then
+  if [[ -z "${image_preflight_file}" || -z "${image_preflight_consumer}" || -z "${runtime_image_reference}" ]]; then
+    echo "image preflight file, consumer ID, and digest-pinned runtime image reference must be supplied together" >&2
+    exit 1
+  fi
+  require_value "GITHUB_SHA" "${GITHUB_SHA:-}"
+  if [[ ! "${GITHUB_SHA}" =~ ^[[:xdigit:]]{40}$ ]]; then
+    echo "GITHUB_SHA must be a full source revision when image preflight is enabled" >&2
+    exit 1
+  fi
+  if [[ ! "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" =~ ^(conda|wheel|maven|docs)$ ]]; then
+    echo "image preflight is supported only for downstream package and docs units" >&2
+    exit 1
+  fi
+  if [[ -z "${RELEASE_CANDIDATE_PYTHON_VERSION:-}" ]]; then
+    echo "RELEASE_CANDIDATE_PYTHON_VERSION is required when image preflight is enabled" >&2
+    exit 1
+  fi
+fi
 
 root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
 train_key_prefix="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
@@ -432,6 +454,24 @@ jq -cnS \
     build_policy: {sccache: $sccache},
     build_implementation_repositories: $build_implementation_repositories,
     source_inputs: $source_inputs}' >"${candidate_build_inputs}"
+if [[ -n "${image_preflight_file}" ]]; then
+  image_preflight_inputs="${workspace}/candidate-build-inputs.image-preflight.json"
+  python3 "${script_directory}/attach_image_preflight.py" \
+    --base-inputs "${candidate_build_inputs}" \
+    --release-train "${workspace}/release-train.json" \
+    --preflight "${image_preflight_file}" \
+    --consumer-id "${image_preflight_consumer}" \
+    --runtime-image-reference "${runtime_image_reference}" \
+    --unit-id "${candidate_unit_id}" \
+    --family "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" \
+    --repository "${repository}" \
+    --source-sha "${GITHUB_SHA}" \
+    --arch "${RELEASE_CANDIDATE_ARCH}" \
+    --cuda-version "${RELEASE_CANDIDATE_CUDA_VERSION}" \
+    --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION}" \
+    >"${image_preflight_inputs}"
+  mv "${image_preflight_inputs}" "${candidate_build_inputs}"
+fi
 
 # Shell globstar has a clear, portable meaning here and keeps the jq program
 # focused on schema fields rather than filesystem traversal.

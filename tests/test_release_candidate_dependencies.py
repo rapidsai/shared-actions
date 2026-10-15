@@ -196,7 +196,7 @@ def test_candidate_archive_families_use_train_dependencies_and_frozen_sources():
         pytest.fail(f"candidate archive dependency contract is incomplete: {missing}")
 
 
-def _run_container_setup_without_a_channel(tmp_path, dependencies, prepare_conda_channel="false"):
+def _run_container_setup_without_a_channel(tmp_path, dependencies, prepare_conda_channel="false", extra_env=None):
     import os
 
     train = {
@@ -244,6 +244,7 @@ def _run_container_setup_without_a_channel(tmp_path, dependencies, prepare_conda
         "RELEASE_CANDIDATE_UNIT_ID": "container:ci-images",
         "RELEASE_CANDIDATE_ARCH": "amd64",
         "RELEASE_CANDIDATE_CUDA_VERSION": "12.2",
+        **(extra_env or {}),
     }
     return subprocess.run(  # noqa: S603
         ["/bin/bash", str(_SETUP)],
@@ -292,6 +293,18 @@ def test_container_with_conda_dependency_keeps_private_channel_mode(tmp_path):
     assert "private Conda channel" not in result.stderr  # noqa: S101
     assert "train declares a Conda dependency but prepare-conda-channel is false" not in result.stderr  # noqa: S101
     assert "release train must lock rapids-cmake" in result.stderr  # noqa: S101
+
+
+def test_image_preflight_inputs_must_be_supplied_as_a_complete_set(tmp_path):
+    result = _run_container_setup_without_a_channel(
+        tmp_path,
+        [],
+        extra_env={"RELEASE_CANDIDATE_IMAGE_PREFLIGHT_FILE": str(tmp_path / "preflight.json")},
+    )
+
+    assert result.returncode != 0  # noqa: S101
+    assert "must be supplied together" in result.stderr  # noqa: S101
+    assert "unexpected aws request" not in result.stderr  # noqa: S101
 
 
 def test_maven_dependency_resolution_does_not_require_a_python_matrix():

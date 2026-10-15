@@ -197,6 +197,31 @@ if jq -e 'tostring | test("run_id|run_attempt")' "${canonical}/artifact-index.js
 fi
 jq -e '.source_run_id == "101" and .source_run_attempt == "1"' \
   "${train}/101.1/${artifact_digest}/bundle-reference.conda.json" >/dev/null
+legacy_build_input_digest="$(jq -r '.build_input_digest' \
+  "${train}/101.1/${artifact_digest}/bundle-reference.conda.json")"
+cp "${temporary_directory}/candidate-build-inputs.json" \
+  "${temporary_directory}/candidate-build-inputs.legacy.json"
+jq '. + {ci_image_preflight:{preflight_sha256:("f" * 64),build_input_extension:{schema_version:1,train_sha256:("a" * 64),request_sha256:("b" * 64),consumption_receipt_sha256:("c" * 64),consumer_id:"example-test",release_unit_id:"conda:example",source_sha:("d" * 40),images:[],sha256:("e" * 64)},runtime_image:{identity:{ecosystem:"container",name:"registry.example/ci",version:"26.12",build:"26.12-cuda12.9.2-rockylinux8-py3.12-amd64",platform:"linux/amd64"},reference:("registry.example/ci@sha256:" + ("d" * 64)),runnable_manifest_sha256:("d" * 64)}}}' \
+  "${temporary_directory}/candidate-build-inputs.legacy.json" \
+  >"${temporary_directory}/candidate-build-inputs.with-image.json"
+mv "${temporary_directory}/candidate-build-inputs.with-image.json" \
+  "${temporary_directory}/candidate-build-inputs.json"
+run_upload 3 "${base_implementation_revisions}"
+image_reference_path="$(find "${train}/101.3" -name 'bundle-reference.conda.json' -print -quit)"
+image_artifact_digest="$(jq -r '.artifact_key | split("/")[-1]' "${image_reference_path}")"
+image_build_input_digest="$(jq -r '.build_input_digest' \
+  "${image_reference_path}")"
+if [[ "${image_build_input_digest}" == "${legacy_build_input_digest}" ]]; then
+  echo "candidate image preflight did not change the BuildInput digest" >&2
+  exit 1
+fi
+jq -e '.candidate_build_inputs.ci_image_preflight.runtime_image.reference == "registry.example/ci@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"' \
+  "${artifact_root}/${image_artifact_digest}/build-record.json" >/dev/null
+# Keep the existing count-based uploader fixtures independent from this
+# one-off BuildInput-digest assertion.
+rm -rf "${artifact_root:?}/${image_artifact_digest}" "${train:?}/101.3"
+cp "${temporary_directory}/candidate-build-inputs.legacy.json" \
+  "${temporary_directory}/candidate-build-inputs.json"
 cp "${temporary_directory}/source-inputs.json" "${temporary_directory}/source-inputs.valid.json"
 jq '.sources.foo.revision = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"' \
   "${temporary_directory}/source-inputs.valid.json" >"${temporary_directory}/source-inputs.json"

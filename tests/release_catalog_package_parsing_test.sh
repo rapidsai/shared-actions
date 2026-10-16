@@ -37,7 +37,7 @@ export RELEASE_ARTIFACT_DIRECTORY
 jq -e '
   [.entries[] | {path, package}] == [{
     path: "libkvikio_cu12-26.8.0a32-py3-none-manylinux_2_28_x86_64.whl",
-    package: {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32"}
+    package: {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0a32", cuda_major: "12"}
   }]
 ' "${wheel_output_directory}/release-catalog-entries.json" >/dev/null
 
@@ -105,7 +105,7 @@ tar -cjf \
   info/index.json
 
 jq -n \
-  '{name: "librmm", version: "26.08.00a32", build: "cuda12_260714_2f567060", subdir: "linux-64"}' \
+  '{name: "librmm", version: "26.08.00a32", build: "cuda12_260714_2f567060", subdir: "linux-64", depends: ["cuda-version >=12,<13"]}' \
   >"${conda_staging_directory}/info/index.json"
 tar -cf "${temporary_directory}/info-librmm.tar" -C "${conda_staging_directory}" info/index.json
 zstd -q -f "${temporary_directory}/info-librmm.tar" -o "${temporary_directory}/info-librmm.tar.zst"
@@ -128,7 +128,8 @@ jq -e '
       name: "librmm",
       version: "26.08.00a32",
       build: "cuda12_260714_2f567060",
-      platform: "linux-64"
+      platform: "linux-64",
+      cuda_major: "12"
     }
   )
   and any(.entries[];

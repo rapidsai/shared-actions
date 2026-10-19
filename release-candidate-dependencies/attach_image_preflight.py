@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 """Bind an authenticated CI-image preflight extension into candidate build inputs."""
 
 from __future__ import annotations
@@ -181,7 +183,7 @@ def attach_image_preflight(
             or parsed_build.group("python") != python_version
         ):
             continue
-        destination_repository, destination_tag = _tag_reference(image.get("destination_reference"))
+        destination_repository, _destination_tag = _tag_reference(image.get("destination_reference"))
         manifest_sha = image.get("runnable_manifest_sha256")
         _require_digest(manifest_sha, "runnable manifest SHA-256")
         digest_reference = f"{destination_repository}@sha256:{manifest_sha}"
@@ -240,7 +242,9 @@ def _require_digest(value: Any, label: str) -> None:
 
 def _canonical(value: Any) -> bytes:
     try:
-        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode(
+            "utf-8"
+        )
     except (TypeError, ValueError) as error:
         raise ImagePreflightInputError("candidate build inputs contain noncanonical JSON values") from error
 

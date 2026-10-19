@@ -1,3 +1,5 @@
+# Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 """Tests for binding authenticated image preflight into candidate BuildInputs."""
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "release-candidate-dependencies"))
 
-from attach_image_preflight import (  # noqa: E402
+from attach_image_preflight import (
     ImagePreflightInputError,
     attach_image_preflight,
 )

@@ -60,3 +60,17 @@ Source repositories that are not represented by the frozen train are not
 available through these mappings. Callers must fail closed instead of cloning
 mutable branches or using public nightly packages to fill a missing train
 input.
+
+Downstream jobs may pass `image-preflight-file`, `consumer-id`, and
+`runtime-image-reference` together to bind the controller's selected CI image
+to the producer's BuildInput. The reference must be the exact
+`repository@sha256:<runnable-manifest-digest>` used by the job; a mutable tag is
+rejected. The extension records the controller preflight and consumption receipt
+digests, frozen consumer unit/source, image identity, and runnable manifest
+digest. With all three inputs omitted, the existing BuildInput stays unchanged.
+
+The helper checks canonical hashes and binds the supplied document to the
+current train, producer source, consumer, matrix, and runtime image. Those
+checks do not authenticate who supplied the document. Deployment must obtain
+the preflight through a controller-authenticated, access-controlled transfer;
+the producer workflow must not be allowed to forge or replace it.

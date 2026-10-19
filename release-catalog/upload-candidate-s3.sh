@@ -138,6 +138,7 @@ if ! jq -eS --argjson expected "${expected_source_inputs}" '. == $expected' "${R
 fi
 candidate_build_inputs="$(jq -ceS --argjson repositories "${build_implementation_repositories}" --argjson source_inputs "${expected_source_inputs}" '
   if .schema_version != 1
+     or ((keys - ["schema_version", "train_inputs", "build_policy", "build_implementation_repositories", "source_inputs", "ci_image_preflight"]) | length != 0)
      or ((.train_inputs | type) != "object")
      or ((.train_inputs.lock_receipt_sha256 | type) != "string")
      or ((.train_inputs.lock_receipt_sha256 | test("^[0-9a-f]{64}$")) | not)
@@ -147,6 +148,23 @@ candidate_build_inputs="$(jq -ceS --argjson repositories "${build_implementation
      or ((.build_policy.sccache | type) != "boolean")
      or (.build_implementation_repositories != $repositories)
      or (.source_inputs != $source_inputs)
+     or (has("ci_image_preflight") and (
+       (.ci_image_preflight | type) != "object"
+       or ((.ci_image_preflight | keys | sort) != ["build_input_extension", "preflight_sha256", "runtime_image"])
+       or ((.ci_image_preflight.preflight_sha256 | type) != "string")
+       or ((.ci_image_preflight.preflight_sha256 | test("^[0-9a-f]{64}$")) | not)
+       or ((.ci_image_preflight.build_input_extension | type) != "object")
+       or ((.ci_image_preflight.build_input_extension | keys | sort) != ["consumer_id", "consumption_receipt_sha256", "images", "release_unit_id", "request_sha256", "schema_version", "sha256", "source_sha", "train_sha256"])
+       or ((.ci_image_preflight.build_input_extension.sha256 | type) != "string")
+       or ((.ci_image_preflight.build_input_extension.sha256 | test("^[0-9a-f]{64}$")) | not)
+       or ((.ci_image_preflight.runtime_image | type) != "object")
+       or ((.ci_image_preflight.runtime_image | keys | sort) != ["identity", "reference", "runnable_manifest_sha256"])
+       or ((.ci_image_preflight.runtime_image.runnable_manifest_sha256 | type) != "string")
+       or ((.ci_image_preflight.runtime_image.runnable_manifest_sha256 | test("^[0-9a-f]{64}$")) | not)
+       or ((.ci_image_preflight.runtime_image.reference | type) != "string")
+       or ((.ci_image_preflight.runtime_image.reference | split("@sha256:") | length) != 2)
+       or ((.ci_image_preflight.runtime_image.runnable_manifest_sha256 as $digest | (.ci_image_preflight.runtime_image.reference | endswith("@sha256:" + $digest))) | not)
+     ))
   then error("candidate build inputs must contain lock, variant, and sccache identities")
   else {
     schema_version: 1,
@@ -157,7 +175,7 @@ candidate_build_inputs="$(jq -ceS --argjson repositories "${build_implementation
     build_policy: {sccache: .build_policy.sccache},
     build_implementation_repositories: .build_implementation_repositories,
     source_inputs: .source_inputs
-  }
+  } + (if has("ci_image_preflight") then {ci_image_preflight: .ci_image_preflight} else {} end)
   end
 ' "${RELEASE_CANDIDATE_BUILD_INPUTS}")" || {
   echo "RELEASE_CANDIDATE_BUILD_INPUTS is invalid" >&2

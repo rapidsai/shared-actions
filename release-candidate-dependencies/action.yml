@@ -37,6 +37,18 @@ inputs:
   python-version:
     description: Python version for this job matrix.
     required: false
+  image-preflight-file:
+    description: Optional controller image-preflight JSON to bind into this job's BuildInput.
+    required: false
+    default: ""
+  consumer-id:
+    description: Exact consumer ID selected by the controller image preflight; required with image-preflight-file.
+    required: false
+    default: ""
+  runtime-image-reference:
+    description: Immutable repository@sha256 image reference used by this consumer job; required with image-preflight-file.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -72,6 +84,9 @@ runs:
         RELEASE_CANDIDATE_ARCH: ${{ inputs.arch }}
         RELEASE_CANDIDATE_CUDA_VERSION: ${{ inputs.cuda-version }}
         RELEASE_CANDIDATE_PYTHON_VERSION: ${{ inputs.python-version }}
+        RELEASE_CANDIDATE_IMAGE_PREFLIGHT_FILE: ${{ inputs.image-preflight-file }}
+        RELEASE_CANDIDATE_CONSUMER_ID: ${{ inputs.consumer-id }}
+        RELEASE_CANDIDATE_RUNTIME_IMAGE_REFERENCE: ${{ inputs.runtime-image-reference }}
         RELEASE_CANDIDATE_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
         RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION: ${{ github.action_ref }}
         RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY: ${{ job.workflow_repository }}

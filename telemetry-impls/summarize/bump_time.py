@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 # This script is meant to act on an 'all_jobs.json' file that comes from
 # the summarize job when debug info is enabled. Bumping the time makes

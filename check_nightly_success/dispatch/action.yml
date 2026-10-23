@@ -21,6 +21,11 @@ inputs:
     required: false
     default: 7
     type: integer
+  temp-extension-expires:
+    description: "Last day after which a temporary extension expires (YYYY-MM-DD)."
+    required: false
+    default: ""
+    type: string
 
 runs:
   using: 'composite'
@@ -39,3 +44,4 @@ runs:
         target-branch: ${{ inputs.target-branch }}
         workflow-id: ${{ inputs.workflow-id }}
         max-days-without-success: ${{ inputs.max-days-without-success }}
+        temp-extension-expires: ${{ inputs.temp-extension-expires }}

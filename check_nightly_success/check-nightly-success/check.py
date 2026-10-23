@@ -316,7 +316,7 @@ if __name__ == "__main__":
         type=date.fromisoformat,
         default=None,
         required=False,
-        help="Last day after which a temporary extension expires.",
+        help="Last day after which a temporary extension expires (YYYY-MM-DD).",
     )
     args = parser.parse_args()
 

@@ -22,7 +22,7 @@ inputs:
     default: 7
     type: integer
   temp-extension-expires:
-    description: "Last day after which a temporary extension expires."
+    description: "Last day after which a temporary extension expires (YYYY-MM-DD)."
     required: false
     default: ""
     type: string

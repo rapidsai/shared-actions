@@ -22,6 +22,11 @@ inputs:
     description: "The number of consecutive days that may go by without a successful CI run"
     required: true
     type: integer
+  temp-extension-expires:
+    description: "Last day after which a temporary extension expires."
+    required: false
+    default: ""
+    type: string
 
 runs:
   using: composite
@@ -33,7 +38,12 @@ runs:
         TARGET_BRANCH: ${{ inputs.target-branch }}
         WORKFLOW_ID: ${{ inputs.workflow-id }}
         MAX_DAYS_WITHOUT_SUCCESS: ${{ inputs.max-days-without-success }}
+        TEMP_EXTENSION_EXPIRES: ${{ inputs.temp-extension-expires }}
       run: |
+          temp_extension_args=()
+          if [[ -n "${TEMP_EXTENSION_EXPIRES}" ]]; then
+            temp_extension_args=(--temp-extension-expires "${TEMP_EXTENSION_EXPIRES}")
+          fi
           python -m pip install \
             --prefer-binary \
             'requests>=2.32.4'
@@ -41,4 +51,5 @@ runs:
             --repo ${REPO} \
             --branch ${TARGET_BRANCH} \
             --workflow-id ${WORKFLOW_ID} \
-            --max-days-without-success ${MAX_DAYS_WITHOUT_SUCCESS}
+            --max-days-without-success ${MAX_DAYS_WITHOUT_SUCCESS} \
+            "${temp_extension_args[@]}"

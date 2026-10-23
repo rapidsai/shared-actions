@@ -173,9 +173,11 @@ def main(
     # https://docs.github.com/en/search-github/getting-started-with-searching-on-github/understanding-the-search-syntax#query-for-dates
     #
     now = datetime.now(timezone.utc)
-    if temp_extension_expires is not None and now.date() <= temp_extension_expires:
-        print(f"There is a temporary extension until the end of {temp_extension_expires}.")
-        return ExitCode.SUCCESS
+    if temp_extension_expires is not None:
+        if now.date() <= temp_extension_expires:
+            print(f"There is a temporary extension until the end of {temp_extension_expires}.")
+            return ExitCode.SUCCESS
+        print(f"A temporary extension expired on {temp_extension_expires}.")
 
     oldest_date_to_pull = now - timedelta(days=max_days_without_success)
 

@@ -39,7 +39,6 @@ runs:
         WORKFLOW_ID: ${{ inputs.workflow-id }}
         MAX_DAYS_WITHOUT_SUCCESS: ${{ inputs.max-days-without-success }}
         TEMP_EXTENSION_EXPIRES: ${{ inputs.temp-extension-expires }}
-        SHARED_ACTIONS_REF: temp-extension
       run: |
           temp_extension_args=()
           if [[ -n "${TEMP_EXTENSION_EXPIRES}" ]]; then

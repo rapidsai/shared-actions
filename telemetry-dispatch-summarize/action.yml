@@ -11,7 +11,7 @@ description: |
 runs:
   using: 'composite'
   steps:
-    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@main # zizmor: ignore[unpinned-uses]
+    - uses: rapidsai/shared-actions/telemetry-impls/load-then-clone@release/26.10 # zizmor: ignore[unpinned-uses]
       id: has_base_env_var_artifact
     - uses: ./shared-actions/telemetry-impls/summarize # zizmor: ignore[self-repository]
       if: steps.has_base_env_var_artifact.outputs.artifact_found == 'true'

@@ -1,7 +1,7 @@
 # shared-actions
 
-Contains all of the shared composite actions used by RAPIDS. Several of these actions,
-especially the telemetry actions, use a pattern that we refer to as "dispatch actions."
+Contains all of the shared composite actions used by RAPIDS. Several of these actions
+use a pattern that we refer to as "dispatch actions."
 The general idea of a dispatch action is to make it easier to depend on other actions
 at a specific revision, and also to simplify using files beyond a given action .yml file.
 
@@ -110,57 +110,6 @@ used by the `actions/checkout` action, taking priority over the default values.
 
 ## Calling in child shared workflows
 
-Shared workflows complicate matters because environment variables do not get
-passed through. If you set the `SHARED_ACTIONS_REPO` and/or `SHARED_ACTIONS_REF`
-variables in the top-level parent workflow, they will not take effect in any
-dispatch actions that you may call in child workflows. You can pass them as inputs
-to child shared workflows, but that ends up being very verbose.
-
-To carry this information into child workflows, we use a scheme that writes a
-file with environment variables, uploads this file as an artifact, then downloads
-and loads the file at the start of the child workflow.
-
-The general scheme is:
-
-### Top-level workflow
-```yaml
-jobs:
-  setup-env-vars:
-    runs-on: ubuntu-latest
-    steps:
-        # implicitly picks up env vars for SHARED_ACTIONS_REPO and _REF
-        - uses: rapidsai/shared-actions/telemetry-dispatch-stash-base-env@main
-
-  <rest of jobs>
-
-  summarize-telemetry:
-    needs: <all other jobs, or just pr-builder>
-    # private networks will affect your choice here. If your tempo server or
-    # forwarder/collector is only accessible on some node types, then use one of
-    # those instances here
-    runs-on: <node>
-    steps:
-      - uses: rapidsai/shared-actions/telemetry-dispatch-summarize@main
-```
-
-### Child workflows
-```yaml
-jobs:
-  tests:
-    strategy:
-      matrix: ${{ fromJSON(needs.compute-matrix.outputs.MATRIX) }}
-    runs-on: "linux-${{ matrix.ARCH }}-gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-1"
-    steps:
-      - name: Telemetry setup
-        uses: rapidsai/shared-actions/telemetry-dispatch-setup@main
-        continue-on-error: true
-        extra_attributes: "rapids.cuda=${{ matrix.CUDA_VER }},rapids.py=${{ matrix.PY_VER }}"
-
-      <other steps, as usual>
-```
-
-Behind the scenes, the implementation actions are:
-* ./telemetry-impls/stash-base-env-vars: storing base environment variables (including setting default values):
-* ./telemetry-impls/load-then-clone: Downloads base env var file, loads it, then
-  clones shared-actions according to env vars that were just loaded
-* ./telemetry-impls/summarize: Runs Python script to parse GitHub logs and send OpenTelemetry spans to endpoint
+Reusable workflows do not inherit environment variables from their callers.
+Set `SHARED_ACTIONS_REPO` and `SHARED_ACTIONS_REF` in the workflow that invokes
+the dispatch action when testing an alternative implementation.

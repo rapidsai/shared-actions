@@ -1,0 +1,100 @@
+name: Dispatch release catalog
+description: Write a release-candidate catalog bundle directly to the private S3 store.
+
+inputs:
+  config:
+    description: >-
+      JSON string with configuration for this action. Schema and field documentation:
+      https://github.com/rapidsai/shared-actions/blob/main/release-catalog/config.schema.json
+    required: true
+  source-artifact-name:
+    description: Stable name of this producing artifact bundle.
+    required: true
+  candidate-train-sha256:
+    description: Canonical SHA-256 of the immutable release-train JSON.
+    required: true
+  candidate-bucket:
+    description: Private S3 bucket that holds candidate-build bytes.
+    required: false
+    default: rapids-release-candidates
+  candidate-content-prefix:
+    description: Root prefix for reusable, immutable candidate build bundles.
+    required: false
+    default: artifacts
+  candidate-train-prefix:
+    description: Root prefix for immutable train membership records.
+    required: false
+    default: train-state
+  upload-to-s3:
+    description: Whether to upload the generated bundle to the candidate store.
+    required: false
+    default: "false"
+  candidate-matrix-arch:
+    description: Canonical RAPIDS architecture for the producing job.
+    required: false
+    default: ""
+  candidate-matrix-cuda-version:
+    description: CUDA version for the producing job.
+    required: false
+    default: ""
+  candidate-matrix-python-version:
+    description: Python version for the producing job.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - id: implementation
+      name: Resolve release catalog implementation
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        HOST_WORKSPACE: ${{ github.workspace }}
+      run: |
+        host_root="$(dirname "$(dirname "${HOST_WORKSPACE}")")"
+        container_root="$(dirname "$(dirname "${PWD}")")"
+        action_path="${ACTION_PATH}"
+        if [[ ! -d "${action_path}" && "${action_path}" == "${host_root}/"* ]]; then
+          action_path="${container_root}/${action_path#"${host_root}/"}"
+        fi
+        implementation_path="$(dirname "${action_path}")/release-catalog"
+        if [[ ! -d "${implementation_path}" ]]; then
+          echo "release-catalog implementation not found at ${implementation_path}" >&2
+          exit 1
+        fi
+        echo "path=${implementation_path}" >>"${GITHUB_OUTPUT}"
+    - id: configuration
+      name: Validate release catalog configuration
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_CATALOG_CONFIG: ${{ inputs.config }}
+      run: "${IMPLEMENTATION_PATH}/validate-config.sh"
+    - name: Materialize release catalog entries
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_ARTIFACTS: ${{ steps.configuration.outputs.artifacts }}
+        RELEASE_ENTRIES_NAME: release-catalog-entries.${{ inputs.source-artifact-name }}.json
+        RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
+        RELEASE_SOURCE_SHA: ${{ env.RAPIDS_SHA }}
+        RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+        RELEASE_CATALOG_KEY: ${{ steps.configuration.outputs.release_catalog_key }}
+        RELEASE_CANDIDATE_MATRIX_ARCH: ${{ inputs.candidate-matrix-arch }}
+        RELEASE_CANDIDATE_MATRIX_CUDA_VERSION: ${{ inputs.candidate-matrix-cuda-version }}
+        RELEASE_CANDIDATE_MATRIX_PYTHON_VERSION: ${{ inputs.candidate-matrix-python-version }}
+      run: "${IMPLEMENTATION_PATH}/materialize.sh"
+    - name: Write release-candidate bundle to S3
+      if: ${{ inputs.upload-to-s3 == 'true' }}
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        RELEASE_ARTIFACT_DIRECTORY: ${{ steps.configuration.outputs.artifact_directory }}
+        RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
+        RELEASE_CANDIDATE_CONTENT_PREFIX: ${{ inputs.candidate-content-prefix }}
+        RELEASE_CANDIDATE_TRAIN_PREFIX: ${{ inputs.candidate-train-prefix }}
+        RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
+        RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
+        RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION: ${{ github.action_ref }}
+        RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+      run: "${IMPLEMENTATION_PATH}/upload-candidate-s3.sh"

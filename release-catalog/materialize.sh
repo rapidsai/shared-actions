@@ -146,8 +146,20 @@ describe_wheel_package() {
     exit 1
   fi
 
-  jq -cn --arg name "${package_name}" --arg version "${package_version}" \
-    '{ecosystem: "wheel", name: $name, version: $version}'
+  # RAPIDS CUDA wheels use a distribution suffix such as rmm-cu12. Keep that
+  # artifact-level compatibility fact in the catalog; the producing job's
+  # matrix is not a reliable substitute for it.
+  local cuda_major=""
+  if [[ "${package_name}" =~ -cu([0-9]+)$ ]]; then
+    cuda_major="${BASH_REMATCH[1]}"
+  fi
+  if [[ -n "${cuda_major}" ]]; then
+    jq -cn --arg name "${package_name}" --arg version "${package_version}" --arg cuda_major "${cuda_major}" \
+      '{ecosystem: "wheel", name: $name, version: $version, cuda_major: $cuda_major}'
+  else
+    jq -cn --arg name "${package_name}" --arg version "${package_version}" \
+      '{ecosystem: "wheel", name: $name, version: $version}'
+  fi
 }
 
 # Maven-built JARs normally expose their coordinates in exactly one
@@ -227,7 +239,29 @@ describe_conda_package() {
     exit 1
   fi
 
-  jq -c '{ecosystem: "conda", name, version, build, platform: .subdir}' <<<"${index_json}"
+  # The embedded package dependency is the compatibility contract. The build
+  # matrix is only how this package was produced; it must not prevent a
+  # CUDA-independent package from serving another CUDA build in the train.
+  local cuda_major
+  cuda_major="$(jq -r '
+    [
+      .depends[]?
+      | select(type == "string" and startswith("cuda-version"))
+      | capture("(?<major>[0-9]+)").major
+    ]
+    | unique
+    | if length == 0 then ""
+      elif length == 1 then .[0]
+      else error("Conda package has conflicting cuda-version dependencies")
+      end
+  ' <<<"${index_json}")"
+  if [[ -n "${cuda_major}" ]]; then
+    jq -c --arg cuda_major "${cuda_major}" \
+      '{ecosystem: "conda", name, version, build, platform: .subdir, cuda_major: $cuda_major}' \
+      <<<"${index_json}"
+  else
+    jq -c '{ecosystem: "conda", name, version, build, platform: .subdir}' <<<"${index_json}"
+  fi
 }
 
 prepare_artifacts() {
@@ -346,7 +380,12 @@ prepare_artifacts() {
 # package identity or a caller-created package identity file.
 artifacts="$(prepare_artifacts)"
 # Fixed name: upload-s3.sh, the schema, and consumers all depend on it.
-entries_path="${artifact_directory}/release-catalog-entries.json"
+entries_name="${RELEASE_ENTRIES_NAME:-release-catalog-entries.json}"
+if [[ "$entries_name" == */* || "$entries_name" == *..* ]]; then
+  release_catalog_error "release entry document must be a plain filename"
+  exit 1
+fi
+entries_path="${artifact_directory}/${entries_name}"
 temporary_manifest="$(mktemp "${artifact_directory}/.release-catalog.XXXXXX")"
 trap 'rm -f "${temporary_manifest}"' EXIT
 
@@ -355,12 +394,13 @@ printf '%s\n' '{"entries":[]}' >"${temporary_manifest}"
 validate_package_identity() {
   jq -e '
     type == "object"
-    and (keys - ["ecosystem", "name", "version", "build", "platform"] | length == 0)
+    and (keys - ["ecosystem", "name", "version", "build", "platform", "cuda_major"] | length == 0)
     and (.ecosystem | type == "string" and length > 0)
     and (.name | type == "string" and length > 0)
     and (.version | type == "string" and length > 0)
     and ((has("build") | not) or (.build | type == "string" and length > 0))
     and ((has("platform") | not) or (.platform | type == "string" and length > 0))
+    and ((has("cuda_major") | not) or (.cuda_major | type == "string" and test("^[0-9]+$")))
   ' >/dev/null
 }
 
@@ -518,6 +558,9 @@ jq -n -S \
   --arg run_id "${github_run_id}" \
   --arg sha "${source_sha}" \
   --arg workflow_ref "${github_workflow_ref}" \
+  --arg matrix_arch "${RELEASE_CANDIDATE_MATRIX_ARCH:-}" \
+  --arg matrix_cuda_version "${RELEASE_CANDIDATE_MATRIX_CUDA_VERSION:-}" \
+  --arg matrix_python_version "${RELEASE_CANDIDATE_MATRIX_PYTHON_VERSION:-}" \
   --argjson entries "$(jq -c '.entries' "${temporary_manifest}")" \
   '{
     schema_version: 1,
@@ -528,7 +571,12 @@ jq -n -S \
       sha: $sha,
       workflow_ref: $workflow_ref,
       run_id: $run_id,
-      run_attempt: $run_attempt
+      run_attempt: $run_attempt,
+      matrix: {
+        arch: $matrix_arch,
+        cuda_version: $matrix_cuda_version,
+        python_version: $matrix_python_version
+      }
     },
     entries: $entries
-  }' >"${entries_path}"
+  } | if $matrix_arch == "" and $matrix_cuda_version == "" and $matrix_python_version == "" then del(.source.matrix) else . end' >"${entries_path}"

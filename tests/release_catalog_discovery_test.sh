@@ -41,7 +41,7 @@ export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 jq -e '
   [.entries[] | {path, package}] == [{
     path: "libkvikio_cu12-26.8.0-py3-none-manylinux_2_28_x86_64.whl",
-    package: {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0"}
+    package: {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0", cuda_major: "12"}
   }]
 ' "${temporary_directory}/release-catalog-entries.json" >/dev/null
 
@@ -95,7 +95,7 @@ export RELEASE_ARTIFACTS RELEASE_ARTIFACT_DIRECTORY
 "${repository_root}/release-catalog/materialize.sh"
 jq -e '
   .entries[0].path == "libkvikio_cu12-26.8.0-py3-none-manylinux_2_28_x86_64.whl"
-  and .entries[0].package == {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0"}
+  and .entries[0].package == {ecosystem: "wheel", name: "libkvikio-cu12", version: "26.8.0", cuda_major: "12"}
   and .entries[0].sbom_kind == "generated-identity"
 ' "${temporary_directory}/release-catalog-entries.json" >/dev/null
 

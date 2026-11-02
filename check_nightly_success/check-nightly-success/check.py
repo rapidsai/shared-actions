@@ -1,4 +1,4 @@
-# Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 """Check whether a GHA workflow has run successfully in the last N days."""
 
@@ -6,7 +6,7 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -155,6 +155,7 @@ def main(
     request_page_size: int,
     request_timeout_seconds: float,
     retry_backoff_seconds: float,
+    ignore_failures_until: date | None,
 ) -> int:
     """Check whether a GHA workflow has run successfully in the last N days.
 
@@ -171,7 +172,14 @@ def main(
     # Dealing with day-precision date-times makes filtering in the GitHub API simpler, see
     # https://docs.github.com/en/search-github/getting-started-with-searching-on-github/understanding-the-search-syntax#query-for-dates
     #
-    oldest_date_to_pull = datetime.now(timezone.utc) - timedelta(days=max_days_without_success)
+    now = datetime.now(timezone.utc)
+    if ignore_failures_until is not None:
+        if now.date() <= ignore_failures_until:
+            print(f"Ignoring failures until the end of {ignore_failures_until}.")
+            return ExitCode.SUCCESS
+        print(f"Stopped ignoring failures on {ignore_failures_until}.")
+
+    oldest_date_to_pull = now - timedelta(days=max_days_without_success)
 
     # get all the matching runs
     client = GitHubClient(
@@ -303,6 +311,14 @@ if __name__ == "__main__":
         required=False,
         help="Number of responses per page of data. Decrease this to reduce memory usage.",
     )
+    parser.add_argument(
+        "--ignore-failures-until",
+        type=date.fromisoformat,
+        default=None,
+        required=False,
+        help="(optional) If provided, this action is informational only before this day (YYYY-MM-DD)."
+        "Set this to allow more time to resolve issues with workflow the action is checking.",
+    )
     args = parser.parse_args()
 
     sys.exit(
@@ -315,5 +331,6 @@ if __name__ == "__main__":
             request_page_size=args.request_page_size,
             request_timeout_seconds=10,
             retry_backoff_seconds=0.5,
+            ignore_failures_until=args.ignore_failures_until,
         ),
     )

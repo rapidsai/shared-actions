@@ -22,6 +22,13 @@ inputs:
     description: "The number of consecutive days that may go by without a successful CI run"
     required: true
     type: integer
+  ignore-failures-until:
+    description: |
+      (optional) If provided, this action is informational only before this day (YYYY-MM-DD).
+      Set this to allow more time to resolve issues with workflow the action is checking.
+    required: false
+    default: ""
+    type: string
 
 runs:
   using: composite
@@ -33,7 +40,12 @@ runs:
         TARGET_BRANCH: ${{ inputs.target-branch }}
         WORKFLOW_ID: ${{ inputs.workflow-id }}
         MAX_DAYS_WITHOUT_SUCCESS: ${{ inputs.max-days-without-success }}
+        IGNORE_FAILURES_UNTIL: ${{ inputs.ignore-failures-until }}
       run: |
+          ignore_failures_until_args=()
+          if [[ -n "${IGNORE_FAILURES_UNTIL}" ]]; then
+            ignore_failures_until_args=(--ignore-failures-until "${IGNORE_FAILURES_UNTIL}")
+          fi
           python -m pip install \
             --prefer-binary \
             'requests>=2.32.4'
@@ -41,4 +53,5 @@ runs:
             --repo ${REPO} \
             --branch ${TARGET_BRANCH} \
             --workflow-id ${WORKFLOW_ID} \
-            --max-days-without-success ${MAX_DAYS_WITHOUT_SUCCESS}
+            --max-days-without-success ${MAX_DAYS_WITHOUT_SUCCESS} \
+            "${ignore_failures_until_args[@]}"

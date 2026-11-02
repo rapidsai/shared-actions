@@ -21,8 +21,10 @@ inputs:
     required: false
     default: 7
     type: integer
-  temp-extension-expires:
-    description: "Last day after which a temporary extension expires (YYYY-MM-DD)."
+  ignore-failures-until:
+    description: |
+      (optional) If provided, this action is informational only before this day (YYYY-MM-DD).
+      Set this to allow more time to resolve issues with workflow the action is checking.
     required: false
     default: ""
     type: string
@@ -44,4 +46,4 @@ runs:
         target-branch: ${{ inputs.target-branch }}
         workflow-id: ${{ inputs.workflow-id }}
         max-days-without-success: ${{ inputs.max-days-without-success }}
-        temp-extension-expires: ${{ inputs.temp-extension-expires }}
+        ignore-failures-until: ${{ inputs.ignore-failures-until }}

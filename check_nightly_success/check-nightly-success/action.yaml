@@ -22,8 +22,10 @@ inputs:
     description: "The number of consecutive days that may go by without a successful CI run"
     required: true
     type: integer
-  temp-extension-expires:
-    description: "Last day after which a temporary extension expires (YYYY-MM-DD)."
+  ignore-failures-until:
+    description: |
+      (optional) If provided, this action is informational only before this day (YYYY-MM-DD).
+      Set this to allow more time to resolve issues with workflow the action is checking.
     required: false
     default: ""
     type: string
@@ -38,11 +40,11 @@ runs:
         TARGET_BRANCH: ${{ inputs.target-branch }}
         WORKFLOW_ID: ${{ inputs.workflow-id }}
         MAX_DAYS_WITHOUT_SUCCESS: ${{ inputs.max-days-without-success }}
-        TEMP_EXTENSION_EXPIRES: ${{ inputs.temp-extension-expires }}
+        IGNORE_FAILURES_UNTIL: ${{ inputs.ignore-failures-until }}
       run: |
-          temp_extension_args=()
-          if [[ -n "${TEMP_EXTENSION_EXPIRES}" ]]; then
-            temp_extension_args=(--temp-extension-expires "${TEMP_EXTENSION_EXPIRES}")
+          ignore_failures_until_args=()
+          if [[ -n "${IGNORE_FAILURES_UNTIL}" ]]; then
+            ignore_failures_until_args=(--ignore-failures-until "${IGNORE_FAILURES_UNTIL}")
           fi
           python -m pip install \
             --prefer-binary \
@@ -52,4 +54,4 @@ runs:
             --branch ${TARGET_BRANCH} \
             --workflow-id ${WORKFLOW_ID} \
             --max-days-without-success ${MAX_DAYS_WITHOUT_SUCCESS} \
-            "${temp_extension_args[@]}"
+            "${ignore_failures_until_args[@]}"

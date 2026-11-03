@@ -6,6 +6,7 @@ set -euo pipefail
 export RELEASE_CATALOG_SCRIPT_NAME="materialize.sh"
 export RELEASE_CATALOG_ERROR_TITLE="Release catalog materialization failed"
 # shellcheck source=release-catalog/error.sh
+# shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/error.sh"
 
 # Record artifact metadata from completed build directory into a release catalog companion.

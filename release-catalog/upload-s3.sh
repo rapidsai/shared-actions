@@ -8,6 +8,7 @@ set -euo pipefail
 export RELEASE_CATALOG_SCRIPT_NAME="upload-s3.sh"
 export RELEASE_CATALOG_ERROR_TITLE="Release catalog upload failed"
 # shellcheck source=release-catalog/error.sh
+# shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/error.sh"
 
 require_value() {

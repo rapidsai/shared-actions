@@ -21,6 +21,13 @@ inputs:
     required: false
     default: 7
     type: integer
+  ignore-failures-until:
+    description: |
+      (optional) If provided, this action is informational only before this day (YYYY-MM-DD).
+      Set this to allow more time to resolve issues with workflow the action is checking.
+    required: false
+    default: ""
+    type: string
 
 runs:
   using: 'composite'
@@ -39,3 +46,4 @@ runs:
         target-branch: ${{ inputs.target-branch }}
         workflow-id: ${{ inputs.workflow-id }}
         max-days-without-success: ${{ inputs.max-days-without-success }}
+        ignore-failures-until: ${{ inputs.ignore-failures-until }}

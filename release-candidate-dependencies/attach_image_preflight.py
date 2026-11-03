@@ -20,7 +20,7 @@ _SHA1 = re.compile(r"[0-9a-f]{40}\Z")
 _CONSUMER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _IMAGE_BUILD = re.compile(
     r"(?P<version>[0-9]+\.[0-9]+)-cuda(?P<cuda>[0-9]+\.[0-9]+(?:\.[0-9]+)?)-"
-    r"(?P<linux>[a-z0-9][a-z0-9.]*)-py(?P<python>[0-9]+\.[0-9]+)-(?P<arch>amd64|arm64)\Z"
+    r"(?P<linux>[a-z0-9][a-z0-9.]*)-py(?P<python>[0-9]+\.[0-9]+t?)-(?P<arch>amd64|arm64)\Z"
 )
 _ARCH = {"amd64": "amd64", "x86_64": "amd64", "arm64": "arm64", "aarch64": "arm64"}
 _PREFLIGHT_FIELDS = {

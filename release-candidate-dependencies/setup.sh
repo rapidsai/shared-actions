@@ -823,6 +823,14 @@ if [[ "${arguments[0]:-}" == "build" ]]; then
         --host-lock "${RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE}" \
         --rapids-cmake-sha "${RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA}")"
       arguments+=(--ignore-recipe-variants --variant-config "${RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG}")
+      # Match the frozen planner's build-number variant for recipes that use it.
+      recipe_file="${arguments[$((index + 1))]}"
+      if [[ -d "${recipe_file}" ]]; then
+        recipe_file="${recipe_file}/recipe.yaml"
+      fi
+      if grep -Fq 'GIT_DESCRIBE_NUMBER' "${recipe_file}"; then
+        arguments+=(--variant GIT_DESCRIBE_NUMBER=0)
+      fi
       break
     fi
   done

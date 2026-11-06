@@ -780,6 +780,53 @@ def test_recipe_patcher_pins_and_locks_shared_cache_build():
         pytest.fail("shared cache build script was not pinned without losing its configuration")
 
 
+def test_recipe_patcher_locks_staging_and_preserves_inheritance():
+    recipe = {
+        "source": {"path": "../../.."},
+        "outputs": [
+            {
+                "staging": {"name": "libkvikio-build"},
+                "build": {
+                    "script": {
+                        "content": "./build.sh -v -n libkvikio benchmarks",
+                        "secrets": ["AWS_SESSION_TOKEN"],
+                        "env": {"SCCACHE_CONF": "config"},
+                    }
+                },
+                "requirements": {"build": ["cmake", "ninja"], "host": ["libcurl", "rapids-logger"]},
+            },
+            {"package": {"name": "libkvikio"}, "inherit": "libkvikio-build"},
+            {"package": {"name": "libkvikio-tests"}, "inherit": "libkvikio-build"},
+        ],
+    }
+
+    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
+
+    for output in recipe["outputs"]:
+        if "candidate-build-lock" not in output["requirements"]["build"]:
+            pytest.fail("staging or inherited output lost its build lock")
+        if "candidate-host-lock" not in output["requirements"]["host"]:
+            pytest.fail("staging or inherited output lost its host lock")
+    stage, library, tests = recipe["outputs"]
+    if stage["staging"] != {"name": "libkvikio-build"}:
+        pytest.fail("staging build identity changed")
+    if stage["requirements"]["build"] != ["cmake", "ninja", "candidate-build-lock"]:
+        pytest.fail("staging build dependencies changed")
+    if stage["requirements"]["host"] != ["libcurl", "rapids-logger", "candidate-host-lock"]:
+        pytest.fail("staging host dependencies changed")
+    script = stage["build"]["script"]
+    if "-Drapids-cmake-sha=deadbeef" not in script["content"]:
+        pytest.fail("staging build lost the RAPIDS CMake pin")
+    if "./build.sh -v -n libkvikio benchmarks" not in script["content"]:
+        pytest.fail("staging build command changed")
+    if script["secrets"] != ["AWS_SESSION_TOKEN"] or script["env"] != {"SCCACHE_CONF": "config"}:
+        pytest.fail("staging script environment or secrets changed")
+    if library["inherit"] != "libkvikio-build" or tests["inherit"] != "libkvikio-build":
+        pytest.fail("library or tests lost staging inheritance")
+    if recipe["source"] != {"path": "../../.."} or "requirements" in recipe or "cache" in recipe:
+        pytest.fail("patcher changed the migrated multi-output recipe structure")
+
+
 def test_recipe_patcher_adapts_exact_variant_spelling_from_local_config(tmp_path):
     recipe = tmp_path / "recipe.yaml"
     recipe.write_text("package:\n  name: example\n  version: 1\n")

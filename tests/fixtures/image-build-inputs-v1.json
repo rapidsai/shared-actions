@@ -1,0 +1,92 @@
+{
+  "descriptor": {
+    "build_implementation_repositories": {
+      "gha-tools": "rapidsai/gha-tools",
+      "shared-actions": "rapidsai/shared-actions",
+      "shared-workflows": "rapidsai/shared-workflows"
+    },
+    "build_implementation_revisions": {
+      "gha-tools": "cccccccccccccccccccccccccccccccccccccccc",
+      "shared-actions": "dddddddddddddddddddddddddddddddddddddddd",
+      "shared-workflows": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "build_policy": {
+      "sccache": false
+    },
+    "package": {
+      "build": "26.12-cuda12.9.2-rockylinux8-py3.12-amd64",
+      "ecosystem": "container",
+      "name": "docker.io/rapidsai/ci-conda",
+      "platform": "linux/amd64",
+      "version": "26.12"
+    },
+    "refresh_key": "",
+    "resolution_policy": "retain-prior-resolved-environment",
+    "schema_version": 1,
+    "source": {
+      "repository": "rapidsai/ci-imgs",
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "source_inputs": {
+      "build_tools": {},
+      "schema_version": 1,
+      "sources": {}
+    }
+  },
+  "descriptor_sha256": "c1bb3c993c53fa6c5586ff3485192edf79ceab025974106afd63250ed1df9790",
+  "package": {
+    "build": "26.12-cuda12.9.2-rockylinux8-py3.12-amd64",
+    "ecosystem": "container",
+    "name": "docker.io/rapidsai/ci-conda",
+    "platform": "linux/amd64",
+    "version": "26.12"
+  },
+  "train": {
+    "build_implementation_repositories": {
+      "gha-tools": "rapidsai/gha-tools",
+      "shared-actions": "rapidsai/shared-actions",
+      "shared-workflows": "rapidsai/shared-workflows"
+    },
+    "build_implementation_revisions": {
+      "gha-tools": "cccccccccccccccccccccccccccccccccccccccc",
+      "shared-actions": "dddddddddddddddddddddddddddddddddddddddd",
+      "shared-workflows": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "build_tool_revisions": {
+      "dependency-file-generator": "ffffffffffffffffffffffffffffffffffffffff",
+      "rapids-build-backend": "1111111111111111111111111111111111111111",
+      "rapids-cmake": "2222222222222222222222222222222222222222"
+    },
+    "candidate_build_policy": {
+      "sccache": false
+    },
+    "candidate_image_policy": {
+      "mode": "retain",
+      "refresh_key": "",
+      "schema_version": 1
+    },
+    "github_repositories": {
+      "ci-imgs": "rapidsai/ci-imgs",
+      "kvikio": "rapidsai/kvikio"
+    },
+    "input_receipts": {
+      "locks": {
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "variants": {
+        "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    },
+    "rapids_metadata_revision": "3333333333333333333333333333333333333333",
+    "release_units": [
+      {
+        "dependencies": [],
+        "id": "container:ci-images"
+      }
+    ],
+    "source_revisions": {
+      "ci-imgs": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kvikio": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  }
+}

@@ -147,9 +147,9 @@ run_upload() {
     RELEASE_CANDIDATE_CONTENT_PREFIX="artifacts" \
     RELEASE_CANDIDATE_TRAIN_PREFIX="train-state" \
     RELEASE_CANDIDATE_TRAIN_SHA256="${train_sha256}" \
-    RELEASE_SOURCE_ARTIFACT_NAME="conda" \
-    GITHUB_REPOSITORY="rapidsai/example" \
-    GITHUB_RUN_ID="101" \
+    RELEASE_SOURCE_ARTIFACT_NAME="${9:-conda}" \
+    GITHUB_REPOSITORY="${8:-rapidsai/example}" \
+    GITHUB_RUN_ID="${10:-101}" \
     GITHUB_STEP_SUMMARY="${temporary_directory}/summary" \
     RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS="${implementation_revisions}" \
     RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES="${repositories}" \
@@ -392,5 +392,141 @@ if run_legacy_upload >/dev/null 2>&1; then
 fi
 if run_upload 12 "${base_implementation_revisions}" >/dev/null 2>&1; then
   echo "upload accepted different canonical package bytes" >&2
+  exit 1
+fi
+
+# CI images use a producer-scoped declared recipe descriptor and a completed
+# result pointer. Unrelated train locks stay in the original build record;
+# they do not become part of this per-variant discovery identity.
+jq -n \
+  --argjson implementations "${base_implementation_revisions}" \
+  --argjson repositories "${implementation_repositories}" \
+  '{release_units:[{id:"container:ci-images",artifact_family:"container",dependencies:[]}],
+    source_revisions:{"ci-imgs":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    github_repositories:{"ci-imgs":"rapidsai/ci-imgs"},
+    build_tool_revisions:{"dependency-file-generator":"1111111111111111111111111111111111111111",
+      "rapids-build-backend":"2222222222222222222222222222222222222222",
+      "rapids-cmake":"3333333333333333333333333333333333333333"},
+    build_implementation_revisions:$implementations,
+    build_implementation_repositories:$repositories,
+    candidate_build_policy:{sccache:false},
+    candidate_image_policy:{schema_version:1,mode:"retain",refresh_key:""}}' \
+  >"${temporary_directory}/release-train.json"
+train_sha256="$(jq -cSj 'del(.train_sha256)' "${temporary_directory}/release-train.json" | sha256sum | awk '{print $1}')"
+mkdir -p "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}"
+cp "${temporary_directory}/release-train.json" \
+  "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}/release-train.json"
+bash "${repository_root}/release-candidate-dependencies/write-source-inputs.sh" \
+  --train "${temporary_directory}/release-train.json" \
+  --output "${temporary_directory}/source-inputs.json" --target-unit container:ci-images
+jq -cnS --argjson source_inputs "$(cat "${temporary_directory}/source-inputs.json")" \
+  --argjson repositories "${implementation_repositories}" \
+  '{schema_version:1,train_inputs:{lock_receipt_sha256:"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",variant_receipt_sha256:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},build_policy:{sccache:false},build_implementation_repositories:$repositories,source_inputs:$source_inputs}' \
+  >"${temporary_directory}/candidate-build-inputs.json"
+mkdir -p "${temporary_directory}/bundle/container"
+printf 'resolved image archive bytes\n' >"${temporary_directory}/bundle/container/image.tar.gz"
+jq '.source.repository="rapidsai/ci-imgs" | .source.artifact="ci-image"
+  | .source.matrix={arch:"amd64",cuda_version:"12.9.2",python_version:"3.12"}
+  | .entries=[{release_catalog_key:"container:ci-images",path:"container/image.tar.gz",
+      package:{ecosystem:"container",name:"docker.io/rapidsai/ci-conda",version:"26.12",
+        build:"26.12-cuda12.9.2-rockylinux8-py3.12-amd64",platform:"linux/amd64"}}]' \
+  "${temporary_directory}/bundle/release-catalog-entries.conda.json" \
+  >"${temporary_directory}/bundle/release-catalog-entries.ci-image.json"
+run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+  "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image"
+image_index="$(find "${temporary_directory}/s3/candidate-store/artifacts/ci-imgs/reuse-index" -name '*.json')"
+test -f "${image_index}"
+jq -e '.schema_version == 1
+  and .image_build_inputs.resolution_policy == "retain-prior-resolved-environment"
+  and .image_build_inputs.package.build == "26.12-cuda12.9.2-rockylinux8-py3.12-amd64"
+  and .reference.source_run_id == "101" and .reference.source_run_attempt == "1"' "${image_index}" >/dev/null
+image_descriptor_sha256="$(jq -cSj '.image_build_inputs' "${image_index}" | sha256sum | awk '{print $1}')"
+[[ "${image_index}" == */"${image_descriptor_sha256}"/* ]]
+[[ "$(tail -n 1 "${temporary_directory}/put-objects.log")" == "${image_index#"${temporary_directory}/s3/candidate-store/"}" ]]
+image_record="$(jq -r '.reference.build_record_key' "${image_index}")"
+jq -e '.packages[0].package.build == "26.12-cuda12.9.2-rockylinux8-py3.12-amd64"
+  and (has("image_resolution") | not)
+  and .candidate_build_inputs.image_build_inputs.package.platform == "linux/amd64"' \
+  "${temporary_directory}/s3/candidate-store/${image_record}" >/dev/null
+image_created="$(wc -l <"${temporary_directory}/put-objects.log")"
+run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+  "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image"
+[[ "$(wc -l <"${temporary_directory}/put-objects.log")" == "${image_created}" ]]
+# Identical canonical inputs and bytes may be built by another attempt or run.
+# Each completed execution receives its own immutable discovery pointer; none
+# of them may replace the original pointer or change the canonical record.
+image_record_digest="$(jq -r '.reference.build_input_digest' "${image_index}")"
+image_first_index_digest="$(sha256sum "${image_index}" | awk '{print $1}')"
+jq '.source.run_attempt="2"' "${temporary_directory}/bundle/release-catalog-entries.ci-image.json" \
+  >"${temporary_directory}/new-image-catalog.json"
+mv "${temporary_directory}/new-image-catalog.json" \
+  "${temporary_directory}/bundle/release-catalog-entries.ci-image.json"
+run_upload 2 "${base_implementation_revisions}" "" "" "260901120000" \
+  "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image"
+image_second_index="${image_index%/*}/101-2.json"
+test -f "${image_second_index}"
+jq -e --arg digest "${image_record_digest}" \
+  '.reference.build_input_digest == $digest
+    and .reference.source_run_id == "101" and .reference.source_run_attempt == "2"' \
+  "${image_second_index}" >/dev/null
+jq '.source.run_id="202" | .source.run_attempt="1"' \
+  "${temporary_directory}/bundle/release-catalog-entries.ci-image.json" \
+  >"${temporary_directory}/new-image-catalog.json"
+mv "${temporary_directory}/new-image-catalog.json" \
+  "${temporary_directory}/bundle/release-catalog-entries.ci-image.json"
+run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+  "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" "202"
+image_third_index="${image_index%/*}/202-1.json"
+test -f "${image_third_index}"
+jq -e --arg digest "${image_record_digest}" \
+  '.reference.build_input_digest == $digest
+    and .reference.source_run_id == "202" and .reference.source_run_attempt == "1"' \
+  "${image_third_index}" >/dev/null
+[[ "$(sha256sum "${image_index}" | awk '{print $1}')" == "${image_first_index_digest}" ]]
+[[ "$(find "${image_index%/*}" -name '*.json' | wc -l | tr -d ' ')" == "3" ]]
+image_created="$(wc -l <"${temporary_directory}/put-objects.log")"
+mv "${temporary_directory}/bundle/container/image.tar.gz" "${temporary_directory}/missing-image.tar.gz"
+jq '.source.run_id="303"' "${temporary_directory}/bundle/release-catalog-entries.ci-image.json" \
+  >"${temporary_directory}/new-image-catalog.json"
+mv "${temporary_directory}/new-image-catalog.json" \
+  "${temporary_directory}/bundle/release-catalog-entries.ci-image.json"
+if run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+  "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" "303" >/dev/null 2>&1; then
+  echo "image upload accepted a missing archive" >&2
+  exit 1
+fi
+[[ "$(wc -l <"${temporary_directory}/put-objects.log")" == "${image_created}" ]]
+# Explicit refresh may resolve different bytes with identical recipe, refresh
+# key, locks and build date. Its execution generation changes the canonical
+# namespace while the retention descriptor remains compatible.
+jq '.candidate_image_policy.mode="refresh"' "${temporary_directory}/release-train.json" \
+  >"${temporary_directory}/refresh-train.json"
+mv "${temporary_directory}/refresh-train.json" "${temporary_directory}/release-train.json"
+train_sha256="$(jq -cSj 'del(.train_sha256)' "${temporary_directory}/release-train.json" | sha256sum | awk '{print $1}')"
+mkdir -p "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}"
+cp "${temporary_directory}/release-train.json" \
+  "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}/release-train.json"
+for refresh_run in 404 505; do
+  printf 'refreshed image archive bytes %s\n' "${refresh_run}" >"${temporary_directory}/bundle/container/image.tar.gz"
+  jq --arg run_id "${refresh_run}" '.source.run_id=$run_id' \
+    "${temporary_directory}/bundle/release-catalog-entries.ci-image.json" \
+    >"${temporary_directory}/new-image-catalog.json"
+  mv "${temporary_directory}/new-image-catalog.json" \
+    "${temporary_directory}/bundle/release-catalog-entries.ci-image.json"
+  run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+    "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" "${refresh_run}"
+  refresh_index="$(find "${temporary_directory}/s3/candidate-store/artifacts/ci-imgs/reuse-index/${image_descriptor_sha256}" -name "${refresh_run}-1.json")"
+  test -f "${refresh_index}"
+  refresh_record="$(jq -r '.reference.build_record_key' "${refresh_index}")"
+  jq -e --arg train_sha256 "${train_sha256}" --arg run_id "${refresh_run}" \
+    '.image_resolution == {schema_version:1,policy:"explicit-refresh",train_sha256:$train_sha256,run_id:$run_id,run_attempt:"1"}' \
+    "${temporary_directory}/s3/candidate-store/${refresh_record}" >/dev/null
+done
+[[ "$(find "${temporary_directory}/s3/candidate-store/artifacts/ci-imgs/reuse-index/${image_descriptor_sha256}" -name '*.json' | wc -l | tr -d ' ')" == "5" ]]
+[[ "$(sha256sum "${image_index}" | awk '{print $1}')" == "${image_first_index_digest}" ]]
+printf 'different bytes in the same refresh execution\n' >"${temporary_directory}/bundle/container/image.tar.gz"
+if run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+  "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" "505" >/dev/null 2>&1; then
+  echo "refresh upload accepted changed bytes in the same execution" >&2
   exit 1
 fi

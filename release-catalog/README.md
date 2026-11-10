@@ -267,6 +267,42 @@ also create a different canonical artifact identity, so an `sccache`-assisted
 build cannot be reused as a clean build. The locks intentionally omit GitHub
 run and attempt IDs.
 
+CI images additionally record a versioned `image_build_inputs` descriptor when
+the frozen train contains `candidate_image_policy`. This describes the exact
+recipe source commit, full image variant, implementation repositories and
+revisions, compiler-cache policy, and explicit freshness generation. An
+independent image recipe does not consume the package train's CMake,
+dependency-generator, metadata, or lock receipts; those inputs remain in the
+original complete build record but do not invalidate retained image selection.
+The source commit conservatively covers all committed recipe, context,
+Dockerfile and version-file changes, including unrelated edits in that image
+repository. Implementation changes also start a new eligible generation.
+
+The `retain` policy selects previously resolved private image bytes, including
+their existing base image and installed packages. It does not assert that an
+online cold build would reproduce those bytes. `--refresh-images` requests a
+cold image build, and `--image-refresh-key` can name a persistent new freshness
+generation. The controller verifies each prior image against its original
+train, catalog, completed execution and archive checksums before writing new
+train-owned selection references with the original provenance intact.
+An explicit refresh also records a versioned `image_resolution` generation
+bound to the frozen train and GitHub execution in the canonical build record.
+This allows newly resolved bytes to coexist with earlier images even when
+the recipe, refresh key and build date are unchanged. Retention discovery
+continues to use the recipe descriptor; changing bytes within the same refresh
+execution still fails the immutable upload.
+
+After a complete image upload, the writer publishes an immutable discovery
+pointer at
+`artifacts/ci-imgs/reuse-index/<image-input-sha>/<build-input-sha>/<run-id>-<attempt>.json`.
+It contains the descriptor, original execution reference, and hashes of the
+build record, artifact index and execution catalog. This pointer is written
+after the authoritative content and reference, so a failed upload cannot
+advertise a partial image. The pointer is only a discovery hint: consumers
+must still validate all referenced evidence and bytes. The execution suffix
+allows identical canonical image bytes to receive a new completed execution
+reference without replacing or conflicting with a prior immutable pointer.
+
 Before a candidate job can use this mechanism, its dependency setup compares
 the running reusable workflow SHA and composite-action SHA with the train's
 `shared-workflows` and `shared-actions` entries. It also installs `gha-tools`

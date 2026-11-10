@@ -236,11 +236,34 @@ else
   }
 fi
 
+# Retention selects prior resolved bytes using declared per-variant recipe
+# inputs. Derive the descriptor after verifying the frozen train and the
+# complete input record supplied by the dependency setup action above.
+image_build_inputs_path=""
+image_resolution='null'
+if [[ "${repository_name}" == "ci-imgs" ]] && jq -e 'has("candidate_image_policy")' "${train_path}" >/dev/null; then
+  image_build_inputs_path="${validation_directory}/image-build-inputs.json"
+  python3 "${script_directory}/../release-candidate-dependencies/image_build_inputs.py" \
+    --train "${train_path}" --catalog "${entries_path}" --output "${image_build_inputs_path}"
+  candidate_build_inputs="$(jq -cS --slurpfile image "${image_build_inputs_path}" \
+    '. + {image_build_inputs: $image[0]}' <<<"${candidate_build_inputs}")"
+  # Refresh deliberately resolves mutable base/package inputs again. Give that
+  # execution its own immutable output namespace, independently of the recipe
+  # identity used to discover it later under retain policy.
+  if jq -e '.candidate_image_policy.mode == "refresh"' "${train_path}" >/dev/null; then
+    image_resolution="$(jq -cnS --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
+      --arg run_id "${GITHUB_RUN_ID:-}" --arg run_attempt "${GITHUB_RUN_ATTEMPT:-}" \
+      '{schema_version:1,policy:"explicit-refresh",train_sha256:$train_sha256,
+        run_id:$run_id,run_attempt:$run_attempt}')"
+  fi
+fi
+
 build_record_path="$(mktemp)"
 jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
   --argjson build_implementation_revisions "${build_implementation_revisions}" \
   --argjson build_implementation_repositories "${build_implementation_repositories}" \
   --argjson candidate_build_inputs "${candidate_build_inputs}" \
+  --argjson image_resolution "${image_resolution}" \
   --arg build_datetime "${RAPIDS_DATETIME_STRING:-}" '
   {
     schema_version: 5,
@@ -256,10 +279,10 @@ jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
       .entries[]
       | {
           release_catalog_key,
-          package: (.package | {ecosystem, name, version, platform})
+          package: (.package | {ecosystem, name, version, platform} + (if has("build") then {build: .build} else {} end))
         }
     ] | sort_by(.release_catalog_key, .package.ecosystem, .package.name, .package.version, .package.platform)
-  }
+  } + if $image_resolution == null then {} else {image_resolution:$image_resolution} end
 ' "${entries_path}" >"${build_record_path}"
 build_input_digest="$(sha256sum "${build_record_path}" | awk '{print $1}')"
 attempt_id="${GITHUB_RUN_ID:-}.${GITHUB_RUN_ATTEMPT:-}"
@@ -414,5 +437,27 @@ upload_reference() {
 }
 
 upload_reference
+
+# Discovery pointers are append-only hints, written only after all referenced
+# content and execution evidence are committed. Readers still verify the prior
+# train, execution and every authoritative object before adopting the result.
+if [[ -n "${image_build_inputs_path}" ]]; then
+  image_inputs_sha256="$(jq -cSj . "${image_build_inputs_path}" | sha256sum | awk '{print $1}')"
+  image_reuse_index="${validation_directory}/image-reuse-index.json"
+  jq -cnS \
+    --slurpfile image "${image_build_inputs_path}" \
+    --slurpfile reference "${reference_path}" \
+    --arg descriptor_sha256 "${image_inputs_sha256}" \
+    --arg record_sha256 "${build_input_digest}" \
+    --arg index_sha256 "$(sha256sum "${artifact_index_path}" | awk '{print $1}')" \
+    --arg catalog_sha256 "$(sha256sum "${entries_path}" | awk '{print $1}')" \
+    '{schema_version: 1, image_build_inputs_sha256: $descriptor_sha256,
+      image_build_inputs: $image[0], reference: $reference[0],
+      build_record_sha256: $record_sha256, artifact_index_sha256: $index_sha256,
+      catalog_sha256: $catalog_sha256}' >"${image_reuse_index}"
+  upload_immutable "${image_reuse_index}" \
+    "${RELEASE_CANDIDATE_CONTENT_PREFIX}/${repository_name}/reuse-index/${image_inputs_sha256}/${build_input_digest}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+fi
+
 printf 'Reusable candidate artifacts: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${artifact_key}" >>"${GITHUB_STEP_SUMMARY}"
 printf 'Candidate train reference: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${train_key}" >>"${GITHUB_STEP_SUMMARY}"

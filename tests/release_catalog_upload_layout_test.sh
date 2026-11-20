@@ -445,28 +445,30 @@ image_descriptor_sha256="$(jq -cSj '.image_build_inputs' "${image_index}" | sha2
 [[ "$(tail -n 1 "${temporary_directory}/put-objects.log")" == "${image_index#"${temporary_directory}/s3/candidate-store/"}" ]]
 image_record="$(jq -r '.reference.build_record_key' "${image_index}")"
 jq -e '.packages[0].package.build == "26.12-cuda12.9.2-rockylinux8-py3.12-amd64"
-  and (has("image_resolution") | not)
+  and .image_resolution.policy == "run-bound-rebuild"
+  and .image_resolution.run_id == "101" and .image_resolution.run_attempt == "1"
   and .candidate_build_inputs.image_build_inputs.package.platform == "linux/amd64"' \
   "${temporary_directory}/s3/candidate-store/${image_record}" >/dev/null
 image_created="$(wc -l <"${temporary_directory}/put-objects.log")"
 run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
   "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image"
 [[ "$(wc -l <"${temporary_directory}/put-objects.log")" == "${image_created}" ]]
-# Identical canonical inputs and bytes may be built by another attempt or run.
-# Each completed execution receives its own immutable discovery pointer; none
-# of them may replace the original pointer or change the canonical record.
+# The same frozen recipe may produce different archive bytes on a new
+# execution. Keep those outputs and their discovery pointers immutable.
 image_record_digest="$(jq -r '.reference.build_input_digest' "${image_index}")"
 image_first_index_digest="$(sha256sum "${image_index}" | awk '{print $1}')"
 jq '.source.run_attempt="2"' "${temporary_directory}/bundle/release-catalog-entries.ci-image.json" \
   >"${temporary_directory}/new-image-catalog.json"
 mv "${temporary_directory}/new-image-catalog.json" \
   "${temporary_directory}/bundle/release-catalog-entries.ci-image.json"
+printf 'rebuilt image archive bytes\n' >"${temporary_directory}/bundle/container/image.tar.gz"
 run_upload 2 "${base_implementation_revisions}" "" "" "260901120000" \
   "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image"
-image_second_index="${image_index%/*}/101-2.json"
+image_descriptor_path="${temporary_directory}/s3/candidate-store/artifacts/ci-imgs/reuse-index/${image_descriptor_sha256}"
+image_second_index="$(find "${image_descriptor_path}" -name '101-2.json')"
 test -f "${image_second_index}"
 jq -e --arg digest "${image_record_digest}" \
-  '.reference.build_input_digest == $digest
+  '.reference.build_input_digest != $digest
     and .reference.source_run_id == "101" and .reference.source_run_attempt == "2"' \
   "${image_second_index}" >/dev/null
 jq '.source.run_id="202" | .source.run_attempt="1"' \
@@ -476,14 +478,14 @@ mv "${temporary_directory}/new-image-catalog.json" \
   "${temporary_directory}/bundle/release-catalog-entries.ci-image.json"
 run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
   "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" "202"
-image_third_index="${image_index%/*}/202-1.json"
+image_third_index="$(find "${image_descriptor_path}" -name '202-1.json')"
 test -f "${image_third_index}"
 jq -e --arg digest "${image_record_digest}" \
-  '.reference.build_input_digest == $digest
+  '.reference.build_input_digest != $digest
     and .reference.source_run_id == "202" and .reference.source_run_attempt == "1"' \
   "${image_third_index}" >/dev/null
 [[ "$(sha256sum "${image_index}" | awk '{print $1}')" == "${image_first_index_digest}" ]]
-[[ "$(find "${image_index%/*}" -name '*.json' | wc -l | tr -d ' ')" == "3" ]]
+[[ "$(find "${image_descriptor_path}" -name '*.json' | wc -l | tr -d ' ')" == "3" ]]
 image_created="$(wc -l <"${temporary_directory}/put-objects.log")"
 mv "${temporary_directory}/bundle/container/image.tar.gz" "${temporary_directory}/missing-image.tar.gz"
 jq '.source.run_id="303"' "${temporary_directory}/bundle/release-catalog-entries.ci-image.json" \

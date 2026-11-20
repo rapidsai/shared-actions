@@ -247,15 +247,17 @@ if [[ "${repository_name}" == "ci-imgs" ]] && jq -e 'has("candidate_image_policy
     --train "${train_path}" --catalog "${entries_path}" --output "${image_build_inputs_path}"
   candidate_build_inputs="$(jq -cS --slurpfile image "${image_build_inputs_path}" \
     '. + {image_build_inputs: $image[0]}' <<<"${candidate_build_inputs}")"
-  # Refresh deliberately resolves mutable base/package inputs again. Give that
-  # execution its own immutable output namespace, independently of the recipe
-  # identity used to discover it later under retain policy.
+  # A rebuilt image can resolve different bytes with identical recipe inputs.
+  # Bind the output namespace to this execution and keep the recipe identity
+  # stable for reuse discovery and BuildKit caching.
+  resolution_policy=run-bound-rebuild
   if jq -e '.candidate_image_policy.mode == "refresh"' "${train_path}" >/dev/null; then
-    image_resolution="$(jq -cnS --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
-      --arg run_id "${GITHUB_RUN_ID:-}" --arg run_attempt "${GITHUB_RUN_ATTEMPT:-}" \
-      '{schema_version:1,policy:"explicit-refresh",train_sha256:$train_sha256,
-        run_id:$run_id,run_attempt:$run_attempt}')"
+    resolution_policy=explicit-refresh
   fi
+  image_resolution="$(jq -cnS --arg policy "${resolution_policy}" --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
+    --arg run_id "${GITHUB_RUN_ID:-}" --arg run_attempt "${GITHUB_RUN_ATTEMPT:-}" \
+    '{schema_version:1,policy:$policy,train_sha256:$train_sha256,
+      run_id:$run_id,run_attempt:$run_attempt}')"
 fi
 
 build_record_path="$(mktemp)"

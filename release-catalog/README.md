@@ -285,11 +285,11 @@ cold image build, and `--image-refresh-key` can name a persistent new freshness
 generation. The controller verifies each prior image against its original
 train, catalog, completed execution and archive checksums before writing new
 train-owned selection references with the original provenance intact.
-An explicit refresh also records a versioned `image_resolution` generation
+Every fresh image build records a versioned `image_resolution` generation
 bound to the frozen train and GitHub execution in the canonical build record.
 This allows newly resolved bytes to coexist with earlier images even when
 the recipe, refresh key and build date are unchanged. Retention discovery
-continues to use the recipe descriptor; changing bytes within the same refresh
+continues to use the recipe descriptor; changing bytes within the same
 execution still fails the immutable upload.
 
 After a complete image upload, the writer publishes an immutable discovery

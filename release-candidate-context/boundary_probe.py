@@ -27,25 +27,41 @@ class ProbeFailure(ValueError):
     """A request did not establish the intended workload boundary."""
 
 
-def validate_context(environment: dict[str, str], train: str, source: str) -> dict[str, str]:
-    """Restrict probes to exact run-bound identities on reserved private refs."""
-    repository = environment.get("GITHUB_REPOSITORY", "")
+def validate_context(
+    environment: dict[str, str], train: str, source: str, producer: tuple[str, str] | None = None
+) -> dict[str, str]:
+    """Restrict probes to exact run-bound identities on reserved private refs.
+
+    With ``producer`` (repository, repository ID) set, the run is a train-generated build: it executes in
+    ``GITHUB_REPOSITORY`` but audits the boundary of the producer's own workload role.
+    """
+    run_repository = environment.get("GITHUB_REPOSITORY", "")
     run_id = environment.get("GITHUB_RUN_ID", "")
     attempt = environment.get("GITHUB_RUN_ATTEMPT", "")
-    repository_id = environment.get("GITHUB_REPOSITORY_ID", "")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", repository):
+    repository, repository_id = producer if producer else (run_repository, environment.get("GITHUB_REPOSITORY_ID", ""))
+    repository_pattern = r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*"
+    if not re.fullmatch(repository_pattern, repository) or not re.fullmatch(repository_pattern, run_repository):
         raise ProbeFailure("invalid repository")
     if not all(re.fullmatch(r"[1-9][0-9]*", value) for value in (run_id, attempt, repository_id)):
         raise ProbeFailure("invalid run identity")
     if not re.fullmatch(r"[0-9a-f]{64}", train) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", source):
         raise ProbeFailure("invalid frozen train/source identity")
     workflow = environment.get("GITHUB_WORKFLOW_REF", "")
-    prefix = f"{repository}/.github/workflows/build.yaml@refs/heads/release-test-"
-    if not workflow.startswith(prefix) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", workflow[len(prefix) :]):
-        raise ProbeFailure("audit requires a reserved private workflow ref")
+    if producer:
+        reserved = re.fullmatch(
+            rf"{re.escape(run_repository)}/\.github/workflows/candidate-build[A-Za-z0-9._-]*\.yml"
+            r"@refs/heads/candidate-build-[a-z0-9][a-z0-9._-]*",
+            workflow,
+        )
+        if not reserved:
+            raise ProbeFailure("audit requires a reserved generated workflow ref")
+    else:
+        prefix = f"{repository}/.github/workflows/build.yaml@refs/heads/release-test-"
+        if not workflow.startswith(prefix) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", workflow[len(prefix) :]):
+            raise ProbeFailure("audit requires a reserved private workflow ref")
     if environment.get("GITHUB_EVENT_NAME") != "workflow_dispatch":
         raise ProbeFailure("audit requires workflow dispatch")
-    return {
+    context = {
         "repository": repository,
         "repository_id": repository_id,
         "run_id": run_id,
@@ -53,6 +69,9 @@ def validate_context(environment: dict[str, str], train: str, source: str) -> di
         "source_sha": source,
         "train_sha256": train,
     }
+    if producer:
+        context["run_repository"] = run_repository
+    return context
 
 
 class Probe:
@@ -238,10 +257,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-sha256", required=True)
     parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--producer-repository", default="")
+    parser.add_argument("--producer-repository-id", default="")
     args = parser.parse_args()
     report = {"schema_version": 1, "status": "failed"}
     try:
-        context = validate_context(dict(os.environ), args.train_sha256, args.source_sha)
+        if bool(args.producer_repository) != bool(args.producer_repository_id):
+            raise ProbeFailure("producer repository and repository ID must be given together")
+        producer = (args.producer_repository, args.producer_repository_id) if args.producer_repository else None
+        context = validate_context(dict(os.environ), args.train_sha256, args.source_sha, producer)
         with tempfile.TemporaryDirectory(prefix="candidate-boundary-") as directory:
             probe = Probe(context, Path(directory))
             report = probe.report

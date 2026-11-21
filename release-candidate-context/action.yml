@@ -7,6 +7,12 @@ inputs:
   script:
     description: Custom job script requiring a centrally reviewed policy; empty for standard builds.
     default: ''
+  producer-repository:
+    description: owner/name built by a train-generated run; empty when the run is in the producer repository itself.
+    default: ''
+  producer-repository-id:
+    description: Immutable ID of producer-repository; required together with it.
+    default: ''
   audit-boundary:
     description: Probe private candidate policy boundaries after resolving this exact controller binding.
     default: 'false'
@@ -42,6 +48,8 @@ runs:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         SOURCE_SHA: ${{ inputs.source-sha }}
         CUSTOM_SCRIPT: ${{ inputs.script }}
+        PRODUCER_REPOSITORY: ${{ inputs.producer-repository }}
+        PRODUCER_REPOSITORY_ID: ${{ inputs.producer-repository-id }}
       run: |
         if command -v python3 >/dev/null 2>&1; then
           python_bin=python3
@@ -51,7 +59,11 @@ runs:
           echo "Python 3 is required to resolve the release-candidate run binding" >&2
           exit 1
         fi
-        "${python_bin}" "${IMPLEMENTATION_PATH}/resolver.py" --source-sha "${SOURCE_SHA}" --script "${CUSTOM_SCRIPT}"
+        producer_args=()
+        if [[ -n "${PRODUCER_REPOSITORY}" || -n "${PRODUCER_REPOSITORY_ID}" ]]; then
+          producer_args=(--producer-repository "${PRODUCER_REPOSITORY}" --producer-repository-id "${PRODUCER_REPOSITORY_ID}")
+        fi
+        "${python_bin}" "${IMPLEMENTATION_PATH}/resolver.py" --source-sha "${SOURCE_SHA}" --script "${CUSTOM_SCRIPT}" "${producer_args[@]}"
     - name: Audit private workload boundaries
       if: ${{ inputs.audit-boundary == 'true' }}
       shell: bash
@@ -59,6 +71,8 @@ runs:
         IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
         SOURCE_SHA: ${{ inputs.source-sha }}
         TRAIN_SHA256: ${{ steps.resolve.outputs.train-sha256 }}
+        PRODUCER_REPOSITORY: ${{ inputs.producer-repository }}
+        PRODUCER_REPOSITORY_ID: ${{ inputs.producer-repository-id }}
       run: |
         if command -v python3 >/dev/null 2>&1; then
           python_bin=python3
@@ -68,4 +82,8 @@ runs:
           echo "Python 3 is required for the private workload boundary audit" >&2
           exit 1
         fi
-        "${python_bin}" "${IMPLEMENTATION_PATH}/boundary_probe.py" --source-sha "${SOURCE_SHA}" --train-sha256 "${TRAIN_SHA256}"
+        producer_args=()
+        if [[ -n "${PRODUCER_REPOSITORY}" || -n "${PRODUCER_REPOSITORY_ID}" ]]; then
+          producer_args=(--producer-repository "${PRODUCER_REPOSITORY}" --producer-repository-id "${PRODUCER_REPOSITORY_ID}")
+        fi
+        "${python_bin}" "${IMPLEMENTATION_PATH}/boundary_probe.py" --source-sha "${SOURCE_SHA}" --train-sha256 "${TRAIN_SHA256}" "${producer_args[@]}"

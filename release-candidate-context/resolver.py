@@ -15,8 +15,34 @@ from pathlib import Path
 CONTROLLER_BINDING_PREFIX = "controller-state/run-bindings"
 
 
-def validate_binding(binding: Mapping, environment: Mapping[str, str], source_sha: str, script: str) -> dict[str, str]:
-    """Reject unrelated runs/sources and custom jobs not enrolled by the controller."""
+PRODUCER_WORKFLOW = re.compile(r"candidate-build[A-Za-z0-9._-]*\.yml")
+PRODUCER_WORKFLOW_REF = re.compile(r"candidate-build-[A-Za-z0-9._-]+")
+REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+IDENTITY = re.compile(r"[1-9][0-9]*")
+
+
+def validate_producer(repository: str, repository_id: str) -> tuple[str, str]:
+    """Check the explicit producer identity; both parts are required together."""
+    if REPOSITORY.fullmatch(repository) is None or IDENTITY.fullmatch(repository_id) is None:
+        raise ValueError("producer repository and repository ID must both be valid when either is given")
+    return repository, repository_id
+
+
+def validate_binding(
+    binding: Mapping,
+    environment: Mapping[str, str],
+    source_sha: str,
+    script: str,
+    producer: tuple[str, str] | None = None,
+) -> dict[str, str]:
+    """Reject unrelated runs/sources and custom jobs not enrolled by the controller.
+
+    With ``producer`` set, the run belongs to a train-generated build: it executes in the repository named by
+    ``GITHUB_REPOSITORY`` (the train repository) but builds ``producer``. The controller's binding, not the
+    caller, is the authority for that pairing, so every producer fact must match the binding exactly.
+    """
+    if producer is not None:
+        return _validate_producer_binding(binding, environment, source_sha, script, producer)
     try:
         run_attempt = int(environment["GITHUB_RUN_ATTEMPT"])
     except (KeyError, TypeError, ValueError) as error:
@@ -44,6 +70,53 @@ def validate_binding(binding: Mapping, environment: Mapping[str, str], source_sh
     expected_prefix = f"{binding['repository']}/.github/workflows/build.yaml@refs/heads/"
     if workflow_ref != expected_prefix + binding.get("workflow_ref", ""):
         raise ValueError("candidate binding does not match the caller workflow ref")
+    if environment["GITHUB_EVENT_NAME"] != "workflow_dispatch":
+        raise ValueError("candidate binding requires a workflow dispatch")
+    digest = binding.get("train_sha256", "")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("candidate binding has no valid train digest")
+    mode = "build"
+    if script:
+        mode = binding.get("custom_jobs", {}).get(script)
+        if mode not in {"test", "artifact"}:
+            raise ValueError(f"custom candidate job has no reviewed policy: {script}")
+    return {"train-sha256": digest, "custom-mode": mode}
+
+
+def _validate_producer_binding(
+    binding: Mapping, environment: Mapping[str, str], source_sha: str, script: str, producer: tuple[str, str]
+) -> dict[str, str]:
+    repository, repository_id = validate_producer(*producer)
+    try:
+        run_attempt = int(environment["GITHUB_RUN_ATTEMPT"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("candidate run attempt is missing or invalid") from error
+    if run_attempt < 1 or str(run_attempt) != environment["GITHUB_RUN_ATTEMPT"]:
+        raise ValueError("candidate run attempt is missing or invalid")
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", source_sha):
+        raise ValueError("candidate source SHA must be a full object ID")
+    if type(binding.get("run_attempt")) is not int:
+        raise ValueError("candidate binding run attempt must be an integer")
+    expected = {
+        "schema_version": 3,
+        "repository": repository,
+        "repository_id": repository_id,
+        "run_repository": environment["GITHUB_REPOSITORY"],
+        "run_id": environment["GITHUB_RUN_ID"],
+        "run_attempt": run_attempt,
+        "source_sha": source_sha,
+        "event_name": "workflow_dispatch",
+    }
+    if any(binding.get(key) != value for key, value in expected.items()):
+        raise ValueError("producer binding does not match this producer, run repository, run, attempt, or source SHA")
+    workflow, workflow_ref = binding.get("workflow", ""), binding.get("workflow_ref", "")
+    if not isinstance(workflow, str) or PRODUCER_WORKFLOW.fullmatch(workflow) is None:
+        raise ValueError("producer binding has an unsupported workflow")
+    if not isinstance(workflow_ref, str) or PRODUCER_WORKFLOW_REF.fullmatch(workflow_ref) is None:
+        raise ValueError("producer binding has an unsupported workflow ref")
+    expected_ref = f"{environment['GITHUB_REPOSITORY']}/.github/workflows/{workflow}@refs/heads/{workflow_ref}"
+    if environment["GITHUB_WORKFLOW_REF"] != expected_ref:
+        raise ValueError("producer binding does not match the generated workflow ref")
     if environment["GITHUB_EVENT_NAME"] != "workflow_dispatch":
         raise ValueError("candidate binding requires a workflow dispatch")
     digest = binding.get("train_sha256", "")
@@ -90,13 +163,18 @@ def main() -> None:
     parser.add_argument("--bucket", default="rapids-release-candidates")
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--script", default="")
+    parser.add_argument("--producer-repository", default="", help="owner/name built by a train-generated run")
+    parser.add_argument("--producer-repository-id", default="", help="immutable ID of the producer repository")
     args = parser.parse_args()
-    repository = os.environ["GITHUB_REPOSITORY"]
+    producer = None
+    if args.producer_repository or args.producer_repository_id:
+        producer = validate_producer(args.producer_repository, args.producer_repository_id)
+    repository = producer[0] if producer else os.environ["GITHUB_REPOSITORY"]
     run_id = os.environ["GITHUB_RUN_ID"]
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
     key = binding_key(repository, run_id, run_attempt)
     binding = read_binding(args.bucket, key)
-    outputs = validate_binding(binding, os.environ, args.source_sha, args.script)
+    outputs = validate_binding(binding, os.environ, args.source_sha, args.script, producer)
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         for name, value in outputs.items():
             output.write(f"{name}={value}\n")

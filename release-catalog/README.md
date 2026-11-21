@@ -292,6 +292,16 @@ the recipe, refresh key and build date are unchanged. Retention discovery
 continues to use the recipe descriptor; changing bytes within the same
 execution still fails the immutable upload.
 
+Package builds are not bit-for-bit reproducible either, so every other fresh
+build records the same kind of versioned `output_resolution` binding (policy
+`run-bound-rebuild`, train SHA-256, run ID and attempt). A rebuild with
+identical frozen inputs, such as a later train, a retry, or a rerun after a
+partial upload, therefore writes a new `artifacts/<repository>/<digest>`
+namespace instead of colliding with the earlier execution's objects. Reuse
+discovery compares the build record's inputs, not its digest, so compatible
+earlier builds are still found. An identical retry of the same attempt stays
+idempotent, and different bytes within one execution still fail.
+
 After a complete image upload, the writer publishes an immutable discovery
 pointer at
 `artifacts/ci-imgs/reuse-index/<image-input-sha>/<build-input-sha>/<run-id>-<attempt>.json`.

@@ -260,8 +260,24 @@ if [[ "${repository_name}" == "ci-imgs" ]] && jq -e 'has("candidate_image_policy
       run_id:$run_id,run_attempt:$run_attempt}')"
 fi
 
+# Package builds are not bit-for-bit reproducible either: the same frozen
+# inputs can produce different bytes on another execution, so a rebuild must
+# never collide with an earlier execution's immutable objects. Bind every
+# fresh build's output namespace to this execution, as rebuilt CI images are
+# above. Reuse discovery compares build-record inputs rather than this digest,
+# so it still finds compatible earlier builds. An identical retry of the same
+# attempt keeps the same namespace and stays idempotent.
+output_resolution='null'
+if [[ "${image_resolution}" == 'null' ]]; then
+  output_resolution="$(jq -cnS --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
+    --arg run_id "${GITHUB_RUN_ID:-}" --arg run_attempt "${GITHUB_RUN_ATTEMPT:-}" \
+    '{schema_version:1,policy:"run-bound-rebuild",train_sha256:$train_sha256,
+      run_id:$run_id,run_attempt:$run_attempt}')"
+fi
+
 build_record_path="$(mktemp)"
 jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
+  --argjson output_resolution "${output_resolution}" \
   --argjson build_implementation_revisions "${build_implementation_revisions}" \
   --argjson build_implementation_repositories "${build_implementation_repositories}" \
   --argjson candidate_build_inputs "${candidate_build_inputs}" \
@@ -285,6 +301,7 @@ jq -cS --argjson upstream_dependencies "${upstream_dependencies}" \
         }
     ] | sort_by(.release_catalog_key, .package.ecosystem, .package.name, .package.version, .package.platform)
   } + if $image_resolution == null then {} else {image_resolution:$image_resolution} end
+    + if $output_resolution == null then {} else {output_resolution:$output_resolution} end
 ' "${entries_path}" >"${build_record_path}"
 build_input_digest="$(sha256sum "${build_record_path}" | awk '{print $1}')"
 attempt_id="${GITHUB_RUN_ID:-}.${GITHUB_RUN_ATTEMPT:-}"

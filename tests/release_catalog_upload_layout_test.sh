@@ -390,10 +390,44 @@ if run_legacy_upload >/dev/null 2>&1; then
   echo "legacy upload accepted changed existing bytes" >&2
   exit 1
 fi
+# Builds are not bit-for-bit reproducible. A new execution with identical
+# frozen inputs and different bytes gets its own execution-bound namespace
+# instead of colliding with the earlier execution's immutable objects.
+execution_digest() {
+  local current_train="${temporary_directory}/s3/candidate-store/train-state/${train_sha256}/example"
+  jq -r '.build_input_digest' "$(find "${current_train}/101.$1" -name 'bundle-reference.conda.json' -print -quit)"
+}
+cp "${temporary_directory}/bundle/linux-64/example-26.10.00.conda" "${temporary_directory}/first-execution.conda"
+run_upload 12 "${base_implementation_revisions}"
+first_execution="$(execution_digest 12)"
+jq -e --arg train_sha256 "${train_sha256}" '.output_resolution == {schema_version:1,
+    policy:"run-bound-rebuild",train_sha256:$train_sha256,run_id:"101",run_attempt:"12"}
+  and (has("image_resolution") | not)' "${artifact_root}/${first_execution}/build-record.json" >/dev/null
+# An identical retry of the same execution writes nothing new.
+first_created="$(wc -l <"${temporary_directory}/put-objects.log")"
+run_upload 12 "${base_implementation_revisions}"
+[[ "$(wc -l <"${temporary_directory}/put-objects.log")" == "${first_created}" ]]
+# The same execution still cannot replace its own bytes.
+printf 'rebuilt bytes\n' >"${temporary_directory}/bundle/linux-64/example-26.10.00.conda"
 if run_upload 12 "${base_implementation_revisions}" >/dev/null 2>&1; then
-  echo "upload accepted different canonical package bytes" >&2
+  echo "upload accepted different canonical package bytes for the same execution" >&2
   exit 1
 fi
+# A rebuild with identical inputs gets its own namespace and leaves the first intact.
+run_upload 13 "${base_implementation_revisions}"
+rebuilt_execution="$(execution_digest 13)"
+if [[ "${rebuilt_execution}" == "${first_execution}" ]]; then
+  echo "a rebuild with identical inputs reused the earlier execution's namespace" >&2
+  exit 1
+fi
+cmp -s "${artifact_root}/${rebuilt_execution}/linux-64/example-26.10.00.conda" \
+  "${temporary_directory}/bundle/linux-64/example-26.10.00.conda"
+cmp -s "${artifact_root}/${first_execution}/linux-64/example-26.10.00.conda" \
+  "${temporary_directory}/first-execution.conda"
+# Only the execution binding differs; the inputs reuse discovery compares are identical.
+jq -e -n --slurpfile first "${artifact_root}/${first_execution}/build-record.json" \
+  --slurpfile rebuilt "${artifact_root}/${rebuilt_execution}/build-record.json" \
+  '($first[0] | del(.output_resolution)) == ($rebuilt[0] | del(.output_resolution))' >/dev/null
 
 # CI images use a producer-scoped declared recipe descriptor and a completed
 # result pointer. Unrelated train locks stay in the original build record;

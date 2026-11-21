@@ -44,7 +44,13 @@ if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "wheel" && -z "${RELEASE_CANDIDA
   echo "RELEASE_CANDIDATE_PYTHON_VERSION is required for wheel candidate dependencies" >&2
   exit 1
 fi
-candidate_unit_id="${RELEASE_CANDIDATE_UNIT_ID:-${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${GITHUB_REPOSITORY##*/}}"
+# The producer is the repository being built. It is the run repository unless a train-generated run names it.
+producer_repository="${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-${GITHUB_REPOSITORY}}"
+if [[ ! "${producer_repository}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "producer repository must use owner/repository format" >&2
+  exit 1
+fi
+candidate_unit_id="${RELEASE_CANDIDATE_UNIT_ID:-${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${producer_repository##*/}}"
 implementation_mode="${RELEASE_CANDIDATE_IMPLEMENTATION_MODE:-reusable}"
 if [[ "${implementation_mode}" != "reusable" && "${implementation_mode}" != "direct" ]]; then
   echo "release-candidate implementation mode must be reusable or direct" >&2
@@ -79,7 +85,7 @@ fi
 
 root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
 train_key_prefix="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
-repository="${GITHUB_REPOSITORY#*/}"
+repository="${producer_repository#*/}"
 cuda_major="${RELEASE_CANDIDATE_CUDA_VERSION%%.*}"
 conda_platform="$(conda_platform_for_arch "${RELEASE_CANDIDATE_ARCH}")"
 wheel_platform="$(wheel_platform_for_arch "${RELEASE_CANDIDATE_ARCH}")"
@@ -429,7 +435,7 @@ for reference_path in "${reference_paths[@]}"; do
   mv "${manifest_path}.tmp" "${manifest_path}"
 done
 
-repository="${GITHUB_REPOSITORY##*/}"
+repository="${producer_repository##*/}"
 target_unit="${candidate_unit_id}"
 selected="${workspace}/selected-artifacts.json"
 resolved_inputs="${workspace}/resolved-upstream-inputs.jsonl"
@@ -760,6 +766,7 @@ python3 "${script_directory}/apply_dependency_pins.py" \
 {
   printf '%s\n' '#!/usr/bin/env bash'
   printf 'prepare_conda_channel=%q\n' "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}"
+  printf 'producer_repository=%q\n' "${producer_repository}"
   tail -n +2 "${script_directory}/download-from-candidate.sh"
 } >"${tools}/rapids-download-from-github"
 chmod +x "${tools}/rapids-download-from-github"

@@ -264,3 +264,24 @@ if GITHUB_RUN_ID="not-an-integer" \
 fi
 grep -Fx '[materialize.sh] Error: GITHUB_RUN_ID must be a positive integer' \
   "${temporary_directory}/invalid-run-id.error"
+
+# A train-generated run executes in the train repository but builds a producer.
+# The catalog must name the producer, not the repository that runs the job.
+producer_bundle="${temporary_directory}/producer-bundle"
+mkdir -p "${producer_bundle}"
+cp "${bundle_directory}/cuvs-java-26.08.0.jar" "${bundle_directory}/cuvs-java-package-identity.json" "${producer_bundle}/"
+GITHUB_REPOSITORY="rapidsai/release-tracking" \
+  GITHUB_WORKFLOW_REF="rapidsai/release-tracking/.github/workflows/candidate-build.yml@refs/heads/candidate-build-26.08" \
+  RELEASE_CANDIDATE_PRODUCER_REPOSITORY="NVIDIA/cuvs" \
+  RELEASE_ARTIFACTS="$(jq -cn '[{path: "cuvs-java-*.jar", package_identity_file: "cuvs-java-package-identity.json"}]')" \
+  RELEASE_ARTIFACT_DIRECTORY="${producer_bundle}" \
+  "${repository_root}/release-catalog/materialize.sh"
+jq -e '.source.repository == "NVIDIA/cuvs"' "$(realpath "${producer_bundle}")/release-catalog-entries.json" >/dev/null
+
+if RELEASE_CANDIDATE_PRODUCER_REPOSITORY="cuvs" \
+  "${repository_root}/release-catalog/materialize.sh" 2>"${temporary_directory}/invalid-producer.error"; then
+  echo "materialize.sh unexpectedly accepted an invalid producer repository" >&2
+  exit 1
+fi
+grep -Fx '[materialize.sh] Error: GITHUB_REPOSITORY must have owner/repository form' \
+  "${temporary_directory}/invalid-producer.error"

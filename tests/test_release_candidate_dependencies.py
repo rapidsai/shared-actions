@@ -56,7 +56,7 @@ def test_candidate_conda_lock_selection_is_repository_scoped():
     selector = (Path(__file__).parents[1] / "release-candidate-dependencies" / "select_conda_lock.py").read_text()
 
     expected_contracts = (
-        'repository="${GITHUB_REPOSITORY#*/}"',
+        'repository="${producer_repository#*/}"',
         '"${script_directory}/select_conda_lock.py"',
         'record["scope"].get("repository") == repository',
         "exactly one Conda lock for ",

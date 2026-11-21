@@ -10,7 +10,12 @@ if [[ ! "${artifact_name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
 fi
 
 destination="${RAPIDS_UNZIP_DIR:-$(mktemp -d)}"
-repository="${GITHUB_REPOSITORY:?current GitHub repository is required}"
+# The embedded helper captures the producer at setup time; a direct run falls back to its environment.
+repository="${producer_repository:-${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-${GITHUB_REPOSITORY:?current GitHub repository is required}}}"
+if [[ ! "${repository}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "candidate producer repository must use owner/repository format" >&2
+  exit 1
+fi
 repository_name="${repository##*/}"
 run_id="${GITHUB_RUN_ID:?current GitHub run ID is required}"
 run_attempt="${GITHUB_RUN_ATTEMPT:?current GitHub run attempt is required}"

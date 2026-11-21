@@ -64,7 +64,7 @@ if [[ ! "${source_sha}" =~ ^[[:xdigit:]]{40}$ && ! "${source_sha}" =~ ^[[:xdigit
   exit 1
 fi
 
-github_repository="${GITHUB_REPOSITORY:-}"
+github_repository="${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-${GITHUB_REPOSITORY:-}}"
 github_run_attempt="${GITHUB_RUN_ATTEMPT:-}"
 github_run_id="${GITHUB_RUN_ID:-}"
 github_workflow_ref="${GITHUB_WORKFLOW_REF:-}"

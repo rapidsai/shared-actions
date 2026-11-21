@@ -197,6 +197,33 @@ if jq -e 'tostring | test("run_id|run_attempt")' "${canonical}/artifact-index.js
 fi
 jq -e '.source_run_id == "101" and .source_run_attempt == "1"' \
   "${train}/101.1/${artifact_digest}/bundle-reference.conda.json" >/dev/null
+
+# A train-generated run uploads for the producer it builds, not for the
+# repository that runs the job: every key must carry the producer's name.
+# It runs on a copy of the fixture so the executions counted below are unchanged.
+# Bash scoping is dynamic, so run_upload sees the local temporary_directory below.
+producer_upload_case() {
+  local isolated="${temporary_directory}.producer"
+  rm -rf "${isolated}"
+  cp -R "${temporary_directory}" "${isolated}"
+  local temporary_directory="${isolated}"
+  local train="${temporary_directory}/s3/candidate-store/train-state/${train_sha256}/example"
+  RELEASE_CANDIDATE_PRODUCER_REPOSITORY="rapidsai/example" \
+    run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" "" "" "rapidsai/release-tracking" conda 777
+  test -d "${train}/777.1"
+  test ! -e "${temporary_directory}/s3/candidate-store/artifacts/release-tracking"
+  test ! -e "${temporary_directory}/s3/candidate-store/train-state/${train_sha256}/release-tracking"
+  jq -e '.source_run_id == "777"' "$(find "${train}/777.1" -name 'bundle-reference.conda.json' -print -quit)" >/dev/null
+  if RELEASE_CANDIDATE_PRODUCER_REPOSITORY="example" \
+    run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" "" "" "rapidsai/release-tracking" conda 778 >/dev/null 2>"${temporary_directory}/producer.error"; then
+    echo "uploader accepted a producer repository without an owner" >&2
+    exit 1
+  fi
+  grep -Fx 'GITHUB_REPOSITORY must use owner/repository format' "${temporary_directory}/producer.error"
+  test ! -d "${train}/778.1"
+  rm -rf "${isolated}"
+}
+producer_upload_case
 legacy_build_input_digest="$(jq -r '.build_input_digest' \
   "${train}/101.1/${artifact_digest}/bundle-reference.conda.json")"
 cp "${temporary_directory}/candidate-build-inputs.json" \

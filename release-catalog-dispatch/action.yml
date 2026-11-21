@@ -2,6 +2,10 @@ name: Dispatch release catalog
 description: Write a release-candidate catalog bundle directly to the private S3 store.
 
 inputs:
+  producer-repository:
+    description: owner/name built by a train-generated run; empty when the run is in the producer repository itself.
+    required: false
+    default: ""
   config:
     description: >-
       JSON string with configuration for this action. Schema and field documentation:
@@ -84,6 +88,7 @@ runs:
         RELEASE_CANDIDATE_MATRIX_CUDA_VERSION: ${{ inputs.candidate-matrix-cuda-version }}
         RELEASE_CANDIDATE_MATRIX_PYTHON_VERSION: ${{ inputs.candidate-matrix-python-version }}
         RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
+        RELEASE_CANDIDATE_PRODUCER_REPOSITORY: ${{ inputs.producer-repository }}
       run: "${IMPLEMENTATION_PATH}/materialize.sh"
     - name: Write release-candidate bundle to S3
       if: ${{ inputs.upload-to-s3 == 'true' }}
@@ -98,4 +103,5 @@ runs:
         RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
         RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION: ${{ github.action_ref }}
         RELEASE_SOURCE_ARTIFACT_NAME: ${{ inputs.source-artifact-name }}
+        RELEASE_CANDIDATE_PRODUCER_REPOSITORY: ${{ inputs.producer-repository }}
       run: "${IMPLEMENTATION_PATH}/upload-candidate-s3.sh"

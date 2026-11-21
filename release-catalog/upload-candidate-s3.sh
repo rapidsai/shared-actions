@@ -24,11 +24,12 @@ safe_prefix() {
 for value in RELEASE_ARTIFACT_DIRECTORY RELEASE_CANDIDATE_BUCKET RELEASE_CANDIDATE_CONTENT_PREFIX RELEASE_CANDIDATE_TRAIN_PREFIX RELEASE_CANDIDATE_TRAIN_SHA256 RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REVISIONS RELEASE_CANDIDATE_BUILD_IMPLEMENTATION_REPOSITORIES RELEASE_CANDIDATE_GHA_TOOLS_REVISION RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REPOSITORY RELEASE_CANDIDATE_CATALOG_SHARED_ACTIONS_REVISION RELEASE_CANDIDATE_BUILD_INPUTS RELEASE_CANDIDATE_SOURCE_INPUTS RELEASE_SOURCE_ARTIFACT_NAME GITHUB_REPOSITORY; do
   require_value "${value}" "${!value:-}"
 done
-if [[ ! "${GITHUB_REPOSITORY}" =~ ^[^/]+/[^/]+$ ]]; then
+producer_repository="${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-${GITHUB_REPOSITORY}}"
+if [[ ! "${producer_repository}" =~ ^[^/]+/[^/]+$ ]]; then
   echo "GITHUB_REPOSITORY must use owner/repository format" >&2
   exit 1
 fi
-repository_name="${GITHUB_REPOSITORY##*/}"
+repository_name="${producer_repository##*/}"
 if [[ -n "${RAPIDS_DATETIME_STRING:-}" && ! "${RAPIDS_DATETIME_STRING}" =~ ^[0-9]{12}$ ]]; then
   echo "RAPIDS_DATETIME_STRING must use YYMMDDhhmmss format" >&2
   exit 1
@@ -424,7 +425,7 @@ reference_path="$(mktemp)"
 trap 'rm -f "${head_metadata}" "${build_record_path}" "${reference_path}"; rm -rf "${validation_directory}"' EXIT
 jq -n \
   --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
-  --arg repository "${GITHUB_REPOSITORY}" \
+  --arg repository "${producer_repository}" \
   --arg source_artifact "${RELEASE_SOURCE_ARTIFACT_NAME}" \
   --arg source_run_id "${GITHUB_RUN_ID}" \
   --arg source_run_attempt "${GITHUB_RUN_ATTEMPT}" \

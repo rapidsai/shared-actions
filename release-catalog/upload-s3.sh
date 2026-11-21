@@ -56,7 +56,7 @@ safe_relative_path() {
   [[ -n "${path}" && "${path}" != /* && "${path}" != ../* && "${path}" != */../* && "${path}" != *'/..' ]]
 }
 
-base_key="${RELEASE_CANDIDATE_TRAIN_SHA256}/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${RELEASE_SOURCE_ARTIFACT_NAME}"
+base_key="${RELEASE_CANDIDATE_TRAIN_SHA256}/${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-${GITHUB_REPOSITORY}}/${GITHUB_RUN_ID}/${RELEASE_SOURCE_ARTIFACT_NAME}"
 if [[ -n "${RELEASE_CANDIDATE_PREFIX}" ]]; then
   base_key="${RELEASE_CANDIDATE_PREFIX}/${base_key}"
 fi

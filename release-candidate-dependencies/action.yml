@@ -2,6 +2,10 @@ name: Prepare release-candidate dependencies
 description: Materialize only this release train's private S3 outputs for a candidate build.
 
 inputs:
+  producer-repository:
+    description: owner/name built by a train-generated run; empty when the run is in the producer repository itself.
+    required: false
+    default: ""
   candidate-train-sha256:
     description: Canonical SHA-256 of the immutable release train.
     required: true
@@ -74,6 +78,7 @@ runs:
     - name: Prepare private candidate dependency views
       shell: bash
       env:
+        RELEASE_CANDIDATE_PRODUCER_REPOSITORY: ${{ inputs.producer-repository }}
         RELEASE_CANDIDATE_BUCKET: ${{ inputs.candidate-bucket }}
         RELEASE_CANDIDATE_TRAIN_PREFIX: ${{ inputs.candidate-train-prefix }}
         RELEASE_CANDIDATE_TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}

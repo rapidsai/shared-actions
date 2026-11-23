@@ -95,6 +95,12 @@ dependency SBOM will add. That will be a new `sbom_kind` value and a new
 
 The action is used via `rapidsai/shared-actions/release-catalog`.
 
+Candidate builds use the separate `release-catalog-dispatch` action. It names
+each job's envelope `release-catalog-entries.<source-artifact>.json` and uploads
+through `upload-candidate-s3.sh`, which implements immutable content bundles and
+train membership records. The standard `release-catalog` action retains its
+existing envelope name and `upload-s3.sh` upload contract.
+
 Configuration, materialization, and upload failures appear as GitHub Actions
 error annotations. When the scripts run outside GitHub Actions, the same errors
 are written to stderr with the responsible script name.
@@ -217,3 +223,50 @@ provenance without an SBOM cannot be matched to a package by name and version.
 Although CycloneDX can carry some build metadata, embedding provenance in the
 SBOM would not replace the in-toto/SLSA statement and would couple evidence
 with different consumers and lifecycles.
+
+## Prerequisite state
+
+The action requires `RAPIDS_SHA` in the job environment. It must identify the
+repository revision actually checked out and built:
+
+- Conda build workflows set `RAPIDS_SHA` to `git rev-parse HEAD` immediately
+  after checkout.
+- Wheel and custom workflows use `rapids-github-info`; it uses `inputs.sha`
+  when supplied and otherwise sets `RAPIDS_SHA` to `git rev-parse HEAD`.
+
+This distinction matters when a reusable workflow checks out a repository or
+revision different from the workflow event. Direct callers must likewise set
+`RAPIDS_SHA` to the checked-out commit instead of assuming `${{ github.sha }}`
+names the built source. Variables written to `GITHUB_ENV` are available to the
+action when it runs as a subsequent job step.
+
+## Candidate build reuse
+
+For a release-candidate build, `release-candidate-dependencies` writes
+`RELEASE_CANDIDATE_UPSTREAM_INPUTS` to `GITHUB_ENV`. It is a sorted lock of the
+exact upstream Conda and wheel files actually materialized for the current job
+matrix. Each entry contains the file SHA-256 plus the producing RAPIDS
+repository SHA and build-input digest. `release-catalog` incorporates that lock
+into `build-record.json`. The same setup action writes
+`RELEASE_CANDIDATE_BUILD_INPUTS`, containing the checksum of the train lock
+receipt, the checksum of the train variant receipt, and the train's boolean
+`sccache` policy. The record also includes the frozen `shared-workflows`,
+`shared-actions`, and `gha-tools` revisions and any build timestamp supplied to
+the package build. The timestamp is included because Conda packages and wheels
+can embed it in their bytes; workflows that do not use one record an empty,
+stable value. The record's SHA-256 determines the canonical
+artifact location. Therefore an unchanged build can be reused
+across candidate trains and GitHub retries, while a downstream build is
+necessarily distinct when an upstream package byte, selected upstream build, or
+shared build implementation changes. Lock, variant, or cache-policy changes
+also create a different canonical artifact identity, so an `sccache`-assisted
+build cannot be reused as a clean build. The locks intentionally omit GitHub
+run and attempt IDs.
+
+Before a candidate job can use this mechanism, its dependency setup compares
+the running reusable workflow SHA and composite-action SHA with the train's
+`shared-workflows` and `shared-actions` entries. It also installs `gha-tools`
+at the train's exact SHA and makes that checkout the job's tool path. The
+catalog uploader repeats the `shared-actions` and `gha-tools` comparison before
+writing S3 content. A mismatch is a build error, not an informational warning:
+one train must not combine artifacts produced by different shared build logic.

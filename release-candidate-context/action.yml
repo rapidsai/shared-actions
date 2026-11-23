@@ -1,0 +1,42 @@
+name: Resolve release-candidate run context
+description: Resolve an immutable controller binding without adding project workflow inputs.
+inputs:
+  source-sha:
+    description: Full source SHA checked out for this build.
+    required: true
+  script:
+    description: Custom job script requiring a centrally reviewed policy; empty for standard builds.
+    default: ''
+outputs:
+  train-sha256:
+    description: Exact release train bound to this workflow run.
+    value: ${{ steps.resolve.outputs.train-sha256 }}
+  custom-mode:
+    description: Build, test, or intermediate artifact policy.
+    value: ${{ steps.resolve.outputs.custom-mode }}
+runs:
+  using: composite
+  steps:
+    - name: Locate context resolver in the job container
+      id: implementation
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        HOST_WORKSPACE: ${{ github.workspace }}
+      run: |
+        host_root="$(dirname "$(dirname "${HOST_WORKSPACE}")")"
+        container_root="$(dirname "$(dirname "${PWD}")")"
+        action_path="${ACTION_PATH}"
+        if [[ ! -d "${action_path}" && "${action_path}" == "${host_root}/"* ]]; then
+          action_path="${container_root}/${action_path#"${host_root}/"}"
+        fi
+        test -f "${action_path}/resolver.py"
+        echo "path=${action_path}" >> "${GITHUB_OUTPUT}"
+    - name: Resolve exact run binding
+      id: resolve
+      shell: bash
+      env:
+        IMPLEMENTATION_PATH: ${{ steps.implementation.outputs.path }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+        CUSTOM_SCRIPT: ${{ inputs.script }}
+      run: python "${IMPLEMENTATION_PATH}/resolver.py" --source-sha "${SOURCE_SHA}" --script "${CUSTOM_SCRIPT}"

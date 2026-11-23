@@ -37,7 +37,16 @@
         "sha": {"type": "string", "pattern": "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"},
         "workflow_ref": {"type": "string", "minLength": 1, "pattern": "^[^\\r\\n]+$"},
         "run_id": {"type": "string", "pattern": "^[1-9][0-9]*$"},
-        "run_attempt": {"type": "string", "pattern": "^[1-9][0-9]*$"}
+        "run_attempt": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+        "matrix": {
+          "type": "object", "additionalProperties": false,
+          "required": ["arch", "cuda_version", "python_version"],
+          "properties": {
+            "arch": {"type": "string"},
+            "cuda_version": {"type": "string"},
+            "python_version": {"type": "string"}
+          }
+        }
       }
     },
     "package": {
@@ -50,7 +59,8 @@
         "name": {"type": "string", "minLength": 1},
         "version": {"type": "string", "minLength": 1},
         "build": {"type": "string", "minLength": 1},
-        "platform": {"type": "string", "minLength": 1}
+        "platform": {"type": "string", "minLength": 1},
+        "cuda_major": {"type": "string", "pattern": "^[0-9]+$"}
       }
     },
     "entry": {

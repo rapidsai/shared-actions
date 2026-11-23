@@ -35,6 +35,19 @@ repos:
         args: ["--fix", "--config=pyproject.toml"]
       - id: ruff-format
         args: ["--config=pyproject.toml"]
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.6
+    hooks:
+      - id: bandit
+        files: ^(release-candidate-context|release-candidate-dependencies|release-catalog)/.*\.py$
+        args: ["--quiet"]
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        files: ^(release-candidate-context|release-candidate-dependencies|release-catalog)/.*\.py$
+        additional_dependencies: [flake8-bugbear==25.10.21]
+        args: ["--select=B"]
   - repo: https://github.com/rapidsai/pre-commit-hooks
     rev: v1.7.0
     hooks:
@@ -81,3 +94,12 @@ repos:
         additional_dependencies: [jsonschema==4.25.1]
         pass_filenames: false
         files: ^(release-catalog/(config|entries)\.schema\.json|release-catalog/examples/cuvs-java/release-catalog-entries\.json|tests/release-catalog-config/.*\.json|ci/test_release_catalog_schemas\.py)$
+  - repo: local
+    hooks:
+      - id: candidate-context-tests
+        name: test candidate run bindings
+        entry: python -m pytest -q tests/test_candidate_context.py
+        language: python
+        additional_dependencies: [pytest]
+        pass_filenames: false
+        files: ^(release-candidate-context/|tests/test_candidate_context.py)

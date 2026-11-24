@@ -166,7 +166,7 @@ run_upload() {
 base_implementation_revisions='{"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shared-actions":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","shared-workflows":"cccccccccccccccccccccccccccccccccccccccc"}'
 changed_implementation_revisions='{"gha-tools":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shared-actions":"dddddddddddddddddddddddddddddddddddddddd","shared-workflows":"cccccccccccccccccccccccccccccccccccccccc"}'
 
-run_upload 1 "${base_implementation_revisions}"
+run_upload 1 "${base_implementation_revisions}" >"${temporary_directory}/upload.log"
 initial_created="$(wc -l <"${temporary_directory}/put-objects.log")"
 run_upload 1 "${base_implementation_revisions}"
 [[ "$(wc -l <"${temporary_directory}/put-objects.log")" == "${initial_created}" ]]
@@ -179,6 +179,14 @@ test -f "${canonical}/linux-64/example-26.10.00.conda"
 test -f "${train}/101.1/${artifact_digest}/release-catalog-entries.conda.json"
 test -f "${train}/101.1/${artifact_digest}/release-evidence/example.intoto.jsonl"
 test ! -d "${artifact_root}/${artifact_digest}/attempts"
+# One summary block per matrix row floods a release run's page, so the
+# references go to the job log; a run-level summary can tabulate them.
+if [[ -s "${temporary_directory}/summary" ]]; then
+  echo "candidate upload wrote a per-job step summary" >&2
+  exit 1
+fi
+grep -qF "Reusable candidate artifacts: s3://candidate-store/artifacts/example/${artifact_digest}" "${temporary_directory}/upload.log"
+grep -qF "Candidate train reference: s3://candidate-store/train-state/${train_sha256}/example/101.1/${artifact_digest}/bundle-reference.conda.json" "${temporary_directory}/upload.log"
 jq -e '.upstream_dependencies == []' "${canonical}/build-record.json" >/dev/null
 jq -e '.schema_version == 5 and .storage_layout == 2 and .build_datetime == "260901120000"' "${canonical}/build-record.json" >/dev/null
 jq -e '.candidate_build_inputs.build_implementation_repositories == {"gha-tools":"rapidsai/gha-tools","shared-actions":"rapidsai/shared-actions","shared-workflows":"rapidsai/shared-workflows"}' "${canonical}/build-record.json" >/dev/null
@@ -408,8 +416,13 @@ run_legacy_upload() {
     GITHUB_STEP_SUMMARY="${temporary_directory}/summary" \
     "${repository_root}/release-catalog/upload-s3.sh"
 }
-run_legacy_upload
+run_legacy_upload >"${temporary_directory}/legacy-upload.log"
 legacy_created="$(wc -l <"${temporary_directory}/legacy-put-objects.log")"
+if [[ -s "${temporary_directory}/summary" ]]; then
+  echo "release catalog upload wrote a per-job step summary" >&2
+  exit 1
+fi
+grep -qF "Release catalog companion: s3://candidate-store/legacy/" "${temporary_directory}/legacy-upload.log"
 run_legacy_upload
 [[ "$(wc -l <"${temporary_directory}/legacy-put-objects.log")" == "${legacy_created}" ]]
 printf 'different bytes\n' >"${temporary_directory}/bundle/linux-64/example-26.10.00.conda"

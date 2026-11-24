@@ -98,4 +98,5 @@ for relative_path in "${companion_paths[@]}"; do
   upload_one "${relative_path}"
 done
 
-printf 'Release catalog companion: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${base_key}" >>"${GITHUB_STEP_SUMMARY}"
+# Logged, not a step summary: one block per matrix row floods a release run's page.
+printf 'Release catalog companion: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${base_key}"

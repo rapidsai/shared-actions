@@ -479,5 +479,7 @@ if [[ -n "${image_build_inputs_path}" ]]; then
     "${RELEASE_CANDIDATE_CONTENT_PREFIX}/${repository_name}/reuse-index/${image_inputs_sha256}/${build_input_digest}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
 fi
 
-printf 'Reusable candidate artifacts: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${artifact_key}" >>"${GITHUB_STEP_SUMMARY}"
-printf 'Candidate train reference: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${train_key}" >>"${GITHUB_STEP_SUMMARY}"
+# Log the references rather than writing a step summary: a release run has one
+# upload per matrix row, and a summary block for each floods the run page.
+printf 'Reusable candidate artifacts: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${artifact_key}"
+printf 'Candidate train reference: s3://%s/%s\n' "${RELEASE_CANDIDATE_BUCKET}" "${train_key}"

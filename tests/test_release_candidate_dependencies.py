@@ -414,6 +414,14 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+if sys.argv[1:3] == ["s3api", "list-objects-v2"]:
+    import json
+    bucket = sys.argv[sys.argv.index("--bucket") + 1]
+    prefix = sys.argv[sys.argv.index("--prefix") + 1]
+    base = Path(os.environ["FAKE_S3_ROOT"]) / bucket
+    keys = sorted(p.relative_to(base).as_posix() for p in base.rglob("*") if p.is_file())
+    print(json.dumps({"Contents": [{"Key": k} for k in keys if k.startswith(prefix)]}))
+    sys.exit(0)
 _, service, operation, source, destination, *options = sys.argv
 assert service == "s3" and operation == "cp"
 parsed = urlparse(source)
@@ -464,6 +472,91 @@ else:
         sbom_file=sbom_file,
         index_path=index_path,
     )
+
+
+def _reuse_staged_candidate(staged, *, completion=True, keep_own_reference=False):
+    """Turn the staged same-run artifact into one this run reused from run 400.1 of an earlier train."""
+    bucket_root = Path(staged.env["FAKE_S3_ROOT"]) / "candidate-store"
+    train = staged.env["RELEASE_CANDIDATE_TRAIN_SHA256"]
+    earlier = "c" * 64
+    digest = staged.build_input_digest
+    artifact = staged.artifact_name
+    reference = json.loads(staged.reference_path.read_text())
+    if not keep_own_reference:
+        for path in (bucket_root / f"train-state/{train}/kvikio").glob(
+            f"12345.*/{digest}/bundle-reference.{artifact}.json"
+        ):
+            path.unlink()
+    catalog_key = f"train-state/{earlier}/kvikio/400.1/{digest}/release-catalog-entries.{artifact}.json"
+    catalog = json.loads(staged.catalog_path.read_text())
+    catalog["source"].update(run_id="400", run_attempt="1")
+    (bucket_root / catalog_key).parent.mkdir(parents=True)
+    (bucket_root / catalog_key).write_text(json.dumps(catalog))
+    staged.catalog_path.unlink()
+    reference.update(
+        source_run_id="400",
+        source_run_attempt="1",
+        bundle_key=catalog_key,
+        reuse={"source_train_sha256": earlier, "artifact_objects": {"k": "v"}},
+    )
+    reused = bucket_root / f"train-state/{train}/kvikio/400.1/{digest}/bundle-reference.{artifact}.json"
+    reused.parent.mkdir(parents=True)
+    reused.write_text(json.dumps(reference))
+    binding = bucket_root / f"train-state/{train}/kvikio/reuse-bindings/12345/{artifact}.json"
+    binding.parent.mkdir(parents=True)
+    binding.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "train_sha256": train,
+                "repository": "rapidsai/kvikio",
+                "artifact": artifact,
+                "run_id": "12345",
+                "source_run_id": "400",
+                "source_run_attempt": "1",
+                "build_input_digest": digest,
+            }
+        )
+    )
+    if completion:
+        record = bucket_root / f"train-state/{earlier}/completions/400.1.json"
+        record.parent.mkdir(parents=True)
+        record.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "train_sha256": earlier,
+                    "run_id": "400",
+                    "run_attempt": "1",
+                    "result": "complete",
+                }
+            )
+        )
+    return staged
+
+
+def test_same_run_downloader_fetches_an_artifact_this_run_reused(tmp_path):
+    # A kvikio Python row needs the kvikio C++ artifact; this run reused it from an earlier complete run.
+    staged = _reuse_staged_candidate(_stage_same_run_candidate(tmp_path))
+    result = _run_same_run_downloader(staged.artifact_name, staged.env)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert (staged.output / staged.package_path).read_bytes() == staged.package_bytes  # noqa: S101
+
+
+def test_same_run_downloader_refuses_a_reuse_whose_source_run_never_completed(tmp_path):
+    staged = _reuse_staged_candidate(_stage_same_run_candidate(tmp_path), completion=False)
+    result = _run_same_run_downloader(staged.artifact_name, staged.env)
+    assert result.returncode != 0  # noqa: S101
+    assert "no completion record" in result.stderr  # noqa: S101
+    assert not (staged.output / staged.package_path).exists()  # noqa: S101
+
+
+def test_same_run_downloader_refuses_an_artifact_both_reused_and_built(tmp_path):
+    staged = _reuse_staged_candidate(_stage_same_run_candidate(tmp_path), keep_own_reference=True)
+    result = _run_same_run_downloader(staged.artifact_name, staged.env)
+    assert result.returncode != 0  # noqa: S101
+    assert "both reused and built" in result.stderr  # noqa: S101
+    assert not (staged.output / staged.package_path).exists()  # noqa: S101
 
 
 def _run_same_run_downloader(artifact_name, env):

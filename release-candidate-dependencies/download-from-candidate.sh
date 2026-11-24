@@ -57,6 +57,41 @@ aws s3 cp \
   "${reference_directory}" \
   --recursive --exclude '*' --include "*/bundle-reference.${artifact_name}.json" >&2
 mapfile -t references < <(find "${reference_directory}" -type f -name "bundle-reference.${artifact_name}.json" -print | sort)
+
+# A row of this run may instead have reused the artifact from an earlier
+# complete run; its binding names that run, attempt and digest exactly.
+binding_key="${train_prefix}/${repository_name}/reuse-bindings/${run_id}/${artifact_name}.json"
+binding_root="${reference_directory}/bindings"
+binding_path="${binding_root}/${repository_name}/reuse-bindings/${run_id}/${artifact_name}.json"
+mkdir -p "${binding_path%/*}"
+reference_run="${run_id}"
+reference_attempt="${run_attempt}"
+if aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${binding_key}" "${binding_path}" >/dev/null 2>&1; then
+  if [[ "${#references[@]}" -ne 0 ]]; then
+    echo "${artifact_name} is both reused and built in run ${run_id}" >&2
+    exit 1
+  fi
+  reference_run="$(jq -r '.source_run_id // empty' "${binding_path}")"
+  reference_attempt="$(jq -r '.source_run_attempt // empty' "${binding_path}")"
+  reused_digest="$(jq -r '.build_input_digest // empty' "${binding_path}")"
+  if [[ ! "${reference_run}" =~ ^[0-9]+$ || ! "${reference_attempt}" =~ ^[0-9]+$ \
+    || ! "${reused_digest}" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "malformed reuse binding for ${artifact_name} in run ${run_id}" >&2
+    exit 1
+  fi
+  reused_reference="${reference_directory}/reused/bundle-reference.${artifact_name}.json"
+  mkdir -p "${reused_reference%/*}"
+  aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${train_prefix}/${repository_name}/${reference_run}.${reference_attempt}/${reused_digest}/bundle-reference.${artifact_name}.json" \
+    "${reused_reference}" >&2
+  printf '{"workflow_runs":{}}\n' >"${reference_directory}/no-bound-run.json"
+  decision="$(SCHEDULER_STATE="${reference_directory}/no-bound-run.json" REUSE_BINDINGS="${binding_root}" \
+    bash "${helper_directory:-$(dirname "${BASH_SOURCE[0]}")}/reference-binding.sh" "${reused_reference}")"
+  if [[ "${decision}" != reused ]]; then
+    echo "reuse binding for ${artifact_name} does not name its reused reference" >&2
+    exit 1
+  fi
+  references=("${reused_reference}")
+fi
 if [[ "${#references[@]}" -ne 1 ]]; then
   echo "current candidate run must contain exactly one reference for ${artifact_name}" >&2
   exit 1
@@ -67,8 +102,8 @@ if ! jq -e \
   --arg train_sha256 "${train_sha256}" \
   --arg repository "${repository}" \
   --arg artifact_name "${artifact_name}" \
-  --arg run_id "${run_id}" \
-  --arg run_attempt "${run_attempt}" \
+  --arg run_id "${reference_run}" \
+  --arg run_attempt "${reference_attempt}" \
   '.schema_version == 4 and .storage_layout == 2
    and .train_sha256 == $train_sha256 and .repository == $repository
    and .source_artifact == $artifact_name and .source_run_id == $run_id
@@ -83,10 +118,16 @@ bundle_key="$(jq -r '.bundle_key // empty' "${reference}")"
 artifact_index_key="$(jq -r '.artifact_index_key // empty' "${reference}")"
 bundle_name="release-catalog-entries.${artifact_name}.json"
 expected_artifact_key="artifacts/${repository_name}/${build_input_digest}"
+expected_bundle_key="${run_prefix}/${build_input_digest}/${bundle_name}"
+if [[ "${reference_run}" != "${run_id}" ]]; then
+  # A reused reference keeps its earlier train's bundle at the same location.
+  expected_bundle_key="$(bash "${helper_directory:-$(dirname "${BASH_SOURCE[0]}")}/catalog-bundle-key.sh" \
+    "${reference}" "${repository_name}/${reference_run}.${reference_attempt}/${build_input_digest}")"
+fi
 if [[ "${artifact_key}" != "${expected_artifact_key}" \
   || ! "${build_input_digest}" =~ ^[0-9a-f]{64}$ \
   || "${artifact_index_key}" != "${artifact_key}/artifact-index.json" \
-  || "${bundle_key}" != "${run_prefix}/${build_input_digest}/${bundle_name}" ]]; then
+  || "${bundle_key}" != "${expected_bundle_key}" ]]; then
   echo "current candidate reference has unsafe or inconsistent storage keys" >&2
   exit 1
 fi
@@ -95,8 +136,8 @@ aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${bundle_key}" "${catalog_path}" >&2
 if ! jq -e \
   --arg repository "${repository}" \
   --arg artifact_name "${artifact_name}" \
-  --arg run_id "${run_id}" \
-  --arg run_attempt "${run_attempt}" \
+  --arg run_id "${reference_run}" \
+  --arg run_attempt "${reference_attempt}" \
   --arg sha "${source_sha}" \
   '.schema_version == 1 and .source.repository == $repository
    and .source.artifact == $artifact_name

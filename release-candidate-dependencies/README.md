@@ -41,6 +41,22 @@ reference records that train in `reuse.source_train_sha256`.
 when the current train owns the reference. Every other bundle must sit under the
 current train.
 
+A build row may reuse one artifact from an earlier complete run instead of
+building it. It then writes
+`<repository>/reuse-bindings/<this run>/<artifact>.json` in the current train,
+naming the source run, attempt and build input digest. Dependency setup and the
+same-run downloader (`reference-binding.sh`) consume such a reused reference
+only when:
+
+- that binding names it exactly;
+- the source run left a completion record
+  (`completions/<run>.<attempt>.json`, written by the release file's verify job
+  under the controller role) from the same or a later attempt.
+
+A binding that names a run without such a record fails the build. So does an
+artifact that is both reused and built in one run. References from the
+repository's bound run work as before.
+
 For `maven`, the action extracts verified tar.gz Maven repository archives into
 `MAVEN_LOCAL_REPO` and appends that path to `MAVEN_OPTS`. For docs and container
 jobs, set `prepare-conda-channel: true` to build a job-local Conda channel from

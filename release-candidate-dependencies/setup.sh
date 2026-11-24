@@ -383,6 +383,11 @@ fi
 # Resolve its bundle descriptors before downloading only the catalog envelopes
 # needed to choose build dependencies.
 aws s3 cp "${root}/" "${manifests}" --recursive --exclude '*' --include '*/bundle-reference.*.json'
+# Rows of this run that reused an earlier run's output say so here; see
+# reference-binding.sh for what such a binding must match to count.
+reuse_bindings="${workspace}/reuse-bindings"
+aws s3 cp "${root}/" "${reuse_bindings}" --recursive --exclude '*' \
+  --include "*/reuse-bindings/${GITHUB_RUN_ID:?current GitHub run ID is required}/*.json"
 shopt -s globstar nullglob
 reference_paths=("${manifests}"/**/bundle-reference.*.json)
 declare -A selected_attempts=()
@@ -398,16 +403,30 @@ for reference_path in "${reference_paths[@]}"; do
     echo "candidate train contains a reference whose filename does not match its source artifact" >&2
     exit 1
   fi
-  source_run_id="$(jq -r '.source_run_id // empty' "${reference_path}")"
   source_run_attempt="$(jq -r '.source_run_attempt // empty' "${reference_path}")"
-  repository_name="${source_repository##*/}"
-  selected_run_id="$(jq -r --arg repository "${repository_name}" '.workflow_runs[$repository] // empty' "${scheduler_state}")"
-  if [[ -n "${selected_run_id}" && "${source_run_id}" != "${selected_run_id}" ]]; then
-    rm -f "${reference_path}"
-    continue
-  fi
+  binding="$(SCHEDULER_STATE="${scheduler_state}" REUSE_BINDINGS="${reuse_bindings}" \
+    bash "${script_directory}/reference-binding.sh" "${reference_path}")"
   reference_identity="${source_repository}/${source_artifact}"
-  if [[ -n "${selected_run_id}" ]]; then
+  case "${binding}" in
+    drop)
+      rm -f "${reference_path}"
+      continue
+      ;;
+    reused)
+      # A binding names exactly one source run, attempt and digest.
+      if [[ -n "${selected_reference_paths[${reference_identity}]:-}" ]]; then
+        echo "candidate train selects more than one reference for ${reference_identity}" >&2
+        exit 1
+      fi
+      selected_reference_paths[${reference_identity}]="${reference_path}"
+      ;;
+    bound | unbound) ;;
+    *)
+      echo "unexpected reference binding decision: ${binding}" >&2
+      exit 1
+      ;;
+  esac
+  if [[ "${binding}" == bound ]]; then
     if [[ ! "${source_run_attempt}" =~ ^[0-9]+$ ]]; then
       echo "candidate train has an invalid selected run attempt" >&2
       exit 1
@@ -782,9 +801,13 @@ python3 "${script_directory}/apply_dependency_pins.py" \
   printf 'prepare_conda_channel=%q\n' "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}"
   printf 'producer_repository=%q\n' "${producer_repository}"
   printf 'producer_sha=%q\n' "${producer_sha}"
+  printf 'helper_directory=%q\n' "${tools}/candidate-helpers"
   tail -n +2 "${script_directory}/download-from-candidate.sh"
 } >"${tools}/rapids-download-from-github"
 chmod +x "${tools}/rapids-download-from-github"
+# The downloader runs later, outside this action; give it the reference checks.
+mkdir -p "${tools}/candidate-helpers"
+cp "${script_directory}/reference-binding.sh" "${script_directory}/catalog-bundle-key.sh" "${tools}/candidate-helpers/"
 
 # Not every release unit uses CMake.  When it does, shadow `cmake` so the
 # repository's existing RAPIDS.cmake bootstrap receives the train-locked

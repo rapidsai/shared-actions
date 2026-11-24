@@ -50,6 +50,23 @@ if [[ ! "${producer_repository}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
   echo "producer repository must use owner/repository format" >&2
   exit 1
 fi
+# A named producer must also name the producer commit being built; the run's
+# own GITHUB_SHA is the release-tracking commit in a train-generated run.
+producer_sha="${RELEASE_CANDIDATE_PRODUCER_SHA:-}"
+if [[ -n "${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-}" && -z "${producer_sha}" ]]; then
+  echo "candidate producer SHA is required when a producer repository is named" >&2
+  exit 1
+fi
+if [[ -z "${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-}" && -n "${producer_sha}" ]]; then
+  echo "candidate producer SHA requires a producer repository" >&2
+  exit 1
+fi
+producer_sha="${producer_sha:-${GITHUB_SHA:-}}"
+require_value "candidate producer SHA" "${producer_sha}"
+if [[ ! "${producer_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "candidate producer SHA must be a full 40-character commit" >&2
+  exit 1
+fi
 candidate_unit_id="${RELEASE_CANDIDATE_UNIT_ID:-${RELEASE_CANDIDATE_ARTIFACT_FAMILY}:${producer_repository##*/}}"
 implementation_mode="${RELEASE_CANDIDATE_IMPLEMENTATION_MODE:-reusable}"
 if [[ "${implementation_mode}" != "reusable" && "${implementation_mode}" != "direct" ]]; then
@@ -68,9 +85,9 @@ if [[ -n "${image_preflight_file}" || -n "${image_preflight_consumer}" || -n "${
     echo "image preflight file, consumer ID, and digest-pinned runtime image reference must be supplied together" >&2
     exit 1
   fi
-  require_value "GITHUB_SHA" "${GITHUB_SHA:-}"
-  if [[ ! "${GITHUB_SHA}" =~ ^[[:xdigit:]]{40}$ ]]; then
-    echo "GITHUB_SHA must be a full source revision when image preflight is enabled" >&2
+  require_value "producer SHA" "${producer_sha}"
+  if [[ ! "${producer_sha}" =~ ^[[:xdigit:]]{40}$ ]]; then
+    echo "producer SHA must be a full source revision when image preflight is enabled" >&2
     exit 1
   fi
   if [[ ! "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" =~ ^(conda|wheel|maven|docs)$ ]]; then
@@ -471,7 +488,7 @@ if [[ -n "${image_preflight_file}" ]]; then
     --unit-id "${candidate_unit_id}" \
     --family "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" \
     --repository "${repository}" \
-    --source-sha "${GITHUB_SHA}" \
+    --source-sha "${producer_sha}" \
     --arch "${RELEASE_CANDIDATE_ARCH}" \
     --cuda-version "${RELEASE_CANDIDATE_CUDA_VERSION}" \
     --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION}" \
@@ -767,6 +784,7 @@ python3 "${script_directory}/apply_dependency_pins.py" \
   printf '%s\n' '#!/usr/bin/env bash'
   printf 'prepare_conda_channel=%q\n' "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}"
   printf 'producer_repository=%q\n' "${producer_repository}"
+  printf 'producer_sha=%q\n' "${producer_sha}"
   tail -n +2 "${script_directory}/download-from-candidate.sh"
 } >"${tools}/rapids-download-from-github"
 chmod +x "${tools}/rapids-download-from-github"

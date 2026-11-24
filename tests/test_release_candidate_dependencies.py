@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -236,6 +237,7 @@ def _run_container_setup_without_a_channel(tmp_path, dependencies, prepare_conda
         "GITHUB_PATH": str(tmp_path / "github-path"),
         "RUNNER_TEMP": str(tmp_path / "runner-temp"),
         "GITHUB_REPOSITORY": "rapidsai/ci-imgs",
+        "GITHUB_SHA": "f" * 40,
         "RELEASE_CANDIDATE_BUCKET": "candidate-test",
         "RELEASE_CANDIDATE_TRAIN_PREFIX": "train-state",
         "RELEASE_CANDIDATE_TRAIN_SHA256": train_sha256,
@@ -315,7 +317,8 @@ def test_maven_dependency_resolution_does_not_require_a_python_matrix():
         pytest.fail("Maven candidate dependency action unexpectedly requires a Python matrix")
 
 
-def test_same_run_downloader_fetches_exact_reference_and_verifies_canonical_bytes(tmp_path):
+def _stage_same_run_candidate(tmp_path):
+    """Stage one committed same-run candidate bundle in a fake S3 tree and return the downloader inputs."""
     import os
 
     bucket = "candidate-store"
@@ -446,6 +449,38 @@ else:
         "RELEASE_CANDIDATE_TRAIN_SHA256": train_sha256,
         "RAPIDS_UNZIP_DIR": str(output),
     }
+    return SimpleNamespace(
+        env=env,
+        artifact_name=artifact_name,
+        output=output,
+        package_path=package_path,
+        package_bytes=package_bytes,
+        sbom_path=sbom_path,
+        sbom_bytes=sbom_bytes,
+        reference_path=reference_path,
+        build_input_digest=build_input_digest,
+        artifact_key=artifact_key,
+        catalog_path=catalog_path,
+        sbom_file=sbom_file,
+        index_path=index_path,
+    )
+
+
+def _run_same_run_downloader(artifact_name, env):
+    return subprocess.run(  # noqa: S603
+        [str(_DOWNLOADER), artifact_name], env=env, capture_output=True, text=True, check=False
+    )
+
+
+def test_same_run_downloader_fetches_exact_reference_and_verifies_canonical_bytes(tmp_path):
+    staged = _stage_same_run_candidate(tmp_path)
+    env = staged.env
+    artifact_name = staged.artifact_name
+    output = staged.output
+    package_path, package_bytes = staged.package_path, staged.package_bytes
+    sbom_path, sbom_bytes, sbom_file = staged.sbom_path, staged.sbom_bytes, staged.sbom_file
+    reference_path, catalog_path, index_path = staged.reference_path, staged.catalog_path, staged.index_path
+    build_input_digest, artifact_key = staged.build_input_digest, staged.artifact_key
 
     def run_downloader():
         return subprocess.run(  # noqa: S603
@@ -519,10 +554,139 @@ else:
         pytest.fail("same-run downloader accepted an empty canonical artifact index")
 
 
+def _train_generated_run_env(staged, **producer):
+    """A release run executes in release-tracking at its own commit while building the producer's commit."""
+    env = {
+        **staged.env,
+        "GITHUB_REPOSITORY": "rapidsai/release-tracking",
+        "GITHUB_SHA": "c" * 40,
+    }
+    env.update(producer)
+    return env
+
+
+@pytest.mark.parametrize(
+    "producer",
+    [
+        # The action step exports the producer through the environment.
+        {"RELEASE_CANDIDATE_PRODUCER_REPOSITORY": "rapidsai/kvikio", "RELEASE_CANDIDATE_PRODUCER_SHA": "d" * 40},
+        # The installed rapids-download-from-github helper embeds the values captured at setup.
+        {"producer_repository": "rapidsai/kvikio", "producer_sha": "d" * 40},
+    ],
+)
+def test_same_run_downloader_checks_the_producer_sha_in_a_train_generated_run(tmp_path, producer):
+    staged = _stage_same_run_candidate(tmp_path)
+
+    result = _run_same_run_downloader(staged.artifact_name, _train_generated_run_env(staged, **producer))
+
+    if result.returncode != 0:
+        pytest.fail(result.stderr)
+    if (staged.output / staged.package_path).read_bytes() != staged.package_bytes:
+        pytest.fail("train-generated downloader did not return the producer's canonical artifact")
+
+
+def test_same_run_downloader_rejects_a_catalog_bound_to_the_run_repository_sha(tmp_path):
+    staged = _stage_same_run_candidate(tmp_path)
+    catalog = json.loads(staged.catalog_path.read_text())
+    catalog["source"]["sha"] = "c" * 40
+    staged.catalog_path.write_text(json.dumps(catalog))
+    env = _train_generated_run_env(
+        staged,
+        RELEASE_CANDIDATE_PRODUCER_REPOSITORY="rapidsai/kvikio",
+        RELEASE_CANDIDATE_PRODUCER_SHA="d" * 40,
+    )
+
+    result = _run_same_run_downloader(staged.artifact_name, env)
+
+    if result.returncode == 0 or "does not match the current repository, run, attempt, and SHA" not in result.stderr:
+        pytest.fail("downloader accepted a catalog bound to the release-tracking commit instead of the producer's")
+    if (staged.output / staged.package_path).exists():
+        pytest.fail("downloader materialized an artifact from a mismatched catalog")
+
+
+@pytest.mark.parametrize(
+    ("producer", "message"),
+    [
+        ({"RELEASE_CANDIDATE_PRODUCER_REPOSITORY": "rapidsai/kvikio"}, "producer SHA is required"),
+        ({"producer_repository": "rapidsai/kvikio"}, "producer SHA is required"),
+        ({"RELEASE_CANDIDATE_PRODUCER_SHA": "d" * 40}, "producer SHA requires a producer repository"),
+        (
+            {"RELEASE_CANDIDATE_PRODUCER_REPOSITORY": "rapidsai/kvikio", "RELEASE_CANDIDATE_PRODUCER_SHA": "d" * 7},
+            "producer SHA must be a full 40-character commit",
+        ),
+    ],
+)
+def test_same_run_downloader_rejects_incomplete_producer_identity(tmp_path, producer, message):
+    staged = _stage_same_run_candidate(tmp_path)
+    env = _train_generated_run_env(staged, **producer)
+    aws_log = tmp_path / "aws-called"
+    env["PATH"] = f"{_logging_aws(tmp_path, aws_log)}:{env['PATH']}"
+
+    result = _run_same_run_downloader(staged.artifact_name, env)
+
+    if result.returncode == 0 or message not in result.stderr:
+        pytest.fail(f"downloader accepted an incomplete producer identity: {result.stderr}")
+    if aws_log.exists():
+        pytest.fail("downloader reached S3 before validating the producer identity")
+
+
+def _logging_aws(tmp_path, log_path):
+    """Shadow aws with a stub that records any call, so a test can prove no S3 request was made."""
+    stub_dir = tmp_path / "logging-aws"
+    stub_dir.mkdir()
+    stub = stub_dir / "aws"
+    stub.write_text(f'#!/usr/bin/env bash\necho "$*" >>"{log_path}"\nexit 97\n')
+    stub.chmod(0o755)
+    return stub_dir
+
+
+@pytest.mark.parametrize(
+    ("producer", "message"),
+    [
+        ({"RELEASE_CANDIDATE_PRODUCER_REPOSITORY": "rapidsai/ci-imgs"}, "producer SHA is required"),
+        ({"RELEASE_CANDIDATE_PRODUCER_SHA": "d" * 40}, "producer SHA requires a producer repository"),
+        (
+            {"RELEASE_CANDIDATE_PRODUCER_REPOSITORY": "rapidsai/ci-imgs", "RELEASE_CANDIDATE_PRODUCER_SHA": "main"},
+            "producer SHA must be a full 40-character commit",
+        ),
+    ],
+)
+def test_candidate_setup_rejects_incomplete_producer_identity(tmp_path, producer, message):
+    result = _run_container_setup_without_a_channel(tmp_path, [], extra_env=producer)
+
+    assert result.returncode != 0  # noqa: S101
+    assert message in result.stderr  # noqa: S101
+    # Validation precedes the train download, so the workspace never receives a train.
+    assert not (tmp_path / "runner-temp" / "release-candidate-dependencies" / "release-train.json").exists()  # noqa: S101
+
+
+def test_candidate_setup_accepts_a_complete_producer_identity(tmp_path):
+    result = _run_container_setup_without_a_channel(
+        tmp_path,
+        [],
+        extra_env={
+            "RELEASE_CANDIDATE_PRODUCER_REPOSITORY": "rapidsai/ci-imgs",
+            "RELEASE_CANDIDATE_PRODUCER_SHA": "d" * 40,
+        },
+    )
+
+    # The stub train lacks rapids-cmake, so setup stops there: past producer validation.
+    assert "producer SHA" not in result.stderr  # noqa: S101
+    assert "release train must lock rapids-cmake" in result.stderr  # noqa: S101
+
+
 def test_same_run_downloader_is_installed_by_candidate_dependency_setup():
     setup = _SETUP.read_text()
     if 'tail -n +2 "${script_directory}/download-from-candidate.sh"' not in setup:
         pytest.fail("candidate setup does not install the same-run downloader")
+    if "printf 'producer_sha=%q\\n' \"${producer_sha}\"" not in setup:
+        pytest.fail("candidate setup does not embed the producer SHA in the installed downloader")
+
+
+def test_candidate_dependency_action_forwards_the_producer_sha():
+    action = (Path(__file__).parents[1] / "release-candidate-dependencies" / "action.yml").read_text()
+    if "  producer-sha:" not in action or "RELEASE_CANDIDATE_PRODUCER_SHA: ${{ inputs.producer-sha }}" not in action:
+        pytest.fail("candidate dependency action does not forward producer-sha to setup")
 
 
 def test_candidate_wheel_lock_lookup_passes_cuda_major():

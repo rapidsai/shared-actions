@@ -26,7 +26,10 @@ def run_downloader(tmp_path, producer, **extra):
         "GITHUB_RUN_ID": "99",
         "GITHUB_RUN_ATTEMPT": "1",
         "RELEASE_CANDIDATE_BUCKET": "bucket",
+        "GITHUB_SHA": "c" * 40,
         "RELEASE_CANDIDATE_PRODUCER_REPOSITORY": producer,
+        # A named producer must name its commit too; the run repository uses GITHUB_SHA.
+        "RELEASE_CANDIDATE_PRODUCER_SHA": "d" * 40 if producer else "",
         "RELEASE_CANDIDATE_TRAIN_PREFIX": "train-state",
         "RELEASE_CANDIDATE_TRAIN_SHA256": TRAIN,
         "RAPIDS_UNZIP_DIR": str(tmp_path / "out"),

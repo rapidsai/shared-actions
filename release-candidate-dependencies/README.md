@@ -25,6 +25,13 @@ verifies the exact frozen `shared-actions` repository and revision, train
 membership, and selected source/run bindings; it skips only the
 `shared-workflows` caller-revision assertion.
 
+A train-generated run executes in another repository (release-tracking) while
+building a producer's commit. Such a run sets `producer-repository` to the
+producer's `owner/name` and `producer-sha` to the full producer commit it
+checked out. Same-run catalogs are then matched against that commit, not the
+run's own `GITHUB_SHA`. The two inputs are supplied together or not at all;
+a run inside the producer repository leaves both empty and uses `GITHUB_SHA`.
+
 For `maven`, the action extracts verified tar.gz Maven repository archives into
 `MAVEN_LOCAL_REPO` and appends that path to `MAVEN_OPTS`. For docs and container
 jobs, set `prepare-conda-channel: true` to build a job-local Conda channel from

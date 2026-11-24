@@ -16,6 +16,23 @@ if [[ ! "${repository}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
   echo "candidate producer repository must use owner/repository format" >&2
   exit 1
 fi
+# A train-generated run builds another repository's commit, so the catalog must
+# match that producer commit; only a run inside the producer uses GITHUB_SHA.
+producer_named="${producer_repository:-${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-}}"
+source_sha="${producer_sha:-${RELEASE_CANDIDATE_PRODUCER_SHA:-}}"
+if [[ -n "${producer_named}" && -z "${source_sha}" ]]; then
+  echo "candidate producer SHA is required when a producer repository is named" >&2
+  exit 1
+fi
+if [[ -z "${producer_named}" && -n "${source_sha}" ]]; then
+  echo "candidate producer SHA requires a producer repository" >&2
+  exit 1
+fi
+source_sha="${source_sha:-${GITHUB_SHA:?current GitHub SHA is required}}"
+if [[ ! "${source_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "candidate producer SHA must be a full 40-character commit" >&2
+  exit 1
+fi
 repository_name="${repository##*/}"
 run_id="${GITHUB_RUN_ID:?current GitHub run ID is required}"
 run_attempt="${GITHUB_RUN_ATTEMPT:?current GitHub run attempt is required}"
@@ -80,7 +97,7 @@ if ! jq -e \
   --arg artifact_name "${artifact_name}" \
   --arg run_id "${run_id}" \
   --arg run_attempt "${run_attempt}" \
-  --arg sha "${GITHUB_SHA:?current GitHub SHA is required}" \
+  --arg sha "${source_sha}" \
   '.schema_version == 1 and .source.repository == $repository
    and .source.artifact == $artifact_name
    and .source.run_id == $run_id and .source.run_attempt == $run_attempt

@@ -101,7 +101,6 @@ if [[ -n "${image_preflight_file}" || -n "${image_preflight_consumer}" || -n "${
 fi
 
 root="s3://${RELEASE_CANDIDATE_BUCKET}/${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
-train_key_prefix="${RELEASE_CANDIDATE_TRAIN_PREFIX}/${RELEASE_CANDIDATE_TRAIN_SHA256}"
 repository="${producer_repository#*/}"
 cuda_major="${RELEASE_CANDIDATE_CUDA_VERSION%%.*}"
 conda_platform="$(conda_platform_for_arch "${RELEASE_CANDIDATE_ARCH}")"
@@ -434,14 +433,12 @@ for reference_path in "${reference_paths[@]}"; do
     echo "candidate train contains a missing or unsafe producer build-input digest" >&2
     exit 1
   fi
-  bundle_key="$(jq -r '.bundle_key // empty' "${reference_path}")"
+  # A reused reference keeps its earlier train's bundle; the helper accepts
+  # only that exact location (see catalog-bundle-key.sh).
+  reference_directory="${reference_path#"${manifests}"/}"
+  reference_directory="${reference_directory%/*}"
+  bundle_key="$(bash "${script_directory}/catalog-bundle-key.sh" "${reference_path}" "${reference_directory}")"
   bundle_name="${bundle_key##*/}"
-  if [[ ! "${bundle_name}" =~ ^release-catalog-entries\.[A-Za-z0-9_-]+\.json$ ]] \
-    || [[ "${bundle_key}" != "${train_key_prefix}"/* ]] \
-    || [[ "${bundle_key}" == *".."* ]]; then
-    echo "candidate train contains an unsafe catalog bundle reference" >&2
-    exit 1
-  fi
   manifest_path="${reference_path%/*}/${bundle_name}"
   aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${bundle_key}" "${manifest_path}"
   jq \

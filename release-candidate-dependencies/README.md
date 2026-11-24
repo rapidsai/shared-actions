@@ -32,6 +32,15 @@ checked out. Same-run catalogs are then matched against that commit, not the
 run's own `GITHUB_SHA`. The two inputs are supplied together or not at all;
 a run inside the producer repository leaves both empty and uses `GITHUB_SHA`.
 
+A train may reuse another train's outputs, for example CI images from an
+earlier complete run. The reused reference sits in the current train, but its
+catalog bundle stays in the earlier train, beside that run's provenance, and the
+reference records that train in `reuse.source_train_sha256`.
+`catalog-bundle-key.sh` accepts such a bundle only at exactly the reference's own
+`<repository>/<run>.<attempt>/<digest>/` location in that earlier train, and only
+when the current train owns the reference. Every other bundle must sit under the
+current train.
+
 For `maven`, the action extracts verified tar.gz Maven repository archives into
 `MAVEN_LOCAL_REPO` and appends that path to `MAVEN_OPTS`. For docs and container
 jobs, set `prepare-conda-channel: true` to build a job-local Conda channel from

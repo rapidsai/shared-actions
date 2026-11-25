@@ -829,6 +829,23 @@ chmod +x "${tools}/rapids-download-from-github"
 mkdir -p "${tools}/candidate-helpers"
 cp "${script_directory}/reference-binding.sh" "${script_directory}/catalog-bundle-key.sh" "${tools}/candidate-helpers/"
 
+# A row with a reuse key can take its artifacts from an earlier complete run
+# instead of building them; the release entrypoints run this right after setup
+# and skip their build steps on a hit (row_reuse.py).
+if [[ -n "${row_reuse_key}" ]]; then
+  cp "${script_directory}/row_reuse.py" "${tools}/candidate-helpers/"
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
+    printf 'exec python3 %q' "${tools}/candidate-helpers/row_reuse.py"
+    printf ' --key %q --key-file %q' "${row_reuse_key}" "${row_reuse_key_file}"
+    printf ' --repository %q --train-sha256 %q' "${producer_repository}" "${RELEASE_CANDIDATE_TRAIN_SHA256}"
+    printf ' --bucket %q --train-prefix %q' "${RELEASE_CANDIDATE_BUCKET}" "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
+    # shellcheck disable=SC2016 # expanded by the wrapper when it runs, not here
+    printf ' --run-id "${GITHUB_RUN_ID:?}" --github-output "${GITHUB_OUTPUT:?}"\n'
+  } >"${tools}/candidate-row-reuse"
+  chmod +x "${tools}/candidate-row-reuse"
+fi
+
 # Not every release unit uses CMake.  When it does, shadow `cmake` so the
 # repository's existing RAPIDS.cmake bootstrap receives the train-locked
 # revision.  Pure-Python jobs remain independent of a CMake installation.

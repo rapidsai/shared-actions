@@ -25,8 +25,11 @@ ROW_INPUTS = {
     "candidate-train-sha256": "f" * 64,
     "candidate-image-map": '{"ci-conda:x": "ghcr.io/rapidsai/release-candidates/ci-conda@sha256:' + "c" * 64 + '"}',
     "candidate-matrix": '{"include": []}',
+    # GitHub also puts the release run's own dispatch input into a called workflow's toJSON(inputs) (release run
+    # 45690532489), so the train digest arrives a second time under the release file's input name.
+    "candidate_train_sha256": "e" * 64,
 }
-EXCLUDED = {"build-datetime", "date", "candidate-train-sha256", "candidate-image-map"}
+EXCLUDED = {"build-datetime", "date", "candidate-train-sha256", "candidate_train_sha256", "candidate-image-map"}
 
 
 def build_inputs(**changes):
@@ -155,7 +158,9 @@ def test_run_and_train_bound_inputs_do_not_change_the_key(tmp_path, name):
 def test_the_excluded_inputs_are_exactly_these():
     source = SCRIPT.read_text()
     expected = (
-        'EXCLUDED_INPUTS = frozenset({"build-datetime", "candidate-image-map", "candidate-train-sha256", "date"})'
+        "EXCLUDED_INPUTS = frozenset(\n"
+        '    {"build-datetime", "candidate-image-map", "candidate-train-sha256", "candidate_train_sha256", "date"}\n'
+        ")"
     )
     assert expected in source  # noqa: S101
 
@@ -219,3 +224,10 @@ def test_candidate_setup_computes_and_exports_the_key_after_upstream_inputs():
     action = (Path(__file__).parents[1] / "release-candidate-dependencies" / "action.yml").read_text()
     assert "RELEASE_CANDIDATE_ROW_ENTRYPOINT: ${{ inputs.row-entrypoint }}" in action  # noqa: S101
     assert "RELEASE_CANDIDATE_ROW_INPUTS: ${{ inputs.row-inputs }}" in action  # noqa: S101
+
+
+def test_a_new_train_with_the_same_row_keeps_the_key(tmp_path):
+    # Release run 45690532489 missed reuse on every row after a replan that changed only release_tracking_revision:
+    # both train digests differed, and the dispatch input candidate_train_sha256 was still in the key.
+    other_train = {**ROW_INPUTS, "candidate-train-sha256": "1" * 64, "candidate_train_sha256": "1" * 64}
+    assert key(tmp_path, "base") == key(tmp_path, "other", **{"row-inputs": json.dumps(other_train)})  # noqa: S101

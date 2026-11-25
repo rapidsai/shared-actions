@@ -28,7 +28,11 @@ IMAGE = re.compile(r"ghcr\.io/rapidsai/release-candidates/ci-(conda|wheel)@sha25
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TOOLS = ("gha-tools", "shared-actions", "shared-workflows")
 ENTRYPOINT = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
-EXCLUDED_INPUTS = frozenset({"build-datetime", "candidate-image-map", "candidate-train-sha256", "date"})
+# candidate_train_sha256 is the release file's own dispatch input: GitHub puts it into a called workflow's
+# toJSON(inputs) as well, so it is the train digest again under another name (release run 45690532489).
+EXCLUDED_INPUTS = frozenset(
+    {"build-datetime", "candidate-image-map", "candidate-train-sha256", "candidate_train_sha256", "date"}
+)
 
 
 def _load(path: str, description: str) -> dict:

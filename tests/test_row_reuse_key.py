@@ -17,6 +17,7 @@ REVISIONS = {"gha-tools": "1" * 40, "shared-actions": "2" * 40, "shared-workflow
 ROW_INPUTS = {
     "branch": "release/26.12",
     "date": "2026-11-25",
+    "build-datetime": "261125172320",
     "sha": "a" * 40,
     "repo": "rapidsai/kvikio",
     "script": "ci/build_cpp.sh",
@@ -25,7 +26,7 @@ ROW_INPUTS = {
     "candidate-image-map": '{"ci-conda:x": "ghcr.io/rapidsai/release-candidates/ci-conda@sha256:' + "c" * 64 + '"}',
     "candidate-matrix": '{"include": []}',
 }
-EXCLUDED = {"date", "candidate-train-sha256", "candidate-image-map"}
+EXCLUDED = {"build-datetime", "date", "candidate-train-sha256", "candidate-image-map"}
 
 
 def build_inputs(**changes):
@@ -143,15 +144,20 @@ def test_every_input_that_decides_the_output_changes_the_key(tmp_path, change):
 
 @pytest.mark.parametrize("name", sorted(EXCLUDED))
 def test_run_and_train_bound_inputs_do_not_change_the_key(tmp_path, name):
-    # The date stamps versions like the build timestamp; the train digest would stop reuse across trains; the image
-    # map holds every image, and the row's own image is already in the key.
+    # The date and build-datetime stamp versions with the run's start, so a reused row keeps the stamp of the run
+    # that built it (with build-datetime in the key, no kvikio row reused in release run 45664183656); the train
+    # digest would stop reuse across trains; the image map holds every image, and the row's own image is already
+    # in the key.
     changed = json.dumps({**ROW_INPUTS, name: ROW_INPUTS[name] + "-changed"})
     assert key(tmp_path, "base") == key(tmp_path, "changed", **{"row-inputs": changed})  # noqa: S101
 
 
 def test_the_excluded_inputs_are_exactly_these():
     source = SCRIPT.read_text()
-    assert 'EXCLUDED_INPUTS = frozenset({"candidate-image-map", "candidate-train-sha256", "date"})' in source  # noqa: S101
+    expected = (
+        'EXCLUDED_INPUTS = frozenset({"build-datetime", "candidate-image-map", "candidate-train-sha256", "date"})'
+    )
+    assert expected in source  # noqa: S101
 
 
 def test_dependency_order_does_not_change_the_key(tmp_path):

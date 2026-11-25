@@ -28,7 +28,7 @@ IMAGE = re.compile(r"ghcr\.io/rapidsai/release-candidates/ci-(conda|wheel)@sha25
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TOOLS = ("gha-tools", "shared-actions", "shared-workflows")
 ENTRYPOINT = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
-EXCLUDED_INPUTS = frozenset({"candidate-image-map", "candidate-train-sha256", "date"})
+EXCLUDED_INPUTS = frozenset({"build-datetime", "candidate-image-map", "candidate-train-sha256", "date"})
 
 
 def _load(path: str, description: str) -> dict:

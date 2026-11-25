@@ -11,7 +11,11 @@ taken only if, for every artifact it indexed under the key:
 - the run left a completion record (``completions/<run>.<attempt>.json``) in its train, from the same or a later
   attempt;
 - its build record, artifact index and catalog still have the checksums recorded at upload, and every indexed
-  payload still has the checksum its index names (whose S3 versions are recorded as reuse evidence).
+  payload still has the checksum its index names (whose S3 versions are recorded as reuse evidence);
+- every artifact of this repository that the row consumed from its own run (``same_run_inputs``, recorded by the
+  same-run downloader: kvikio Python consumes kvikio C++) has the same build input digest in this run, whether this
+  run built it or reused it. The key cannot hold these: other rows of the repository may still be uploading when
+  setup computes it, but the rows a row consumes always finished before it started.
 
 Otherwise the next older run is tried, and with none the row builds. On a hit the reused references are written
 into this train and this run's reuse bindings name them (``reference-binding.sh`` admits exactly those); both are
@@ -124,6 +128,42 @@ def _completed(s3: S3, train_prefix: str, train: str, run: str, attempt: str) ->
     return False
 
 
+def _current_digest(s3: S3, args: argparse.Namespace, artifact: str) -> str:
+    """The build input digest this run has for one of its repository's artifacts, built or reused, or raise Miss."""
+    base = f"{args.train_prefix}/{args.train_sha256}/{args.repository.rsplit('/', 1)[-1]}"
+    digests = []
+    binding = s3.get(f"{base}/reuse-bindings/{args.run_id}/{artifact}.json")
+    if binding is not None:
+        try:
+            digests.append(json.loads(binding).get("build_input_digest"))
+        except (json.JSONDecodeError, AttributeError) as error:
+            raise Miss(f"same-run input {artifact} has a malformed reuse binding in this run") from error
+    prefix = f"{base}/{args.run_id}.{args.run_attempt}/"
+    for key in s3.keys(prefix):
+        parts = key.removeprefix(prefix).split("/")
+        if len(parts) == 2 and parts[1] == f"bundle-reference.{artifact}.json":
+            digests.append(parts[0])
+    if len(digests) != 1 or not HEX64.fullmatch(str(digests[0])):
+        raise Miss(f"same-run input {artifact} is not exactly one artifact in this run")
+    return digests[0]
+
+
+def _same_run_inputs_match(s3: S3, args: argparse.Namespace, pointer: dict, run: str, attempt: str) -> None:
+    """Raise Miss unless every same-run input the earlier row consumed has the same digest in this run."""
+    inputs = pointer.get("same_run_inputs")
+    if not isinstance(inputs, list) or not all(
+        isinstance(entry, dict)
+        and set(entry) == {"artifact", "build_input_digest"}
+        and SAFE.fullmatch(str(entry["artifact"]))
+        and HEX64.fullmatch(str(entry["build_input_digest"]))
+        for entry in inputs
+    ):
+        raise Miss(f"run {run}.{attempt} recorded no valid same-run inputs")
+    for entry in inputs:
+        if _current_digest(s3, args, entry["artifact"]) != entry["build_input_digest"]:
+            raise Miss(f"same-run input {entry['artifact']} was built differently in this run")
+
+
 def _verify(s3: S3, args: argparse.Namespace, key_record: Any, artifact: str, pointer: Any, run: str, attempt: str):
     """Return the reused reference for one indexed artifact of a candidate run, or raise Miss."""
     reference = pointer.get("reference") if isinstance(pointer, dict) else None
@@ -142,6 +182,7 @@ def _verify(s3: S3, args: argparse.Namespace, key_record: Any, artifact: str, po
         raise Miss(f"index entry for {artifact} in run {run}.{attempt} does not describe this row")
     if not _completed(s3, args.train_prefix, reference["train_sha256"], run, attempt):
         raise Miss(f"run {run}.{attempt} has no completion record")
+    _same_run_inputs_match(s3, args, pointer, run, attempt)
     artifact_key = reference.get("artifact_key")
     if reference.get("artifact_index_key") != f"{artifact_key}/artifact-index.json":
         raise Miss(f"index entry for {artifact} names an inconsistent artifact index")
@@ -186,7 +227,7 @@ def _verify(s3: S3, args: argparse.Namespace, key_record: Any, artifact: str, po
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("key", "key-file", "repository", "run-id", "train-sha256", "bucket", "github-output"):
+    for name in ("key", "key-file", "repository", "run-id", "run-attempt", "train-sha256", "bucket", "github-output"):
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--train-prefix", default="train-state")
     parser.add_argument("--content-prefix", default="artifacts")
@@ -194,7 +235,12 @@ def main(argv: list[str] | None = None) -> int:
     record_bytes = Path(args.key_file).read_bytes()
     if not HEX64.fullmatch(args.key) or hashlib.sha256(record_bytes).hexdigest() != args.key:
         raise SystemExit("the row reuse key does not match its key record")
-    if not (HEX64.fullmatch(args.train_sha256) and args.run_id.isdigit() and "/" in args.repository):
+    if not (
+        HEX64.fullmatch(args.train_sha256)
+        and args.run_id.isdigit()
+        and args.run_attempt.isdigit()
+        and "/" in args.repository
+    ):
         raise SystemExit("invalid train, run or repository")
     key_record = json.loads(record_bytes)
     repository_name = args.repository.rsplit("/", 1)[-1]

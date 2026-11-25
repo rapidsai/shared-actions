@@ -75,7 +75,15 @@ def put(root: Path, key: str, data: bytes) -> str:
 
 
 def index_run(
-    root: Path, run="400", attempt="1", train=EARLIER, *, complete=True, key_record=KEY_RECORD, payload=b"pkg"
+    root: Path,
+    run="400",
+    attempt="1",
+    train=EARLIER,
+    *,
+    complete=True,
+    key_record=KEY_RECORD,
+    payload=b"pkg",
+    same_run_inputs=(),
 ):
     """An earlier run that built and indexed the row, and (optionally) recorded its completion."""
     digest = hashlib.sha256(f"{run}.{attempt}".encode()).hexdigest()
@@ -119,6 +127,7 @@ def index_run(
         "build_record_sha256": record_sha,
         "artifact_index_sha256": index_sha,
         "catalog_sha256": catalog_sha,
+        "same_run_inputs": list(same_run_inputs),
     }
     put(root, f"artifacts/kvikio/row-reuse-index/{KEY}/{ARTIFACT}/{run}-{attempt}.json", json.dumps(pointer).encode())
     if complete:
@@ -162,6 +171,8 @@ def run_reuse(tmp_path, *, key=KEY, key_record=KEY_RECORD):
         REPOSITORY,
         "--run-id",
         RUN,
+        "--run-attempt",
+        "1",
         "--train-sha256",
         TRAIN,
         "--bucket",
@@ -307,3 +318,78 @@ def test_a_same_train_run_whose_original_reference_is_missing_or_different_is_no
     assert result.returncode == 0, result.stderr  # noqa: S101
     assert outputs == {"reused": "false"}  # noqa: S101
     assert not (tmp_path / "s3" / "candidate-store" / f"train-state/{TRAIN}/kvikio/reuse-bindings").exists()  # noqa: S101
+
+
+# A row that consumed another artifact of its own repository from the same run (kvikio Python consumes kvikio C++)
+# is reused only if this run has that artifact with the same build input digest. The key cannot hold it: other rows
+# of the repository may still be uploading when setup computes the key.
+CPP = "kvikio_conda_cpp_amd64_lib"
+CPP_DIGEST = "e" * 64
+
+
+def consumed(digest=CPP_DIGEST, artifact=CPP):
+    return {"artifact": artifact, "build_input_digest": digest}
+
+
+def built_in_this_run(root, digest=CPP_DIGEST, artifact=CPP, attempt="1"):
+    put(root, f"train-state/{TRAIN}/kvikio/{RUN}.{attempt}/{digest}/bundle-reference.{artifact}.json", b"{}")
+
+
+def reused_in_this_run(root, digest=CPP_DIGEST, artifact=CPP):
+    binding = {"schema_version": 1, "artifact": artifact, "run_id": RUN, "build_input_digest": digest}
+    put(root, f"train-state/{TRAIN}/kvikio/reuse-bindings/{RUN}/{artifact}.json", json.dumps(binding).encode())
+
+
+@pytest.mark.parametrize("current", [built_in_this_run, reused_in_this_run])
+def test_a_row_is_reused_when_this_run_has_the_same_same_run_input(tmp_path, current):
+    index_run(tmp_path / "s3", same_run_inputs=[consumed()])
+    current(tmp_path / "s3")
+    result, outputs = run_reuse(tmp_path)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert outputs == {"reused": "true", "run": "400.1"}  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "current",
+    [
+        # kvikio C++ rebuilt in this run (for example against a changed rapids-logger): its digest is new.
+        lambda root: built_in_this_run(root, digest="f" * 64),
+        lambda root: reused_in_this_run(root, digest="f" * 64),
+        # This run has no such artifact, or an ambiguous one.
+        lambda root: None,
+        lambda root: (built_in_this_run(root), built_in_this_run(root, digest="f" * 64)),
+        # Only another attempt built it; the downloader reads this attempt.
+        lambda root: built_in_this_run(root, attempt="2"),
+    ],
+)
+def test_a_row_whose_same_run_input_differs_in_this_run_builds(tmp_path, current):
+    index_run(tmp_path / "s3", same_run_inputs=[consumed()])
+    current(tmp_path / "s3")
+    result, outputs = run_reuse(tmp_path)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert outputs == {"reused": "false"}  # noqa: S101
+    assert "same-run input" in result.stderr  # noqa: S101
+    assert not (tmp_path / "s3" / "candidate-store" / f"train-state/{TRAIN}/kvikio/400.1").exists()  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "inputs",
+    [None, "x", [{"artifact": CPP}], [{"artifact": "../x", "build_input_digest": CPP_DIGEST}], [consumed("abc")]],
+)
+def test_an_index_entry_without_valid_same_run_inputs_is_not_reused(tmp_path, inputs):
+    index_run(tmp_path / "s3")
+    key = f"artifacts/kvikio/row-reuse-index/{KEY}/{ARTIFACT}/400-1.json"
+    pointer = s3(tmp_path, key)
+    if inputs is None:
+        del pointer["same_run_inputs"]
+    else:
+        pointer["same_run_inputs"] = inputs
+    put(tmp_path / "s3", key, json.dumps(pointer).encode())
+    result, outputs = run_reuse(tmp_path)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert outputs == {"reused": "false"}  # noqa: S101
+
+
+def test_candidate_setup_passes_the_run_attempt_to_the_reuse_check():
+    setup = (Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh").read_text()
+    assert '--run-attempt "${GITHUB_RUN_ATTEMPT:?}"' in setup  # noqa: S101

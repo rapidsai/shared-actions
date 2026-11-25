@@ -108,6 +108,20 @@ if [[ -n "${row_reuse_key}" ]] && [[ ! "${row_reuse_key}" =~ ^[0-9a-f]{64}$ || !
   echo "RELEASE_CANDIDATE_ROW_REUSE_KEY does not match its key record" >&2
   exit 1
 fi
+# The same-run artifacts the row consumed, as the downloader recorded them. A
+# later run reuses the row only if it has the same digests for them.
+same_run_inputs_json='[]'
+if [[ -n "${row_reuse_key}" ]]; then
+  same_run_inputs_file="${RELEASE_CANDIDATE_SAME_RUN_INPUTS:-}"
+  if [[ ! -f "${same_run_inputs_file}" ]] || ! same_run_inputs_json="$(jq -cs '
+      if all(.[]; type == "object" and (keys == ["artifact", "build_input_digest"])
+        and (.artifact | type == "string" and test("^[A-Za-z0-9_.-]+$"))
+        and (.build_input_digest | type == "string" and test("^[0-9a-f]{64}$")))
+      then unique else error("malformed") end' "${same_run_inputs_file}")"; then
+    echo "a keyed row needs the same-run input record its downloader wrote (RELEASE_CANDIDATE_SAME_RUN_INPUTS)" >&2
+    exit 1
+  fi
+fi
 bundle_root="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
 entries_name="release-catalog-entries.${RELEASE_SOURCE_ARTIFACT_NAME}.json"
 entries_path="${bundle_root}/${entries_name}"
@@ -502,8 +516,10 @@ if [[ -n "${row_reuse_key}" ]]; then
     --arg record_sha256 "${build_input_digest}" \
     --arg index_sha256 "$(sha256sum "${artifact_index_path}" | awk '{print $1}')" \
     --arg catalog_sha256 "$(sha256sum "${entries_path}" | awk '{print $1}')" \
+    --argjson same_run_inputs "${same_run_inputs_json}" \
     '{schema_version: 1, row_reuse_key: $row_reuse_key, key_record: $key_record[0], reference: $reference[0],
-      build_record_sha256: $record_sha256, artifact_index_sha256: $index_sha256, catalog_sha256: $catalog_sha256}' \
+      build_record_sha256: $record_sha256, artifact_index_sha256: $index_sha256, catalog_sha256: $catalog_sha256,
+      same_run_inputs: $same_run_inputs}' \
     >"${row_reuse_index}"
   upload_immutable "${row_reuse_index}" \
     "${RELEASE_CANDIDATE_CONTENT_PREFIX}/${repository_name}/row-reuse-index/${row_reuse_key}/${RELEASE_SOURCE_ARTIFACT_NAME}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"

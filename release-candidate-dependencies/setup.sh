@@ -818,9 +818,14 @@ python3 "${script_directory}/apply_dependency_pins.py" \
 # Repository build scripts already name their same-run intermediate artifact.
 # Preserve that interface, but resolve only that exact bundle from candidate S3.
 # Capture the family decision now: the generated helper runs later and should
-# not need a Conda-only setup variable in a wheel job.
+# not need a Conda-only setup variable in a wheel job. The downloader records
+# each same-run artifact it hands the build; the upload files that list with
+# the row's reuse index entry, and a later reuse check compares it.
+same_run_inputs="${workspace}/same-run-inputs.jsonl"
+: >"${same_run_inputs}"
 {
   printf '%s\n' '#!/usr/bin/env bash'
+  printf 'same_run_inputs=%q\n' "${same_run_inputs}"
   printf 'prepare_conda_channel=%q\n' "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}"
   printf 'producer_repository=%q\n' "${producer_repository}"
   printf 'producer_sha=%q\n' "${producer_sha}"
@@ -844,7 +849,7 @@ if [[ -n "${row_reuse_key}" ]]; then
     printf ' --repository %q --train-sha256 %q' "${producer_repository}" "${RELEASE_CANDIDATE_TRAIN_SHA256}"
     printf ' --bucket %q --train-prefix %q' "${RELEASE_CANDIDATE_BUCKET}" "${RELEASE_CANDIDATE_TRAIN_PREFIX}"
     # shellcheck disable=SC2016 # expanded by the wrapper when it runs, not here
-    printf ' --run-id "${GITHUB_RUN_ID:?}" --github-output "${GITHUB_OUTPUT:?}"\n'
+    printf ' --run-id "${GITHUB_RUN_ID:?}" --run-attempt "${GITHUB_RUN_ATTEMPT:?}" --github-output "${GITHUB_OUTPUT:?}"\n'
   } >"${tools}/candidate-row-reuse"
   chmod +x "${tools}/candidate-row-reuse"
 fi
@@ -990,6 +995,7 @@ fi
     printf 'PIP_CONSTRAINT=%s\n' "${wheel_constraint}"
   fi
   printf 'PIP_FIND_LINKS=%s\n' "${wheelhouse}${PIP_FIND_LINKS:+ ${PIP_FIND_LINKS}}"
+  printf 'RELEASE_CANDIDATE_SAME_RUN_INPUTS=%s\n' "${same_run_inputs}"
   if [[ -n "${row_reuse_key}" ]]; then
     printf 'RELEASE_CANDIDATE_ROW_REUSE_KEY=%s\n' "${row_reuse_key}"
     printf 'RELEASE_CANDIDATE_ROW_REUSE_KEY_FILE=%s\n' "${row_reuse_key_file}"

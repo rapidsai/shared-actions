@@ -10,6 +10,8 @@ if [[ ! "${artifact_name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
 fi
 
 destination="${RAPIDS_UNZIP_DIR:-$(mktemp -d)}"
+# Where to record what this build consumed from its own run; setup embeds it.
+same_run_inputs="${same_run_inputs:-${RELEASE_CANDIDATE_SAME_RUN_INPUTS:-}}"
 # The embedded helper captures the producer at setup time; a direct run falls back to its environment.
 repository="${producer_repository:-${RELEASE_CANDIDATE_PRODUCER_REPOSITORY:-${GITHUB_REPOSITORY:?current GitHub repository is required}}}"
 if [[ ! "${repository}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
@@ -193,5 +195,11 @@ if [[ "${prepare_conda_channel:-false}" == "true" ]] \
   && find "${destination}" -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print -quit | grep -q .; then
   mkdir -p "${destination}"/{linux-64,linux-aarch64,noarch}
   conda index "${destination}" >&2
+fi
+# Record the artifact only now that its bytes were verified. A row whose earlier
+# build consumed a different digest is not reused (row_reuse.py).
+if [[ -n "${same_run_inputs}" ]]; then
+  jq -cn --arg artifact "${artifact_name}" --arg digest "${build_input_digest}" \
+    '{artifact: $artifact, build_input_digest: $digest}' >>"${same_run_inputs}"
 fi
 printf '%s' "${destination}"

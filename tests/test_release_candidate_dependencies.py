@@ -1216,3 +1216,51 @@ def test_candidate_cmake_wrapper_does_not_modify_build_mode(tmp_path):
 
     if output.read_text().splitlines() != ["--build", "build"]:
         pytest.fail("candidate CMake wrapper modified a build-mode invocation")
+
+
+# The reuse check compares a row's same-run inputs with the current run, so the downloader records exactly what it
+# handed the build, and only after the bytes were verified.
+
+
+def test_same_run_downloader_records_the_artifact_it_consumed(tmp_path):
+    staged = _stage_same_run_candidate(tmp_path)
+    record = tmp_path / "same-run-inputs.jsonl"
+    record.write_text("")
+    env = {**staged.env, "RELEASE_CANDIDATE_SAME_RUN_INPUTS": str(record)}
+    result = _run_same_run_downloader(staged.artifact_name, env)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert [json.loads(line) for line in record.read_text().splitlines()] == [  # noqa: S101
+        {"artifact": staged.artifact_name, "build_input_digest": staged.build_input_digest}
+    ]
+
+
+def test_same_run_downloader_records_an_artifact_this_run_reused_by_its_digest(tmp_path):
+    staged = _reuse_staged_candidate(_stage_same_run_candidate(tmp_path))
+    record = tmp_path / "same-run-inputs.jsonl"
+    record.write_text("")
+    result = _run_same_run_downloader(
+        staged.artifact_name, {**staged.env, "RELEASE_CANDIDATE_SAME_RUN_INPUTS": str(record)}
+    )
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert json.loads(record.read_text()) == {  # noqa: S101
+        "artifact": staged.artifact_name,
+        "build_input_digest": staged.build_input_digest,
+    }
+
+
+def test_same_run_downloader_records_nothing_when_it_fails(tmp_path):
+    staged = _reuse_staged_candidate(_stage_same_run_candidate(tmp_path), keep_own_reference=True)
+    record = tmp_path / "same-run-inputs.jsonl"
+    record.write_text("")
+    result = _run_same_run_downloader(
+        staged.artifact_name, {**staged.env, "RELEASE_CANDIDATE_SAME_RUN_INPUTS": str(record)}
+    )
+    assert result.returncode != 0  # noqa: S101
+    assert record.read_text() == ""  # noqa: S101
+
+
+def test_setup_gives_the_downloader_and_upload_one_same_run_input_record():
+    setup = (Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh").read_text()
+    assert ': >"${same_run_inputs}"' in setup  # noqa: S101
+    assert "printf 'same_run_inputs=%q\\n' \"${same_run_inputs}\"" in setup  # noqa: S101
+    assert "printf 'RELEASE_CANDIDATE_SAME_RUN_INPUTS=%s\\n' \"${same_run_inputs}\"" in setup  # noqa: S101

@@ -613,7 +613,17 @@ fi
 row_key_file="${temporary_directory}/row-reuse-key.json"
 printf '{"row":"example","schema_version":1}' >"${row_key_file}"
 row_key="$(sha256sum "${row_key_file}" | awk '{print $1}')"
+# What the same-run downloader recorded: the entry lists each artifact once, sorted.
+same_run_inputs="${temporary_directory}/same-run-inputs.jsonl"
+digest_b="$(printf 'b%.0s' $(seq 64))"
+digest_a="$(printf 'a%.0s' $(seq 64))"
+{
+  printf '{"artifact":"z_cpp","build_input_digest":"%s"}\n' "${digest_b}"
+  printf '{"artifact":"a_cpp","build_input_digest":"%s"}\n' "${digest_a}"
+  printf '{"artifact":"z_cpp","build_input_digest":"%s"}\n' "${digest_b}"
+} >"${same_run_inputs}"
 RELEASE_CANDIDATE_ROW_REUSE_KEY="${row_key}" RELEASE_CANDIDATE_ROW_REUSE_KEY_FILE="${row_key_file}" \
+  RELEASE_CANDIDATE_SAME_RUN_INPUTS="${same_run_inputs}" \
   run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
   "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" 909 >/dev/null
 row_index="${temporary_directory}/s3/candidate-store/artifacts/ci-imgs/row-reuse-index/${row_key}/ci-image/909-1.json"
@@ -621,6 +631,27 @@ test -f "${row_index}"
 jq -e --arg key "${row_key}" '.schema_version == 1 and .row_reuse_key == $key and .key_record.row == "example"
   and .reference.source_run_id == "909" and .reference.source_artifact == "ci-image"
   and (.build_record_sha256 | test("^[0-9a-f]{64}$"))' "${row_index}" >/dev/null
+jq -e --arg a "${digest_a}" --arg b "${digest_b}" \
+  '.same_run_inputs == [{artifact: "a_cpp", build_input_digest: $a}, {artifact: "z_cpp", build_input_digest: $b}]' \
+  "${row_index}" >/dev/null
+# A keyed row without its record, or with a malformed one, fails before anything is uploaded.
+for bad in missing malformed; do
+  before_bad="$(wc -l <"${temporary_directory}/put-objects.log")"
+  bad_record="${temporary_directory}/bad-same-run-inputs.jsonl"
+  if [[ "${bad}" == missing ]]; then
+    rm -f "${bad_record}"
+  else
+    printf '{"artifact":"../x","build_input_digest":"%s"}\n' "${digest_a}" >"${bad_record}"
+  fi
+  if RELEASE_CANDIDATE_ROW_REUSE_KEY="${row_key}" RELEASE_CANDIDATE_ROW_REUSE_KEY_FILE="${row_key_file}" \
+    RELEASE_CANDIDATE_SAME_RUN_INPUTS="${bad_record}" \
+    run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+    "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" 911 >/dev/null 2>&1; then
+    echo "upload accepted a keyed row with a ${bad} same-run input record" >&2
+    exit 1
+  fi
+  [[ "$(wc -l <"${temporary_directory}/put-objects.log")" == "${before_bad}" ]]
+done
 before_mismatch="$(wc -l <"${temporary_directory}/put-objects.log")"
 if RELEASE_CANDIDATE_ROW_REUSE_KEY="$(printf 'b%.0s' $(seq 64))" RELEASE_CANDIDATE_ROW_REUSE_KEY_FILE="${row_key_file}" \
   run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \

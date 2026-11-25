@@ -3,10 +3,14 @@
 
 """Compute a build row's reuse key: every input that decides its output, and nothing tied to one run.
 
-The key covers the producer commit, the row (unit, family, architecture, CUDA and Python), the train's tooling
-commits, the frozen build inputs dependency setup assembled, the exact upstream artifacts the row consumed and the
-digest-pinned image the row runs in. It leaves out run and attempt IDs and the build timestamp, which only stamps
-versions. A row whose image is not a digest-pinned candidate image gets no key and is never indexed or reused.
+The key covers the producer commit, the row (unit, family, architecture, CUDA and Python), the build it runs (its
+release entrypoint and that workflow's inputs), the train's tooling commits, the frozen build inputs dependency
+setup assembled, the exact upstream artifacts the row consumed and the digest-pinned image the row runs in. A
+repository's C++ and Python builds share every row field, so only the build tells them apart. It leaves out run and
+attempt IDs, the build timestamp and date, which only stamp versions, the train digest, so a later train can reuse,
+and the image map, since the row's own image is already in the key. Every other workflow input is in the key, so a
+new input is covered unless it is excluded here on purpose. A row whose image is not a digest-pinned candidate
+image, or that names no build, gets no key and is never indexed or reused.
 
 Writes the canonical record to --output and prints its SHA-256, the key.
 """
@@ -23,6 +27,8 @@ from pathlib import Path
 IMAGE = re.compile(r"ghcr\.io/rapidsai/release-candidates/ci-(conda|wheel)@sha256:[0-9a-f]{64}\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TOOLS = ("gha-tools", "shared-actions", "shared-workflows")
+ENTRYPOINT = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
+EXCLUDED_INPUTS = frozenset({"candidate-image-map", "candidate-train-sha256", "date"})
 
 
 def _load(path: str, description: str) -> dict:
@@ -41,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--implementation-revisions", required=True, help="The train's tooling commits, as JSON.")
     parser.add_argument("--runtime-image", default="", help="The image this row runs in.")
+    parser.add_argument("--row-entrypoint", default="", help="The release entrypoint workflow the row runs.")
+    parser.add_argument("--row-inputs", default="", help="That workflow's inputs, as JSON.")
     parser.add_argument("--build-inputs", required=True)
     parser.add_argument("--upstream-inputs", required=True)
     parser.add_argument("--output", required=True)
@@ -64,10 +72,30 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(dependencies, list):
         raise SystemExit("upstream inputs must list their dependencies")
 
+    if bool(args.row_entrypoint) != bool(args.row_inputs):
+        raise SystemExit("the row's entrypoint and inputs must be given together")
+    build = None
+    if args.row_entrypoint:
+        if ENTRYPOINT.fullmatch(args.row_entrypoint) is None:
+            raise SystemExit("the row entrypoint must be a workflow name")
+        try:
+            row_inputs = json.loads(args.row_inputs)
+        except json.JSONDecodeError as error:
+            raise SystemExit("the row inputs must be JSON") from error
+        if not isinstance(row_inputs, dict):
+            raise SystemExit("the row inputs must be an object")
+        build = {
+            "entrypoint": args.row_entrypoint,
+            "inputs": {name: value for name, value in row_inputs.items() if name not in EXCLUDED_INPUTS},
+        }
+
     if IMAGE.fullmatch(args.runtime_image) is None:
         print(
             f"no reuse key: {args.runtime_image or 'no image'} is not a digest-pinned candidate image", file=sys.stderr
         )
+        return 0
+    if build is None:
+        print("no reuse key: the row names no build (entrypoint and inputs)", file=sys.stderr)
         return 0
     record = {
         "schema_version": 1,
@@ -79,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             "cuda_version": args.cuda_version,
             "python_version": args.python_version,
         },
+        "build": build,
         "implementation_revisions": revisions,
         "build_inputs": build_inputs,
         "upstream": sorted(dependencies, key=lambda item: json.dumps(item, sort_keys=True)),

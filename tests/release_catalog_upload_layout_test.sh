@@ -606,3 +606,26 @@ if run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
   echo "refresh upload accepted changed bytes in the same execution" >&2
   exit 1
 fi
+
+# A build row with a reuse key is filed under it, by artifact and run; a key
+# that does not match its record fails before anything is uploaded. The
+# ci-image row is the one the state above is set up for.
+row_key_file="${temporary_directory}/row-reuse-key.json"
+printf '{"row":"example","schema_version":1}' >"${row_key_file}"
+row_key="$(sha256sum "${row_key_file}" | awk '{print $1}')"
+RELEASE_CANDIDATE_ROW_REUSE_KEY="${row_key}" RELEASE_CANDIDATE_ROW_REUSE_KEY_FILE="${row_key_file}" \
+  run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+  "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" 909 >/dev/null
+row_index="${temporary_directory}/s3/candidate-store/artifacts/ci-imgs/row-reuse-index/${row_key}/ci-image/909-1.json"
+test -f "${row_index}"
+jq -e --arg key "${row_key}" '.schema_version == 1 and .row_reuse_key == $key and .key_record.row == "example"
+  and .reference.source_run_id == "909" and .reference.source_artifact == "ci-image"
+  and (.build_record_sha256 | test("^[0-9a-f]{64}$"))' "${row_index}" >/dev/null
+before_mismatch="$(wc -l <"${temporary_directory}/put-objects.log")"
+if RELEASE_CANDIDATE_ROW_REUSE_KEY="$(printf 'b%.0s' $(seq 64))" RELEASE_CANDIDATE_ROW_REUSE_KEY_FILE="${row_key_file}" \
+  run_upload 1 "${base_implementation_revisions}" "" "" "260901120000" \
+  "rapidsai/shared-actions" "${implementation_repositories}" "rapidsai/ci-imgs" "ci-image" 910 >/dev/null 2>&1; then
+  echo "upload accepted a row reuse key that does not match its record" >&2
+  exit 1
+fi
+[[ "$(wc -l <"${temporary_directory}/put-objects.log")" == "${before_mismatch}" ]]

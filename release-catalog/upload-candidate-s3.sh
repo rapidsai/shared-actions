@@ -99,6 +99,15 @@ if [[ ! -f "${RELEASE_CANDIDATE_SOURCE_INPUTS}" ]]; then
   echo "RELEASE_CANDIDATE_SOURCE_INPUTS does not name a readable source input record" >&2
   exit 1
 fi
+# A row reuse key from dependency setup must match its record before anything is
+# uploaded; the index entry under it is written last.
+row_reuse_key="${RELEASE_CANDIDATE_ROW_REUSE_KEY:-}"
+row_reuse_key_file="${RELEASE_CANDIDATE_ROW_REUSE_KEY_FILE:-}"
+if [[ -n "${row_reuse_key}" ]] && [[ ! "${row_reuse_key}" =~ ^[0-9a-f]{64}$ || ! -f "${row_reuse_key_file}" \
+  || "$(sha256sum "${row_reuse_key_file}" | awk '{print $1}')" != "${row_reuse_key}" ]]; then
+  echo "RELEASE_CANDIDATE_ROW_REUSE_KEY does not match its key record" >&2
+  exit 1
+fi
 bundle_root="$(realpath "${RELEASE_ARTIFACT_DIRECTORY}")"
 entries_name="release-catalog-entries.${RELEASE_SOURCE_ARTIFACT_NAME}.json"
 entries_path="${bundle_root}/${entries_name}"
@@ -477,6 +486,29 @@ if [[ -n "${image_build_inputs_path}" ]]; then
       catalog_sha256: $catalog_sha256}' >"${image_reuse_index}"
   upload_immutable "${image_reuse_index}" \
     "${RELEASE_CANDIDATE_CONTENT_PREFIX}/${repository_name}/reuse-index/${image_inputs_sha256}/${build_input_digest}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+fi
+
+# File the row under the reuse key dependency setup computed for it, so a later
+# run can find this exact artifact for a row with the same inputs. The pointer
+# carries the key's own record and the digests a reuse check re-verifies; it is
+# a hint, never authority. Rows without a key (no digest-pinned image) are not
+# indexed.
+if [[ -n "${row_reuse_key}" ]]; then
+  row_reuse_index="${validation_directory}/row-reuse-index.json"
+  jq -cnS \
+    --slurpfile key_record "${row_reuse_key_file}" \
+    --slurpfile reference "${reference_path}" \
+    --arg row_reuse_key "${row_reuse_key}" \
+    --arg record_sha256 "${build_input_digest}" \
+    --arg index_sha256 "$(sha256sum "${artifact_index_path}" | awk '{print $1}')" \
+    --arg catalog_sha256 "$(sha256sum "${entries_path}" | awk '{print $1}')" \
+    '{schema_version: 1, row_reuse_key: $row_reuse_key, key_record: $key_record[0], reference: $reference[0],
+      build_record_sha256: $record_sha256, artifact_index_sha256: $index_sha256, catalog_sha256: $catalog_sha256}' \
+    >"${row_reuse_index}"
+  upload_immutable "${row_reuse_index}" \
+    "${RELEASE_CANDIDATE_CONTENT_PREFIX}/${repository_name}/row-reuse-index/${row_reuse_key}/${RELEASE_SOURCE_ARTIFACT_NAME}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+else
+  echo "No row reuse key for ${RELEASE_SOURCE_ARTIFACT_NAME}; it is not indexed for reuse."
 fi
 
 # Log the references rather than writing a step summary: a release run has one

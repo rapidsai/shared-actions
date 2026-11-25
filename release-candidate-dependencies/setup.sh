@@ -676,6 +676,26 @@ jq -sS \
       | sort_by(.release_catalog_key, .artifact_key, .path, .sha256))}' \
   "${resolved_inputs}" >"${upstream_inputs}"
 
+# The row's reuse key, computed once here from exactly the inputs above, the
+# train's tooling and the image the row runs in (RELEASE_CANDIDATE_RUNTIME_IMAGE,
+# exported by the release entrypoint's image check). Its upload files the row
+# under this key, and an in-row reuse check looks it up. A row without a
+# digest-pinned candidate image gets no key and is never indexed or reused.
+row_reuse_key_file="${workspace}/row-reuse-key.json"
+row_reuse_key="$(python3 "${script_directory}/row_reuse_key.py" \
+  --producer-repository "${producer_repository}" \
+  --producer-sha "${producer_sha}" \
+  --unit "${candidate_unit_id}" \
+  --family "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" \
+  --arch "${RELEASE_CANDIDATE_ARCH}" \
+  --cuda-version "${RELEASE_CANDIDATE_CUDA_VERSION}" \
+  --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION:-}" \
+  --implementation-revisions "${build_implementation_revisions}" \
+  --runtime-image "${RELEASE_CANDIDATE_RUNTIME_IMAGE:-}" \
+  --build-inputs "${candidate_build_inputs}" \
+  --upstream-inputs "${upstream_inputs}" \
+  --output "${row_reuse_key_file}")"
+
 index_candidate_conda_channel() {
   bash "${script_directory}/index-conda-channel.sh" "${channel}"
 }
@@ -950,6 +970,10 @@ fi
     printf 'PIP_CONSTRAINT=%s\n' "${wheel_constraint}"
   fi
   printf 'PIP_FIND_LINKS=%s\n' "${wheelhouse}${PIP_FIND_LINKS:+ ${PIP_FIND_LINKS}}"
+  if [[ -n "${row_reuse_key}" ]]; then
+    printf 'RELEASE_CANDIDATE_ROW_REUSE_KEY=%s\n' "${row_reuse_key}"
+    printf 'RELEASE_CANDIDATE_ROW_REUSE_KEY_FILE=%s\n' "${row_reuse_key_file}"
+  fi
 } >>"${GITHUB_ENV}"
 printf '%s\n' "${gha_tools_directory}/tools" >>"${GITHUB_PATH}"
 printf '%s\n' "${tools}" >>"${GITHUB_PATH}"

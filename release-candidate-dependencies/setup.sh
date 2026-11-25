@@ -525,58 +525,18 @@ else
   jq -s '.' "${manifest_paths[@]}" >"${workspace}/catalog-records.json"
 fi
 
-# Package metadata determines compatibility. A producing job's matrix only
-# describes how the package was made: rapids-logger, for example, can be built
-# in a CUDA 13 job but has no CUDA dependency and is valid for CUDA 12. Python
-# compatibility is intentionally left to the published wheel tag and pip.
-jq -n \
-  --slurpfile train "${workspace}/release-train.json" \
-  --arg target "${target_unit}" \
-  --arg family "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" \
-  --arg arch "${RELEASE_CANDIDATE_ARCH}" \
-  --arg cuda_major "${cuda_major}" \
-  --arg python_version "${RELEASE_CANDIDATE_PYTHON_VERSION}" \
-  --arg conda_platform "${conda_platform}" \
-  --slurpfile records "${workspace}/catalog-records.json" \
-  '
-    ($train[0].release_units | map({key: .id, value: .}) | from_entries) as $units
-    | def closure($id):
-        ($units[$id].dependencies // [])
-        | map(select($units[.] != null and $units[.].artifact_family != "source") | ., closure(.))
-        | flatten | unique;
-    closure($target) as $dependencies
-    | (if $family == "docs" or $family == "container" or $family == "maven" then ["conda:", "maven:"] else [$family + ":"] end) as $family_prefixes
-    | [ $dependencies[] | select(. as $dependency | $family_prefixes | any(. as $prefix | $dependency | startswith($prefix))) ] as $family_dependencies
-    | [ $records[0][]
-        | . as $record
-        | .entries[]
-        | select(.release_catalog_key as $key | $family_dependencies | index($key))
-        # Older envelopes have no cuda_major. Treating that as compatible is a
-        # deliberate transition rule; new Conda envelopes set it only when the
-        # package declares a cuda-version dependency in info/index.json.
-        | select((.package.cuda_major // $cuda_major) == $cuda_major)
-        | select(
-            $family != "conda"
-            or (.package.platform == "noarch" or .package.platform == $conda_platform)
-          )
-        | select(
-            ($family != "maven" and $family != "docs" and $family != "container")
-            or (.package.ecosystem != "maven")
-            or (.package.platform == ($arch + "-cuda" + $cuda_major))
-          )
-        | {
-          release_catalog_key: .release_catalog_key,
-            source: $record.source,
-            artifact_key: $record.artifact_key,
-            producer_build_input_digest: $record.build_input_digest,
-            path: .path,
-            package: .package
-          }
-      ]
-    | sort_by([.package.name, .package.version, if .source.matrix.python_version == $python_version then 0 else 1 end])
-    | group_by([.package.name, .package.version, .package.build, .package.platform, .path])
-    | map(.[0])
-  ' >"${selected}"
+# The packages this row installs: its family, platform, CUDA major, Python and
+# architecture. upstream_selection.py is shared with the reuse plan, so both
+# compute the row's reuse key from the same packages (plans/per-row-reuse.md, 4b).
+python3 "${script_directory}/upstream_selection.py" \
+  --train "${workspace}/release-train.json" \
+  --records "${workspace}/catalog-records.json" \
+  --target-unit "${target_unit}" \
+  --family "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" \
+  --arch "${RELEASE_CANDIDATE_ARCH}" \
+  --cuda-major "${cuda_major}" \
+  --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION:-}" \
+  >"${selected}"
 
 if [[ "$(jq 'length' "${selected}")" -eq 0 ]]; then
   # A root node has no upstream candidate packages. Its own C++/Python
@@ -596,7 +556,12 @@ record_resolved_input() {
   producer_sha="$(jq -r '.source.sha // empty' <<<"${selection}")"
   producer_build_input_digest="$(jq -r '.producer_build_input_digest // empty' <<<"${selection}")"
   package="$(jq -c '.package' <<<"${selection}")"
-  sha256="$(sha256sum "${downloaded_path}" | awk '{print $1}')"
+  # The key records the catalog digest, so the bytes must be exactly those.
+  sha256="$(jq -r '.sha256' <<<"${selection}")"
+  if [[ "$(sha256sum "${downloaded_path}" | awk '{print $1}')" != "${sha256}" ]]; then
+    echo "downloaded ${artifact_path} does not match its catalog sha256 ${sha256}" >&2
+    exit 1
+  fi
   jq -cn \
     --arg artifact_key "${artifact_key}" \
     --arg path "${artifact_path}" \
@@ -637,22 +602,7 @@ while IFS= read -r selection; do
       record_resolved_input "${selection}" "${destination}/$(basename "${artifact_path}")"
       ;;
     *.whl)
-      # Only wheels this row can install: its Python and its architecture. A wheel
-      # for the other architecture would only put that build into the reuse key.
-      # Exit 1 means "not for this row"; anything else is a selector failure.
-      wheel_selected=0
-      python3 "$(dirname "$0")/select_wheel.py" \
-        --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION}" \
-        --arch "${RELEASE_CANDIDATE_ARCH}" \
-        "$(basename "${artifact_path}")" || wheel_selected=$?
-      case "${wheel_selected}" in
-        0) ;;
-        1) continue ;;
-        *)
-          echo "unable to select candidate wheel ${artifact_path} for ${RELEASE_CANDIDATE_ARCH}" >&2
-          exit 1
-          ;;
-      esac
+      # upstream_selection.py already kept only wheels this row can install.
       aws s3 cp "${source}" "${wheelhouse}/$(basename "${artifact_path}")"
       record_resolved_input "${selection}" "${wheelhouse}/$(basename "${artifact_path}")"
       ;;

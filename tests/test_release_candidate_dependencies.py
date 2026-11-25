@@ -182,7 +182,7 @@ def test_candidate_archive_families_use_train_dependencies_and_frozen_sources():
 
     expected_contracts = (
         '"container" ]]; then',
-        'if $family == "docs" or $family == "container" or $family == "maven" then ["conda:", "maven:"]',
+        "upstream_selection.py",
         "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}",
         "write_source_manifest.py",
         "RAPIDS_RELEASE_CANDIDATE_TRAIN_FILE",
@@ -984,15 +984,67 @@ def test_wheel_selector_rejects_a_missing_or_unknown_arch(arguments):
         pytest.fail(f"expected a usage error, got {result.returncode}: {result.stderr}")
 
 
-def test_candidate_setup_selects_wheels_for_the_row_arch_and_fails_on_selector_errors():
+def test_candidate_setup_selects_upstream_packages_with_the_shared_module():
     setup = _SETUP.read_text()
+    call = setup.split('python3 "${script_directory}/upstream_selection.py"', maxsplit=1)
+    if len(call) != 2:
+        pytest.fail("candidate setup must select upstream packages with upstream_selection.py")
+    arguments = call[1].split('>"${selected}"', maxsplit=1)[0]
+    for argument in ('--arch "${RELEASE_CANDIDATE_ARCH}"', '--cuda-major "${cuda_major}"', "--python-version"):
+        if argument not in arguments:
+            pytest.fail(f"upstream selection is missing {argument}")
+    # The module already dropped wheels the row can't install; setup must not filter them a second way.
     wheel_branch = setup.split("    *.whl)\n", maxsplit=1)[1].split("\n      ;;\n", maxsplit=1)[0]
-    if '--arch "${RELEASE_CANDIDATE_ARCH}"' not in wheel_branch:
-        pytest.fail("candidate setup must select upstream wheels for the row's architecture")
-    # Exit 1 means "not for this row"; anything else is a selector failure and must not silently drop a dependency.
-    for contract in ("1) continue ;;", "unable to select candidate wheel", "exit 1"):
-        if contract not in wheel_branch:
-            pytest.fail(f"candidate setup wheel selection is missing {contract!r}")
+    if "select_wheel.py" in wheel_branch:
+        pytest.fail("wheel downloads must not be filtered again outside upstream_selection.py")
+
+
+def _record_resolved_input(tmp_path, content, catalog_sha256):
+    function = _SETUP.read_text().split("record_resolved_input() {\n", maxsplit=1)[1].split("\n}\n", maxsplit=1)[0]
+    downloaded = tmp_path / "logger-1.0-h0.conda"
+    downloaded.write_bytes(content)
+    resolved = tmp_path / "resolved.jsonl"
+    selection = {
+        "artifact_key": "artifacts/logger/" + "1" * 64,
+        "path": "linux-64/logger-1.0-h0.conda",
+        "release_catalog_key": "conda:logger",
+        "source": {"repository": "rapidsai/logger", "sha": "a" * 40},
+        "producer_build_input_digest": "2" * 64,
+        "package": {"name": "logger"},
+        "sha256": catalog_sha256,
+    }
+    script = (
+        "set -euo pipefail\n"
+        f"resolved_inputs={resolved}\n"
+        "record_resolved_input() {\n" + function + "\n}\n"
+        'record_resolved_input "$1" "$2"\n'
+    )
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", "-c", script, "test", json.dumps(selection), str(downloaded)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, resolved
+
+
+def test_downloaded_upstream_bytes_must_match_the_catalog_digest(tmp_path):
+    content = b"conda package bytes"
+    digest = hashlib.sha256(content).hexdigest()
+
+    (tmp_path / "good").mkdir()
+    result, resolved = _record_resolved_input(tmp_path / "good", content, digest)
+    if result.returncode != 0:
+        pytest.fail(result.stderr)
+    if json.loads(resolved.read_text())["sha256"] != digest:
+        pytest.fail("the resolved input must record the verified catalog digest")
+
+    (tmp_path / "tampered").mkdir()
+    result, resolved = _record_resolved_input(tmp_path / "tampered", b"other bytes", digest)
+    if result.returncode == 0 or "does not match its catalog sha256" not in result.stderr:
+        pytest.fail(f"a download that differs from its catalog digest must fail: {result.stderr}")
+    if resolved.exists():
+        pytest.fail("a rejected download must not be recorded as an input")
 
 
 def test_recipe_patcher_adds_lock_metapackages_to_root_and_outputs():

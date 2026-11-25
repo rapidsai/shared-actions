@@ -2,18 +2,24 @@
 # ruff: noqa: S101
 """Exercise the actual resolver selector with V5's admitted RDD metadata."""
 
+import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-SETUP = Path(__file__).parents[1] / "release-candidate-dependencies/setup.sh"
+SELECTOR = Path(__file__).parents[1] / "release-candidate-dependencies/upstream_selection.py"
 
 
-def selection_program():
-    text = SETUP.read_text().split("# Package metadata determines compatibility.", maxsplit=1)[1]
-    return text.split("\n  '\n", maxsplit=1)[1].split('\n  \' >"${selected}"', maxsplit=1)[0]
+def _with_catalog_digests(records):
+    """These cases are about which packages are chosen; give every entry the sha256 the catalog requires."""
+    records = json.loads(json.dumps(records))
+    for record in records:
+        for entry in record["entries"]:
+            entry.setdefault("sha256", hashlib.sha256(entry["path"].encode()).hexdigest())
+    return records
 
 
 @pytest.fixture
@@ -90,20 +96,18 @@ def select(
     train_path = tmp_path / "train.json"
     records_path = tmp_path / "records.json"
     train_path.write_text(json.dumps(train))
-    records_path.write_text(json.dumps(records))
-    command = ["jq", "-n", "--slurpfile", "train", str(train_path), "--slurpfile", "records", str(records_path)]
+    records_path.write_text(json.dumps(_with_catalog_digests(records)))
+    command = [sys.executable, str(SELECTOR), "--train", str(train_path), "--records", str(records_path)]
     for name, value in {
-        "target": target,
-        "family": family,
-        "arch": arch,
-        "cuda_major": cuda,
-        "python_version": python,
-        "conda_platform": "linux-64" if arch == "amd64" else "linux-aarch64",
+        "--target-unit": target,
+        "--family": family,
+        "--arch": arch,
+        "--cuda-major": cuda,
+        "--python-version": python,
     }.items():
-        command.extend(["--arg", name, value])
-    command.append(selection_program())
-    response = subprocess.run(command, text=True, capture_output=True, check=True)  # noqa: S603 - reviewed jq, no shell.
-    return json.loads(response.stdout)
+        command.extend([name, value])
+    response = subprocess.run(command, text=True, capture_output=True, check=True)  # noqa: S603 - fixed argv, no shell.
+    return [{key: value for key, value in item.items() if key != "sha256"} for item in json.loads(response.stdout)]
 
 
 def test_v5_dask_cuda_selects_admitted_noarch_rdd(tmp_path, train, v5_records):

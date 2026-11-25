@@ -637,10 +637,22 @@ while IFS= read -r selection; do
       record_resolved_input "${selection}" "${destination}/$(basename "${artifact_path}")"
       ;;
     *.whl)
-      if ! python3 "$(dirname "$0")/select_wheel.py" \
-        --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION}" "$(basename "${artifact_path}")"; then
-        continue
-      fi
+      # Only wheels this row can install: its Python and its architecture. A wheel
+      # for the other architecture would only put that build into the reuse key.
+      # Exit 1 means "not for this row"; anything else is a selector failure.
+      wheel_selected=0
+      python3 "$(dirname "$0")/select_wheel.py" \
+        --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION}" \
+        --arch "${RELEASE_CANDIDATE_ARCH}" \
+        "$(basename "${artifact_path}")" || wheel_selected=$?
+      case "${wheel_selected}" in
+        0) ;;
+        1) continue ;;
+        *)
+          echo "unable to select candidate wheel ${artifact_path} for ${RELEASE_CANDIDATE_ARCH}" >&2
+          exit 1
+          ;;
+      esac
       aws s3 cp "${source}" "${wheelhouse}/$(basename "${artifact_path}")"
       record_resolved_input "${selection}" "${wheelhouse}/$(basename "${artifact_path}")"
       ;;

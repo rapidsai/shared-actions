@@ -6,6 +6,7 @@ import importlib.util
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -921,6 +922,77 @@ def test_wheel_tags_allow_compatible_python_versions(wheel, python_version):
 def test_wheel_tags_reject_incompatible_python_versions(wheel, python_version):
     if supports_python(wheel, python_version):
         pytest.fail(f"expected {wheel} not to support Python {python_version}")
+
+
+# Release run 45671939934: kvikio's arm64 wheel rows downloaded rapids-logger's x86_64 wheel too, so it was in their
+# reuse key and a rebuild of the amd64 wheel alone would have rebuilt every arm64 wheel row downstream.
+@pytest.mark.parametrize(
+    ("wheel", "arch"),
+    [
+        ("rapids_logger-0.3.0-py3-none-any.whl", "amd64"),
+        ("rapids_logger-0.3.0-py3-none-any.whl", "arm64"),
+        ("rapids_logger-0.3.0-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", "amd64"),
+        ("rapids_logger-0.3.0-py3-none-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", "arm64"),
+        ("package-1.0.0-cp312-cp312-musllinux_1_2_x86_64.whl", "amd64"),
+        ("package-1.0.0-cp312-cp312-linux_aarch64.whl", "arm64"),
+    ],
+)
+def test_wheel_tags_allow_the_row_architecture(wheel, arch):
+    if not _MODULE.supports_arch(wheel, arch):
+        pytest.fail(f"expected {wheel} to support {arch}")
+
+
+@pytest.mark.parametrize(
+    ("wheel", "arch"),
+    [
+        ("rapids_logger-0.3.0-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", "arm64"),
+        ("rapids_logger-0.3.0-py3-none-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", "amd64"),
+        ("package-1.0.0-cp312-cp312-macosx_11_0_x86_64.whl", "amd64"),
+        ("package-1.0.0-cp312-cp312-win_amd64.whl", "amd64"),
+        ("not-a-wheel", "amd64"),
+    ],
+)
+def test_wheel_tags_reject_other_architectures(wheel, arch):
+    if _MODULE.supports_arch(wheel, arch):
+        pytest.fail(f"expected {wheel} not to support {arch}")
+
+
+def _select_wheel(*arguments):
+    return subprocess.run(  # noqa: S603
+        [sys.executable, str(_SCRIPT), *arguments], capture_output=True, text=True, check=False
+    )
+
+
+def test_wheel_selector_exits_1_only_for_an_incompatible_wheel():
+    x86 = "rapids_logger-0.3.0-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+    if _select_wheel("--python-version", "3.12", "--arch", "amd64", x86).returncode != 0:
+        pytest.fail("an amd64 row must select an x86_64 wheel")
+    if _select_wheel("--python-version", "3.12", "--arch", "arm64", x86).returncode != 1:
+        pytest.fail("an arm64 row must skip an x86_64 wheel with exit status 1")
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("--python-version", "3.12", "--arch", "ppc64le"),
+        ("--python-version", "3.12"),
+    ],
+)
+def test_wheel_selector_rejects_a_missing_or_unknown_arch(arguments):
+    result = _select_wheel(*arguments, "rapids_logger-0.3.0-py3-none-any.whl")
+    if result.returncode != 2:
+        pytest.fail(f"expected a usage error, got {result.returncode}: {result.stderr}")
+
+
+def test_candidate_setup_selects_wheels_for_the_row_arch_and_fails_on_selector_errors():
+    setup = _SETUP.read_text()
+    wheel_branch = setup.split("    *.whl)\n", maxsplit=1)[1].split("\n      ;;\n", maxsplit=1)[0]
+    if '--arch "${RELEASE_CANDIDATE_ARCH}"' not in wheel_branch:
+        pytest.fail("candidate setup must select upstream wheels for the row's architecture")
+    # Exit 1 means "not for this row"; anything else is a selector failure and must not silently drop a dependency.
+    for contract in ("1) continue ;;", "unable to select candidate wheel", "exit 1"):
+        if contract not in wheel_branch:
+            pytest.fail(f"candidate setup wheel selection is missing {contract!r}")
 
 
 def test_recipe_patcher_adds_lock_metapackages_to_root_and_outputs():

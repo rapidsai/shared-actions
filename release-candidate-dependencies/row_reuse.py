@@ -15,7 +15,9 @@ taken only if, for every artifact it indexed under the key:
 
 Otherwise the next older run is tried, and with none the row builds. On a hit the reused references are written
 into this train and this run's reuse bindings name them (``reference-binding.sh`` admits exactly those); both are
-immutable, so a later attempt of the run reusing the same run again is a no-op. Writes ``reused=true|false`` and,
+immutable, so a later attempt of the run reusing the same run again is a no-op. An earlier run of this same train
+already left its original reference where the copy would go, so nothing is copied: the binding names that
+reference, which must be exactly the one the index entry recorded. Writes ``reused=true|false`` and,
 on a hit, ``run=<run>.<attempt>`` to --github-output.
 """
 
@@ -164,6 +166,17 @@ def _verify(s3: S3, args: argparse.Namespace, key_record: Any, artifact: str, po
         if not head.get("VersionId"):
             raise Miss(f"{key} has no object version")
         objects[key] = {"version_id": head["VersionId"], "sha256": entry["sha256"], "size": int(head["ContentLength"])}
+    if reference["train_sha256"] == args.train_sha256:
+        # An earlier run of this same train: its own reference already sits where a copy would go. Bind to it
+        # as it is, and only if it is exactly the reference the index entry recorded.
+        repository_name = args.repository.rsplit("/", 1)[-1]
+        original = (
+            f"{args.train_prefix}/{args.train_sha256}/{repository_name}/{run}.{attempt}/"
+            f"{reference['build_input_digest']}/bundle-reference.{artifact}.json"
+        )
+        if _json(s3, original) != reference:
+            raise Miss(f"{original} is not the reference run {run}.{attempt} indexed")
+        return reference
     return {
         **reference,
         "train_sha256": args.train_sha256,
@@ -221,7 +234,8 @@ def main(argv: list[str] | None = None) -> int:
         for artifact, reference in reused.items():
             digest = reference["build_input_digest"]
             base = f"{args.train_prefix}/{args.train_sha256}/{repository_name}"
-            s3.put_once(f"{base}/{run}.{attempt}/{digest}/bundle-reference.{artifact}.json", _canonical(reference))
+            if "reuse" in reference:
+                s3.put_once(f"{base}/{run}.{attempt}/{digest}/bundle-reference.{artifact}.json", _canonical(reference))
             binding = {
                 "schema_version": 1,
                 "train_sha256": args.train_sha256,

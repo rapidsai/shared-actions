@@ -274,3 +274,36 @@ def test_candidate_setup_installs_the_reuse_command_only_for_a_row_with_a_key():
     install = setup.index('>"${tools}/candidate-row-reuse"')
     assert setup.index('row_reuse_key="$(python3 "${script_directory}/row_reuse_key.py"') < install  # noqa: S101
     assert 'if [[ -n "${row_reuse_key}" ]]; then\n  cp "${script_directory}/row_reuse.py"' in setup  # noqa: S101
+
+
+def original_reference(root, reference):
+    """What the earlier run's upload left in its own train: the reference, with no reuse block."""
+    digest = reference["build_input_digest"]
+    run, attempt = reference["source_run_id"], reference["source_run_attempt"]
+    key = f"train-state/{reference['train_sha256']}/kvikio/{run}.{attempt}/{digest}/bundle-reference.{ARTIFACT}.json"
+    put(root, key, json.dumps(reference, sort_keys=True, separators=(",", ":")).encode())
+    return key
+
+
+def test_a_row_reused_from_an_earlier_run_of_the_same_train_only_binds_it(tmp_path):
+    # The earlier run's original reference already sits where a copy would go, so nothing is copied.
+    reference, _sha = index_run(tmp_path / "s3", train=TRAIN)
+    key = original_reference(tmp_path / "s3", reference)
+    before = (tmp_path / "s3" / "candidate-store" / key).read_bytes()
+    result, outputs = run_reuse(tmp_path)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert outputs == {"reused": "true", "run": "400.1"}  # noqa: S101
+    assert (tmp_path / "s3" / "candidate-store" / key).read_bytes() == before  # noqa: S101
+    binding = s3(tmp_path, f"train-state/{TRAIN}/kvikio/reuse-bindings/{RUN}/{ARTIFACT}.json")
+    assert (binding["source_run_id"], binding["build_input_digest"]) == ("400", reference["build_input_digest"])  # noqa: S101
+
+
+@pytest.mark.parametrize("change", ["missing", "different"])
+def test_a_same_train_run_whose_original_reference_is_missing_or_different_is_not_reused(tmp_path, change):
+    reference, _sha = index_run(tmp_path / "s3", train=TRAIN)
+    if change == "different":
+        original_reference(tmp_path / "s3", {**reference, "artifact_key": "artifacts/kvikio/elsewhere"})
+    result, outputs = run_reuse(tmp_path)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert outputs == {"reused": "false"}  # noqa: S101
+    assert not (tmp_path / "s3" / "candidate-store" / f"train-state/{TRAIN}/kvikio/reuse-bindings").exists()  # noqa: S101

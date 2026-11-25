@@ -232,3 +232,43 @@ def test_candidate_setup_uses_the_binding_helper_and_fetches_this_runs_bindings(
     assert '--include "*/reuse-bindings/${GITHUB_RUN_ID:?current GitHub run ID is required}/*.json"' in setup  # noqa: S101
     # The downloader runs after setup, outside the action, so setup installs the checks beside it.
     assert 'cp "${script_directory}/reference-binding.sh" "${script_directory}/catalog-bundle-key.sh"' in setup  # noqa: S101
+
+
+# A row reused from an earlier run of this same train: the earlier run's original reference is already in this
+# train, so reuse copies nothing and the binding names that original reference, which has no reuse block.
+
+
+def _original(source_run="400", attempt="1", **fields):
+    return _reference(source_run_id=source_run, source_run_attempt=attempt, **fields)
+
+
+def test_an_original_reference_from_an_earlier_run_of_this_train_is_reused_when_bound(tmp_path):
+    result = _run(tmp_path, _original(), binding=_binding(), completions=[_completion(train=TRAIN)])
+    assert _decision(result) == "reused"  # noqa: S101
+
+
+def test_an_original_reference_from_another_run_without_a_binding_is_still_dropped(tmp_path):
+    result = _run(tmp_path, _original(), completions=[_completion(train=TRAIN)])
+    assert _decision(result) == "drop"  # noqa: S101
+
+
+def test_an_original_reference_the_binding_does_not_name_is_dropped(tmp_path):
+    result = _run(tmp_path, _original(), binding=_binding(source_run="401"), completions=[_completion(train=TRAIN)])
+    assert _decision(result) == "drop"  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    ("reference", "completions", "message"),
+    [
+        # The completion must be in this train, where the original reference was built.
+        (_original(), [_completion()], "no completion record"),
+        (_original(), [], "no completion record"),
+        # An original reference from another train can only arrive as a copy with a reuse block.
+        (_original(train_sha256=EARLIER), [_completion()], "belongs to another train"),
+    ],
+)
+def test_a_same_train_binding_that_cannot_be_trusted_fails_loudly(tmp_path, reference, completions, message):
+    result = _run(tmp_path, reference, binding=_binding(), completions=completions)
+    assert result.returncode != 0  # noqa: S101
+    assert message in result.stderr  # noqa: S101
+    assert result.stdout == ""  # noqa: S101

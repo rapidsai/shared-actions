@@ -14,7 +14,9 @@
 # the train. It is accepted only for the exact source run, attempt and build
 # input digest it names, and only when that source run left a controller-written
 # completion record (completions/<run>.<attempt>.json) from the same or a later
-# attempt in the train it was reused from.
+# attempt in the train it was reused from. Reusing an earlier run of this same
+# train copies nothing, so the binding then names that run's original reference,
+# whose completion record is in this train.
 set -euo pipefail
 
 if (($# != 1)); then
@@ -44,7 +46,14 @@ fi
 binding="${bindings}/${repository_name}/reuse-bindings/${run_id}/${artifact}.json"
 bound_run="$(jq -r --arg r "${repository_name}" '.workflow_runs[$r] // empty' "${state}")"
 
-if jq -e 'has("reuse")' "${reference}" >/dev/null && [[ -f "${binding}" ]]; then
+# A reused reference is a copy with a reuse block (reused from another train), or, when the
+# earlier run is in this same train, that run's own original reference: reuse copies nothing then.
+same_train_reuse=false
+if [[ -f "${binding}" && "${source_run}" != "${run_id}" ]] && ! jq -e 'has("reuse")' "${reference}" >/dev/null; then
+  same_train_reuse=true
+fi
+
+if [[ -f "${binding}" ]] && { jq -e 'has("reuse")' "${reference}" >/dev/null || [[ "${same_train_reuse}" == true ]]; }; then
   if [[ ! "${source_run}" =~ ^[0-9]+$ || ! "${source_attempt}" =~ ^[0-9]+$ ]]; then
     echo "reused reference for ${artifact} has a malformed source run" >&2
     exit 1
@@ -62,7 +71,15 @@ if jq -e 'has("reuse")' "${reference}" >/dev/null && [[ -f "${binding}" ]]; then
     echo drop
     exit 0
   fi
-  source_train="$(jq -r '.reuse.source_train_sha256 // empty' "${reference}")"
+  if [[ "${same_train_reuse}" == true ]]; then
+    if [[ "$(field train_sha256)" != "${train}" ]]; then
+      echo "reused reference for ${artifact} has no reuse record but belongs to another train" >&2
+      exit 1
+    fi
+    source_train="${train}"
+  else
+    source_train="$(jq -r '.reuse.source_train_sha256 // empty' "${reference}")"
+  fi
   if [[ ! "${source_train}" =~ ^[0-9a-f]{64}$ ]]; then
     echo "reused reference for ${artifact} names no earlier train" >&2
     exit 1

@@ -225,6 +225,59 @@ def _verify(s3: S3, args: argparse.Namespace, key_record: Any, artifact: str, po
     }
 
 
+def find_reuse(s3: S3, args: argparse.Namespace, key_record: Any) -> tuple[str, str, dict[str, Any]] | None:
+    """The newest earlier complete run indexed under the row's key, as (run, attempt, references), or None.
+
+    ``args`` names the row: key, repository, train_sha256, run_id, run_attempt, train_prefix and content_prefix.
+    """
+    repository_name = args.repository.rsplit("/", 1)[-1]
+    prefix = f"{args.content_prefix}/{repository_name}/row-reuse-index/{args.key}/"
+    runs: dict[tuple[int, int], dict[str, str]] = {}
+    for key in s3.keys(prefix):
+        parts = key.removeprefix(prefix).split("/")
+        match = RUN.fullmatch(parts[-1]) if len(parts) == 2 else None
+        if match is None or not SAFE.fullmatch(parts[0]):
+            continue
+        runs.setdefault((int(match[1]), int(match[2])), {})[parts[0]] = key
+
+    for (run_number, attempt_number), artifacts in sorted(runs.items(), reverse=True):
+        run, attempt = str(run_number), str(attempt_number)
+        try:
+            reused = {
+                artifact: _verify(s3, args, key_record, artifact, _json(s3, key), run, attempt)
+                for artifact, key in sorted(artifacts.items())
+            }
+        except Miss as miss:
+            print(f"Not reusing run {run}.{attempt}: {miss}", file=sys.stderr)
+            continue
+        return run, attempt, reused
+    return None
+
+
+def bind_reuse(s3: S3, args: argparse.Namespace, chosen: tuple[str, str, dict[str, Any]]) -> dict[str, dict]:
+    """Write the reused references into this train and this run's reuse bindings; return the bound references."""
+    run, attempt, reused = chosen
+    repository_name = args.repository.rsplit("/", 1)[-1]
+    base = f"{args.train_prefix}/{args.train_sha256}/{repository_name}"
+    for artifact, reference in reused.items():
+        digest = reference["build_input_digest"]
+        if "reuse" in reference:
+            s3.put_once(f"{base}/{run}.{attempt}/{digest}/bundle-reference.{artifact}.json", _canonical(reference))
+        binding = {
+            "schema_version": 1,
+            "train_sha256": args.train_sha256,
+            "repository": args.repository,
+            "artifact": artifact,
+            "run_id": args.run_id,
+            "source_run_id": run,
+            "source_run_attempt": attempt,
+            "build_input_digest": digest,
+        }
+        s3.put_once(f"{base}/reuse-bindings/{args.run_id}/{artifact}.json", _canonical(binding))
+        print(f"Reused {artifact} from run {run}.{attempt}.")
+    return reused
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("key", "key-file", "repository", "run-id", "run-attempt", "train-sha256", "bucket", "github-output"):
@@ -242,59 +295,17 @@ def main(argv: list[str] | None = None) -> int:
         and "/" in args.repository
     ):
         raise SystemExit("invalid train, run or repository")
-    key_record = json.loads(record_bytes)
-    repository_name = args.repository.rsplit("/", 1)[-1]
-    if not SAFE.fullmatch(repository_name):
+    if not SAFE.fullmatch(args.repository.rsplit("/", 1)[-1]):
         raise SystemExit("unsafe repository name")
     s3 = S3(args.bucket)
-
-    prefix = f"{args.content_prefix}/{repository_name}/row-reuse-index/{args.key}/"
-    runs: dict[tuple[int, int], dict[str, str]] = {}
-    for key in s3.keys(prefix):
-        parts = key.removeprefix(prefix).split("/")
-        match = RUN.fullmatch(parts[-1]) if len(parts) == 2 else None
-        if match is None or not SAFE.fullmatch(parts[0]):
-            continue
-        runs.setdefault((int(match[1]), int(match[2])), {})[parts[0]] = key
-
-    chosen = None
-    for (run_number, attempt_number), artifacts in sorted(runs.items(), reverse=True):
-        run, attempt = str(run_number), str(attempt_number)
-        try:
-            reused = {
-                artifact: _verify(s3, args, key_record, artifact, _json(s3, key), run, attempt)
-                for artifact, key in sorted(artifacts.items())
-            }
-        except Miss as miss:
-            print(f"Not reusing run {run}.{attempt}: {miss}", file=sys.stderr)
-            continue
-        chosen = (run, attempt, reused)
-        break
-
+    chosen = find_reuse(s3, args, json.loads(record_bytes))
     with Path(args.github_output).open("a") as output:
         if chosen is None:
             print("No earlier complete build of this row; it builds.")
             output.write("reused=false\n")
             return 0
-        run, attempt, reused = chosen
-        for artifact, reference in reused.items():
-            digest = reference["build_input_digest"]
-            base = f"{args.train_prefix}/{args.train_sha256}/{repository_name}"
-            if "reuse" in reference:
-                s3.put_once(f"{base}/{run}.{attempt}/{digest}/bundle-reference.{artifact}.json", _canonical(reference))
-            binding = {
-                "schema_version": 1,
-                "train_sha256": args.train_sha256,
-                "repository": args.repository,
-                "artifact": artifact,
-                "run_id": args.run_id,
-                "source_run_id": run,
-                "source_run_attempt": attempt,
-                "build_input_digest": digest,
-            }
-            s3.put_once(f"{base}/reuse-bindings/{args.run_id}/{artifact}.json", _canonical(binding))
-            print(f"Reused {artifact} from run {run}.{attempt}.")
-        output.write(f"reused=true\nrun={run}.{attempt}\n")
+        bind_reuse(s3, args, chosen)
+        output.write(f"reused=true\nrun={chosen[0]}.{chosen[1]}\n")
     return 0
 
 

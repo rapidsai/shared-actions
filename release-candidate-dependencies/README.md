@@ -57,6 +57,21 @@ A binding that names a run without such a record fails the build. So does an
 artifact that is both reused and built in one run. References from the
 repository's bound run work as before.
 
+A row's reuse key covers everything that decides its output: the producer
+commit, the row (unit, family, arch, CUDA, Python), the release entrypoint and
+the release file's static `with:` values for its job (`row-identity`), the
+train's tooling, its build inputs (`row_key_inputs.py`), the upstream packages
+it installs (`upstream_selection.py`, by their catalog sha256, which setup
+checks every download against) and its runtime image. Nothing bound to one run
+or one train is in it.
+
+The `candidate-reuse-plan` action decides every package row of a release run
+before any build job starts, with the same modules, so it computes the same
+keys. It binds the rows an earlier complete run can supply and outputs each
+job's matrix of rows that must build. A job is decided only when every job it
+needs was reused in full; otherwise its rows build, and each row's own reuse
+check can still reuse it once its upstream finished.
+
 For `maven`, the action extracts verified tar.gz Maven repository archives into
 `MAVEN_LOCAL_REPO` and appends that path to `MAVEN_OPTS`. For docs and container
 jobs, set `prepare-conda-channel: true` to build a job-local Conda channel from

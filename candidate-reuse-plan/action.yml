@@ -1,0 +1,79 @@
+name: Plan release-candidate row reuse
+description: >-
+  Decide every package build row of a release run before any build job starts: bind the rows an earlier complete
+  run can supply, and output each job's matrix of rows that must build (plans/per-row-reuse.md, 4b).
+
+inputs:
+  manifest:
+    description: >-
+      JSON written by the release-file generator: schema_version 1 and the package jobs, each with id, repository,
+      project, unit, family, entrypoint, identity (its static with: values), needs and matrix.
+    required: true
+  image-map:
+    description: JSON object, candidate image key -> digest-pinned candidate image (verify-ci-imgs' image map).
+    required: true
+  candidate-train-sha256:
+    description: Canonical SHA-256 of the immutable release train.
+    required: true
+  candidate-bucket:
+    description: Private S3 bucket holding the candidate store.
+    required: false
+    default: rapids-release-candidates
+  candidate-train-prefix:
+    description: Root prefix for train records.
+    required: false
+    default: train-state
+  candidate-content-prefix:
+    description: Root prefix for content-addressed artifacts and the row reuse index.
+    required: false
+    default: artifacts
+
+outputs:
+  matrices:
+    description: JSON object, job id -> the matrix of its rows that build. Jobs whose rows were all reused are absent.
+    value: ${{ steps.plan.outputs.matrices }}
+  reused-jobs:
+    description: JSON list of the jobs whose every row was reused; the release file skips them.
+    value: ${{ steps.plan.outputs.reused-jobs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the plan's pinned dependency
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        environment="${RUNNER_TEMP:?}/candidate-reuse-plan-venv"
+        python3 -m venv "${environment}"
+        "${environment}/bin/python" -m pip install --quiet --no-deps --require-hashes \
+          -r "${ACTION_PATH}/requirements.txt"
+        printf 'REUSE_PLAN_PYTHON=%s\n' "${environment}/bin/python" >> "${GITHUB_ENV}"
+    - name: Decide every row
+      id: plan
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        MANIFEST: ${{ inputs.manifest }}
+        IMAGE_MAP: ${{ inputs.image-map }}
+        TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
+        BUCKET: ${{ inputs.candidate-bucket }}
+        TRAIN_PREFIX: ${{ inputs.candidate-train-prefix }}
+        CONTENT_PREFIX: ${{ inputs.candidate-content-prefix }}
+      run: |
+        set -euo pipefail
+        manifest="$(mktemp)"
+        trap 'rm -f "${manifest}"' EXIT
+        printf '%s' "${MANIFEST}" > "${manifest}"
+        "${REUSE_PLAN_PYTHON:?}" "${ACTION_PATH}/../release-candidate-dependencies/reuse_plan.py" \
+          --manifest "${manifest}" \
+          --image-map "${IMAGE_MAP}" \
+          --train-sha256 "${TRAIN_SHA256}" \
+          --run-id "${GITHUB_RUN_ID:?}" \
+          --run-attempt "${GITHUB_RUN_ATTEMPT:?}" \
+          --bucket "${BUCKET}" \
+          --train-prefix "${TRAIN_PREFIX}" \
+          --content-prefix "${CONTENT_PREFIX}" \
+          --github-output "${GITHUB_OUTPUT}" \
+          --summary "${GITHUB_STEP_SUMMARY}"

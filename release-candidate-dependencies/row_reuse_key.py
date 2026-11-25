@@ -28,11 +28,6 @@ IMAGE = re.compile(r"ghcr\.io/rapidsai/release-candidates/ci-(conda|wheel)@sha25
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TOOLS = ("gha-tools", "shared-actions", "shared-workflows")
 ENTRYPOINT = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
-# candidate_train_sha256 is the release file's own dispatch input: GitHub puts it into a called workflow's
-# toJSON(inputs) as well, so it is the train digest again under another name (release run 45690532489).
-EXCLUDED_INPUTS = frozenset(
-    {"build-datetime", "candidate-image-map", "candidate-train-sha256", "candidate_train_sha256", "date"}
-)
 
 
 def _load(path: str, description: str) -> dict:
@@ -52,7 +47,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--implementation-revisions", required=True, help="The train's tooling commits, as JSON.")
     parser.add_argument("--runtime-image", default="", help="The image this row runs in.")
     parser.add_argument("--row-entrypoint", default="", help="The release entrypoint workflow the row runs.")
-    parser.add_argument("--row-inputs", default="", help="That workflow's inputs, as JSON.")
+    parser.add_argument(
+        "--row-identity",
+        default="",
+        help="The release file's static with: values for the row's job, as JSON (candidate-row-identity).",
+    )
     parser.add_argument("--build-inputs", required=True)
     parser.add_argument("--upstream-inputs", required=True)
     parser.add_argument("--output", required=True)
@@ -76,22 +75,23 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(dependencies, list):
         raise SystemExit("upstream inputs must list their dependencies")
 
-    if bool(args.row_entrypoint) != bool(args.row_inputs):
-        raise SystemExit("the row's entrypoint and inputs must be given together")
+    if bool(args.row_entrypoint) != bool(args.row_identity):
+        raise SystemExit("the row's entrypoint and identity must be given together")
     build = None
     if args.row_entrypoint:
         if ENTRYPOINT.fullmatch(args.row_entrypoint) is None:
             raise SystemExit("the row entrypoint must be a workflow name")
         try:
-            row_inputs = json.loads(args.row_inputs)
+            identity = json.loads(args.row_identity)
         except json.JSONDecodeError as error:
-            raise SystemExit("the row inputs must be JSON") from error
-        if not isinstance(row_inputs, dict):
-            raise SystemExit("the row inputs must be an object")
-        build = {
-            "entrypoint": args.row_entrypoint,
-            "inputs": {name: value for name, value in row_inputs.items() if name not in EXCLUDED_INPUTS},
-        }
+            raise SystemExit("the row identity must be JSON") from error
+        # The generator writes it from the job's static with: values, so it holds only scalars and nothing bound to
+        # a run or a train; it is keyed exactly as given.
+        if not isinstance(identity, dict) or not identity:
+            raise SystemExit("the row identity must be a non-empty object")
+        if not all(isinstance(value, (str, bool, int, float)) for value in identity.values()):
+            raise SystemExit("the row identity's values must be scalars, as with: values are")
+        build = {"entrypoint": args.row_entrypoint, "identity": identity}
 
     if IMAGE.fullmatch(args.runtime_image) is None:
         print(

@@ -59,12 +59,14 @@ inputs:
     default: ""
   row-entrypoint:
     description: >-
-      The release entrypoint workflow this build row runs, such as conda-python-build-release. With row-inputs it
+      The release entrypoint workflow this build row runs, such as conda-python-build-release. With row-identity it
       goes into the row's reuse key; a row without both gets no key and always builds.
     required: false
     default: ""
-  row-inputs:
-    description: The entrypoint workflow's inputs as JSON (toJSON(inputs)); see row-entrypoint.
+  row-identity:
+    description: >-
+      The release file's static with: values for this row's job, as JSON (the entrypoint's candidate-row-identity
+      input). It is keyed exactly as given; see row-entrypoint.
     required: false
     default: ""
 
@@ -108,7 +110,7 @@ runs:
         RELEASE_CANDIDATE_CONSUMER_ID: ${{ inputs.consumer-id }}
         RELEASE_CANDIDATE_RUNTIME_IMAGE_REFERENCE: ${{ inputs.runtime-image-reference }}
         RELEASE_CANDIDATE_ROW_ENTRYPOINT: ${{ inputs.row-entrypoint }}
-        RELEASE_CANDIDATE_ROW_INPUTS: ${{ inputs.row-inputs }}
+        RELEASE_CANDIDATE_ROW_IDENTITY: ${{ inputs.row-identity }}
         RELEASE_CANDIDATE_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
         RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION: ${{ github.action_ref }}
         RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY: ${{ job.workflow_repository }}

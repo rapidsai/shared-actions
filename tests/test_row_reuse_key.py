@@ -13,23 +13,18 @@ import pytest
 SCRIPT = Path(__file__).parents[1] / "release-candidate-dependencies" / "row_reuse_key.py"
 IMAGE = "ghcr.io/rapidsai/release-candidates/ci-conda@sha256:" + "a" * 64
 REVISIONS = {"gha-tools": "1" * 40, "shared-actions": "2" * 40, "shared-workflows": "3" * 40}
-# What a release entrypoint passes as toJSON(inputs): the build it runs, plus run- and train-bound values.
-ROW_INPUTS = {
-    "branch": "release/26.12",
-    "date": "2026-11-25",
-    "build-datetime": "261125172320",
-    "sha": "a" * 40,
-    "repo": "rapidsai/kvikio",
+# What the generator passes as candidate-row-identity: the release file's static with: values for the job. Run- and
+# train-bound values (date, build-datetime, branch, the train digest, the image map) are expressions and never in it.
+ROW_IDENTITY = {
     "script": "ci/build_cpp.sh",
-    "matrix_filter": "map(.)",
-    "candidate-train-sha256": "f" * 64,
-    "candidate-image-map": '{"ci-conda:x": "ghcr.io/rapidsai/release-candidates/ci-conda@sha256:' + "c" * 64 + '"}',
-    "candidate-matrix": '{"include": []}',
-    # GitHub also puts the release run's own dispatch input into a called workflow's toJSON(inputs) (release run
-    # 45690532489), so the train digest arrives a second time under the release file's input name.
-    "candidate_train_sha256": "e" * 64,
+    "repo": "rapidsai/kvikio",
+    "node_type": "cpu8",
+    "matrix_type": "nightly",
+    "candidate-producer-repository-id": "453147629",
+    "candidate-role": "release-build",
+    "candidate-python-versions": "3.12",
+    "upload-artifacts": True,
 }
-EXCLUDED = {"build-datetime", "date", "candidate-train-sha256", "candidate_train_sha256", "candidate-image-map"}
 
 
 def build_inputs(**changes):
@@ -76,7 +71,7 @@ def compute(tmp_path, *, inputs=None, deps=None, **overrides):
         "upstream-inputs": str(tmp_path / "upstream-inputs.json"),
         "output": str(tmp_path / "row-reuse-key.json"),
         "row-entrypoint": "conda-cpp-build-release",
-        "row-inputs": json.dumps(ROW_INPUTS),
+        "row-identity": json.dumps(ROW_IDENTITY),
     }
     arguments.update(overrides)
     command = [sys.executable, str(SCRIPT)]
@@ -105,7 +100,7 @@ def test_the_key_is_the_sha256_of_the_canonical_record_it_writes(tmp_path):
     assert document["implementation_revisions"] == REVISIONS  # noqa: S101
     assert document["build"] == {  # noqa: S101
         "entrypoint": "conda-cpp-build-release",
-        "inputs": {name: value for name, value in ROW_INPUTS.items() if name not in EXCLUDED},
+        "identity": ROW_IDENTITY,
     }
     assert record == json.dumps(document, sort_keys=True, separators=(",", ":")).encode()  # noqa: S101
 
@@ -135,34 +130,27 @@ def key(tmp_path, name, **overrides):
         # A repository's C++ and Python builds share unit, family, arch, CUDA and Python; only the build they run
         # tells them apart (release run 45540771695 gave both the same key).
         {"row-entrypoint": "conda-python-build-release"},
-        {"row-inputs": json.dumps({**ROW_INPUTS, "script": "ci/build_python.sh"})},
-        {"row-inputs": json.dumps({**ROW_INPUTS, "package-type": "python"})},
-        # An input added later is part of the key unless it is deliberately excluded.
-        {"row-inputs": json.dumps({**ROW_INPUTS, "new-input": "x"})},
+        {"row-identity": json.dumps({**ROW_IDENTITY, "script": "ci/build_python.sh"})},
+        {"row-identity": json.dumps({**ROW_IDENTITY, "package-type": "python"})},
+        {"row-identity": json.dumps({**ROW_IDENTITY, "upload-artifacts": False})},
+        # The identity is used exactly as given: nothing in it is silently dropped.
+        {"row-identity": json.dumps({**ROW_IDENTITY, "date": "2026-11-25"})},
     ],
 )
 def test_every_input_that_decides_the_output_changes_the_key(tmp_path, change):
     assert key(tmp_path, "base") != key(tmp_path, "changed", **change)  # noqa: S101
 
 
-@pytest.mark.parametrize("name", sorted(EXCLUDED))
-def test_run_and_train_bound_inputs_do_not_change_the_key(tmp_path, name):
-    # The date and build-datetime stamp versions with the run's start, so a reused row keeps the stamp of the run
-    # that built it (with build-datetime in the key, no kvikio row reused in release run 45664183656); the train
-    # digest would stop reuse across trains; the image map holds every image, and the row's own image is already
-    # in the key.
-    changed = json.dumps({**ROW_INPUTS, name: ROW_INPUTS[name] + "-changed"})
-    assert key(tmp_path, "base") == key(tmp_path, "changed", **{"row-inputs": changed})  # noqa: S101
+def test_identity_key_order_does_not_change_the_key(tmp_path):
+    reordered = dict(reversed(list(ROW_IDENTITY.items())))
+    assert key(tmp_path, "base") == key(tmp_path, "reordered", **{"row-identity": json.dumps(reordered)})  # noqa: S101
 
 
-def test_the_excluded_inputs_are_exactly_these():
-    source = SCRIPT.read_text()
-    expected = (
-        "EXCLUDED_INPUTS = frozenset(\n"
-        '    {"build-datetime", "candidate-image-map", "candidate-train-sha256", "candidate_train_sha256", "date"}\n'
-        ")"
-    )
-    assert expected in source  # noqa: S101
+def test_no_input_exclusion_list_remains():
+    # toJSON(inputs) needed one, and it leaked build-datetime (release run 45664183656) and the dispatch train digest
+    # (release run 45690532489). The generator's static identity needs none.
+    assert "EXCLUDED_INPUTS" not in SCRIPT.read_text()  # noqa: S101
+    assert "--row-inputs" not in SCRIPT.read_text()  # noqa: S101
 
 
 def test_dependency_order_does_not_change_the_key(tmp_path):
@@ -178,8 +166,8 @@ def test_dependency_order_does_not_change_the_key(tmp_path):
         {"runtime-image": "rapidsai/ci-conda:26.12-cuda12.9.2-rockylinux8-py3.12"},
         {"runtime-image": "ghcr.io/rapidsai/release-candidates/ci-conda:latest"},
         # Without its build identity, two builds of one repository could share a key.
-        {"row-entrypoint": None, "row-inputs": None},
-        {"row-entrypoint": "", "row-inputs": ""},
+        {"row-entrypoint": None, "row-identity": None},
+        {"row-entrypoint": "", "row-identity": ""},
     ],
 )
 def test_a_row_without_a_digest_pinned_image_gets_no_key(tmp_path, overrides):
@@ -199,12 +187,17 @@ def test_a_row_without_a_digest_pinned_image_gets_no_key(tmp_path, overrides):
         {"implementation-revisions": "not json"},
         {"inputs": {"schema_version": 2}},
         {"deps": {"schema_version": 1, "dependencies": "x"}},
-        {"row-inputs": "not json"},
-        {"row-inputs": "[]"},
+        {"row-identity": "not json"},
+        {"row-identity": "[]"},
+        {"row-identity": "{}"},
+        # with: values are scalars; anything nested isn't a static with: value.
+        {"row-identity": json.dumps({**ROW_IDENTITY, "matrix": {"include": []}})},
+        {"row-identity": json.dumps({**ROW_IDENTITY, "paths": ["a"]})},
+        {"row-identity": json.dumps({**ROW_IDENTITY, "nothing": None})},
         {"row-entrypoint": "../conda-cpp-build-release"},
         # Half an identity is a caller bug, not a row to build without a key.
-        {"row-entrypoint": "conda-cpp-build-release", "row-inputs": ""},
-        {"row-entrypoint": "", "row-inputs": json.dumps(ROW_INPUTS)},
+        {"row-entrypoint": "conda-cpp-build-release", "row-identity": ""},
+        {"row-entrypoint": "", "row-identity": json.dumps(ROW_IDENTITY)},
     ],
 )
 def test_malformed_inputs_fail(tmp_path, overrides):
@@ -220,14 +213,8 @@ def test_candidate_setup_computes_and_exports_the_key_after_upstream_inputs():
     assert '--runtime-image "${RELEASE_CANDIDATE_RUNTIME_IMAGE:-}"' in setup  # noqa: S101
     assert "printf 'RELEASE_CANDIDATE_ROW_REUSE_KEY=%s\\n'" in setup  # noqa: S101
     assert '--row-entrypoint "${RELEASE_CANDIDATE_ROW_ENTRYPOINT:-}"' in setup  # noqa: S101
-    assert '--row-inputs "${RELEASE_CANDIDATE_ROW_INPUTS:-}"' in setup  # noqa: S101
+    assert '--row-identity "${RELEASE_CANDIDATE_ROW_IDENTITY:-}"' in setup  # noqa: S101
     action = (Path(__file__).parents[1] / "release-candidate-dependencies" / "action.yml").read_text()
     assert "RELEASE_CANDIDATE_ROW_ENTRYPOINT: ${{ inputs.row-entrypoint }}" in action  # noqa: S101
-    assert "RELEASE_CANDIDATE_ROW_INPUTS: ${{ inputs.row-inputs }}" in action  # noqa: S101
-
-
-def test_a_new_train_with_the_same_row_keeps_the_key(tmp_path):
-    # Release run 45690532489 missed reuse on every row after a replan that changed only release_tracking_revision:
-    # both train digests differed, and the dispatch input candidate_train_sha256 was still in the key.
-    other_train = {**ROW_INPUTS, "candidate-train-sha256": "1" * 64, "candidate_train_sha256": "1" * 64}
-    assert key(tmp_path, "base") == key(tmp_path, "other", **{"row-inputs": json.dumps(other_train)})  # noqa: S101
+    assert "RELEASE_CANDIDATE_ROW_IDENTITY: ${{ inputs.row-identity }}" in action  # noqa: S101
+    assert "row-inputs" not in action  # noqa: S101

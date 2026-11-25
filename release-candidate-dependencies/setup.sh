@@ -641,7 +641,7 @@ jq -sS \
 # The row's reuse key, computed once here from exactly the inputs above, the
 # train's tooling and the image the row runs in (RELEASE_CANDIDATE_RUNTIME_IMAGE,
 # exported by the release entrypoint's image check) and the build the row runs
-# (row-entrypoint and row-inputs). Its upload files the row
+# (row-entrypoint and row-identity). Its upload files the row
 # under this key, and an in-row reuse check looks it up. A row without a
 # digest-pinned candidate image gets no key and is never indexed or reused.
 row_reuse_key_file="${workspace}/row-reuse-key.json"
@@ -656,7 +656,7 @@ row_reuse_key="$(python3 "${script_directory}/row_reuse_key.py" \
   --implementation-revisions "${build_implementation_revisions}" \
   --runtime-image "${RELEASE_CANDIDATE_RUNTIME_IMAGE:-}" \
   --row-entrypoint "${RELEASE_CANDIDATE_ROW_ENTRYPOINT:-}" \
-  --row-inputs "${RELEASE_CANDIDATE_ROW_INPUTS:-}" \
+  --row-identity "${RELEASE_CANDIDATE_ROW_IDENTITY:-}" \
   --build-inputs "${candidate_build_inputs}" \
   --upstream-inputs "${upstream_inputs}" \
   --output "${row_reuse_key_file}")"

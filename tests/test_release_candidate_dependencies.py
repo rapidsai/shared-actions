@@ -74,8 +74,8 @@ def test_candidate_setup_exports_cache_policy_and_train_input_identity():
 
     expected_contracts = (
         "candidate_build_policy.sccache",
-        "lock_receipt_sha256",
-        "variant_receipt_sha256",
+        # The receipt digests and build policy go into the build inputs through the module the reuse plan shares.
+        'row_key_inputs.py" build-inputs',
         "RELEASE_CANDIDATE_BUILD_INPUTS",
         "RAPIDS_RELEASE_CANDIDATE_SCCACHE",
     )
@@ -999,11 +999,10 @@ def test_candidate_setup_selects_upstream_packages_with_the_shared_module():
         pytest.fail("wheel downloads must not be filtered again outside upstream_selection.py")
 
 
-def _record_resolved_input(tmp_path, content, catalog_sha256):
-    function = _SETUP.read_text().split("record_resolved_input() {\n", maxsplit=1)[1].split("\n}\n", maxsplit=1)[0]
+def _verify_download(tmp_path, content, catalog_sha256):
+    function = _SETUP.read_text().split("verify_download() {\n", maxsplit=1)[1].split("\n}\n", maxsplit=1)[0]
     downloaded = tmp_path / "logger-1.0-h0.conda"
     downloaded.write_bytes(content)
-    resolved = tmp_path / "resolved.jsonl"
     selection = {
         "artifact_key": "artifacts/logger/" + "1" * 64,
         "path": "linux-64/logger-1.0-h0.conda",
@@ -1013,19 +1012,13 @@ def _record_resolved_input(tmp_path, content, catalog_sha256):
         "package": {"name": "logger"},
         "sha256": catalog_sha256,
     }
-    script = (
-        "set -euo pipefail\n"
-        f"resolved_inputs={resolved}\n"
-        "record_resolved_input() {\n" + function + "\n}\n"
-        'record_resolved_input "$1" "$2"\n'
-    )
-    result = subprocess.run(  # noqa: S603
+    script = "set -euo pipefail\nverify_download() {\n" + function + '\n}\nverify_download "$1" "$2"\necho verified\n'
+    return subprocess.run(  # noqa: S603
         ["/bin/bash", "-c", script, "test", json.dumps(selection), str(downloaded)],
         capture_output=True,
         text=True,
         check=False,
     )
-    return result, resolved
 
 
 def test_downloaded_upstream_bytes_must_match_the_catalog_digest(tmp_path):
@@ -1033,18 +1026,16 @@ def test_downloaded_upstream_bytes_must_match_the_catalog_digest(tmp_path):
     digest = hashlib.sha256(content).hexdigest()
 
     (tmp_path / "good").mkdir()
-    result, resolved = _record_resolved_input(tmp_path / "good", content, digest)
-    if result.returncode != 0:
+    result = _verify_download(tmp_path / "good", content, digest)
+    if result.returncode != 0 or result.stdout.strip() != "verified":
         pytest.fail(result.stderr)
-    if json.loads(resolved.read_text())["sha256"] != digest:
-        pytest.fail("the resolved input must record the verified catalog digest")
 
     (tmp_path / "tampered").mkdir()
-    result, resolved = _record_resolved_input(tmp_path / "tampered", b"other bytes", digest)
+    result = _verify_download(tmp_path / "tampered", b"other bytes", digest)
     if result.returncode == 0 or "does not match its catalog sha256" not in result.stderr:
         pytest.fail(f"a download that differs from its catalog digest must fail: {result.stderr}")
-    if resolved.exists():
-        pytest.fail("a rejected download must not be recorded as an input")
+    if "verified" in result.stdout:
+        pytest.fail("setup must stop at a rejected download")
 
 
 def test_recipe_patcher_adds_lock_metapackages_to_root_and_outputs():

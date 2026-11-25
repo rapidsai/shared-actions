@@ -302,8 +302,6 @@ if ! jq -e '.input_receipts | type == "object"' "${workspace}/release-train.json
   echo "release train must contain checksum-addressed input receipts; regenerate the train" >&2
   exit 1
 fi
-lock_receipt_sha256=""
-variant_receipt_sha256=""
 for receipt_name in locks variants; do
   receipt_path="$(jq -r --arg name "${receipt_name}" '.input_receipts[$name].path // empty' "${workspace}/release-train.json")"
   receipt_sha256="$(jq -r --arg name "${receipt_name}" '.input_receipts[$name].sha256 // empty' "${workspace}/release-train.json")"
@@ -316,11 +314,6 @@ for receipt_name in locks variants; do
   if [[ "$(sha256sum "${receipt_file}" | awk '{print $1}')" != "${receipt_sha256}" ]]; then
     echo "stored ${receipt_name} receipt does not match the release train" >&2
     exit 1
-  fi
-  if [[ "${receipt_name}" == "locks" ]]; then
-    lock_receipt_sha256="${receipt_sha256}"
-  else
-    variant_receipt_sha256="${receipt_sha256}"
   fi
 done
 lock_source="${workspace}/locks-receipt.json"
@@ -471,28 +464,18 @@ done
 repository="${producer_repository##*/}"
 target_unit="${candidate_unit_id}"
 selected="${workspace}/selected-artifacts.json"
-resolved_inputs="${workspace}/resolved-upstream-inputs.jsonl"
 upstream_inputs="${workspace}/upstream-inputs.json"
-: >"${resolved_inputs}"
 candidate_source_inputs="${workspace}/candidate-source-inputs.json"
 bash "${script_directory}/write-source-inputs.sh" \
   --train "${workspace}/release-train.json" \
   --output "${candidate_source_inputs}" \
   --target-unit "${target_unit}"
-jq -cnS \
-  --arg lock_receipt_sha256 "${lock_receipt_sha256}" \
-  --arg variant_receipt_sha256 "${variant_receipt_sha256}" \
-  --argjson build_implementation_repositories "${build_implementation_repositories}" \
-  --argjson source_inputs "$(cat "${candidate_source_inputs}")" \
-  --argjson sccache "${candidate_sccache}" \
-  '{schema_version: 1,
-    train_inputs: {
-      lock_receipt_sha256: $lock_receipt_sha256,
-      variant_receipt_sha256: $variant_receipt_sha256
-    },
-    build_policy: {sccache: $sccache},
-    build_implementation_repositories: $build_implementation_repositories,
-    source_inputs: $source_inputs}' >"${candidate_build_inputs}"
+# row_key_inputs.py is shared with the reuse plan, which computes the same build
+# inputs for rows before they start. The receipt digests it takes from the train
+# are the ones verified against the downloaded receipts above.
+python3 "${script_directory}/row_key_inputs.py" build-inputs \
+  --train "${workspace}/release-train.json" \
+  --source-inputs "${candidate_source_inputs}" >"${candidate_build_inputs}"
 if [[ -n "${image_preflight_file}" ]]; then
   image_preflight_inputs="${workspace}/candidate-build-inputs.image-preflight.json"
   python3 "${script_directory}/attach_image_preflight.py" \
@@ -544,37 +527,17 @@ if [[ "$(jq 'length' "${selected}")" -eq 0 ]]; then
   echo "no upstream candidate package dependencies declared for ${target_unit}"
 fi
 
-record_resolved_input() {
+verify_download() {
   local selection="$1"
   local downloaded_path="$2"
-  local artifact_key artifact_path release_catalog_key package sha256
-  local producer_repository producer_sha producer_build_input_digest
-  artifact_key="$(jq -r '.artifact_key' <<<"${selection}")"
+  local artifact_path sha256
   artifact_path="$(jq -r '.path' <<<"${selection}")"
-  release_catalog_key="$(jq -r '.release_catalog_key // empty' <<<"${selection}")"
-  producer_repository="$(jq -r '.source.repository // empty' <<<"${selection}")"
-  producer_sha="$(jq -r '.source.sha // empty' <<<"${selection}")"
-  producer_build_input_digest="$(jq -r '.producer_build_input_digest // empty' <<<"${selection}")"
-  package="$(jq -c '.package' <<<"${selection}")"
   # The key records the catalog digest, so the bytes must be exactly those.
   sha256="$(jq -r '.sha256' <<<"${selection}")"
   if [[ "$(sha256sum "${downloaded_path}" | awk '{print $1}')" != "${sha256}" ]]; then
     echo "downloaded ${artifact_path} does not match its catalog sha256 ${sha256}" >&2
     exit 1
   fi
-  jq -cn \
-    --arg artifact_key "${artifact_key}" \
-    --arg path "${artifact_path}" \
-    --arg release_catalog_key "${release_catalog_key}" \
-    --arg producer_repository "${producer_repository}" \
-    --arg producer_sha "${producer_sha}" \
-    --arg producer_build_input_digest "${producer_build_input_digest}" \
-    --arg sha256 "${sha256}" \
-    --argjson package "${package}" \
-    '{artifact_key: $artifact_key, path: $path, release_catalog_key: $release_catalog_key,
-      producer: {repository: $producer_repository, sha: $producer_sha,
-        build_input_digest: $producer_build_input_digest},
-      sha256: $sha256, package: $package}' >>"${resolved_inputs}"
 }
 
 while IFS= read -r selection; do
@@ -599,12 +562,12 @@ while IFS= read -r selection; do
         *) echo "candidate Conda package has unsupported platform: ${platform}" >&2; exit 1 ;;
       esac
       aws s3 cp "${source}" "${destination}/$(basename "${artifact_path}")"
-      record_resolved_input "${selection}" "${destination}/$(basename "${artifact_path}")"
+      verify_download "${selection}" "${destination}/$(basename "${artifact_path}")"
       ;;
     *.whl)
       # upstream_selection.py already kept only wheels this row can install.
       aws s3 cp "${source}" "${wheelhouse}/$(basename "${artifact_path}")"
-      record_resolved_input "${selection}" "${wheelhouse}/$(basename "${artifact_path}")"
+      verify_download "${selection}" "${wheelhouse}/$(basename "${artifact_path}")"
       ;;
     *.tar.gz)
       if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "maven" \
@@ -616,7 +579,7 @@ while IFS= read -r selection; do
       archive_discriminator="$(printf '%s' "${artifact_key}/${artifact_path}" | sha256sum | cut -c1-16)"
       archive_path="${workspace}/${archive_discriminator}-$(basename "${artifact_path}")"
       aws s3 cp "${source}" "${archive_path}"
-      record_resolved_input "${selection}" "${archive_path}"
+      verify_download "${selection}" "${archive_path}"
       if [[ "$(jq -r '.package.ecosystem' <<<"${selection}")" == "maven" ]]; then
         maven_repository="${workspace}/maven-repository"
         python3 "${script_directory}/extract_maven_repository.py" \
@@ -628,15 +591,11 @@ while IFS= read -r selection; do
 done < <(jq -c '.[]' "${selected}")
 
 # The uploader uses this lock as part of the repository build-input digest. It
-# records only the exact upstream package bytes materialized for this matrix,
-# never their GitHub execution IDs. Sorting makes the lock independent of S3
-# listing order and avoids rebuilding when an equivalent dependency view is
-# prepared again.
-jq -sS \
-  '{schema_version: 1,
-    dependencies: (unique_by([.release_catalog_key, .artifact_key, .path, .sha256])
-      | sort_by(.release_catalog_key, .artifact_key, .path, .sha256))}' \
-  "${resolved_inputs}" >"${upstream_inputs}"
+# records only the exact upstream package bytes materialized for this matrix
+# (every selected package was downloaded and verified above), never their GitHub
+# execution IDs. row_key_inputs.py gives it the same canonical order the reuse
+# plan uses.
+python3 "${script_directory}/row_key_inputs.py" upstream --selected "${selected}" >"${upstream_inputs}"
 
 # The row's reuse key, computed once here from exactly the inputs above, the
 # train's tooling and the image the row runs in (RELEASE_CANDIDATE_RUNTIME_IMAGE,

@@ -209,7 +209,8 @@ def test_malformed_inputs_fail(tmp_path, overrides):
 def test_candidate_setup_computes_and_exports_the_key_after_upstream_inputs():
     setup = (Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh").read_text()
     computed = setup.index('python3 "${script_directory}/row_reuse_key.py"')
-    assert setup.index('"${resolved_inputs}" >"${upstream_inputs}"') < computed  # noqa: S101
+    assert setup.index('row_key_inputs.py" upstream --selected "${selected}" >"${upstream_inputs}"') < computed  # noqa: S101
+    assert setup.index('row_key_inputs.py" build-inputs') < computed  # noqa: S101
     assert '--runtime-image "${RELEASE_CANDIDATE_RUNTIME_IMAGE:-}"' in setup  # noqa: S101
     assert "printf 'RELEASE_CANDIDATE_ROW_REUSE_KEY=%s\\n'" in setup  # noqa: S101
     assert '--row-entrypoint "${RELEASE_CANDIDATE_ROW_ENTRYPOINT:-}"' in setup  # noqa: S101

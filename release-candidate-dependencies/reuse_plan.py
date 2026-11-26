@@ -27,6 +27,8 @@ import shutil
 import subprocess  # nosec B404 - jq, bash and this directory's scripts with fixed arguments
 import sys
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +40,11 @@ _DIRECTORY = Path(__file__).resolve().parent
 _JOB = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
 _ENTRYPOINT = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+SAFE_REPOSITORY = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*\Z")
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _ROW_FIELDS = ("ARCH", "CUDA_VER", "PY_VER", "candidate_image_key")
+# Each row waits mostly on S3 round trips through the AWS CLI, so rows of a wave run side by side.
+_WORKERS = 8
 
 
 class PlanError(Exception):
@@ -188,7 +193,7 @@ def _catalog_records(s3: S3, references: list[dict[str, Any]]) -> list[dict[str,
     return records
 
 
-def _row_key(  # noqa: PLR0913 - every argument is one of the key's inputs.
+def _row_key(
     job: dict[str, Any],
     row: dict[str, str],
     train: dict[str, Any],
@@ -266,7 +271,7 @@ def _label(row: dict[str, str]) -> str:
     return f"{row['CUDA_VER']}, {row['PY_VER']}, {row['ARCH']}"
 
 
-def plan(  # noqa: PLR0913 - the run's identity, the store and the outputs.
+def plan(
     s3: S3,
     manifest: Any,
     *,
@@ -288,57 +293,109 @@ def plan(  # noqa: PLR0913 - the run's identity, the store and the outputs.
     unit_jobs: dict[str, list[str]] = {}
     for job in jobs:
         unit_jobs.setdefault(job["unit"], []).append(job["id"])
+    upstream_of = {
+        job["id"]: (
+            set(job["needs"])
+            | {producer for unit in _closure(train, job["unit"]) for producer in unit_jobs.get(unit, [])}
+        )
+        - {job["id"]}
+        for job in jobs
+    }
+    order = {job["id"]: position for position, job in enumerate(jobs)}
     bound: dict[str, list[dict[str, Any]]] = {}
-    reused_jobs: list[str] = []
+    reused: set[str] = set()
     matrices: dict[str, Any] = {}
     outcomes: list[tuple[str, str, str]] = []
+    context = {
+        "train_sha256": train_sha256,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "train_prefix": train_prefix,
+        "content_prefix": content_prefix,
+    }
 
-    for job in jobs:
-        upstream_jobs = set(job["needs"]) | {
-            producer for unit in _closure(train, job["unit"]) for producer in unit_jobs.get(unit, [])
-        }
-        building = sorted(upstream for upstream in upstream_jobs if upstream not in reused_jobs)
-        missed: list[dict[str, str]] = []
-        if building:
-            for row in job["matrix"]["include"]:
-                missed.append(row)
-                outcomes.append((job["id"], _label(row), f"builds: {', '.join(building)} builds in this run"))
-        else:
-            records = _catalog_records(s3, [ref for upstream in sorted(upstream_jobs) for ref in bound[upstream]])
-            build = build_inputs(train, _source_inputs(train_path, job["unit"], workspace))
-            bound[job["id"]] = []
-            for row in job["matrix"]["include"]:
-                computed = _row_key(job, row, train, build, records, image_map, workspace)
-                if computed is None:
-                    missed.append(row)
-                    outcomes.append((job["id"], _label(row), "builds: no reuse key"))
+    decided: set[str] = set()
+    pending = list(jobs)
+    with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
+        while pending:
+            # A wave is every job whose upstream jobs are decided; its jobs and rows are independent of each other.
+            wave = [job for job in pending if upstream_of[job["id"]] <= decided]
+            if not wave:
+                raise PlanError("the manifest's jobs cannot be ordered")
+            rows: dict[str, list[Any]] = {}
+            for job in wave:
+                building = sorted(upstream for upstream in upstream_of[job["id"]] if upstream not in reused)
+                if building:
+                    reason = f"builds: {', '.join(building)} builds in this run"
+                    rows[job["id"]] = [(row, None, reason) for row in job["matrix"]["include"]]
                     continue
-                key, key_record = computed
-                print(f"{job['id']} {_label(row)}: reuse key {key}")
-                args = argparse.Namespace(
-                    key=key,
-                    repository=job["repository"],
-                    train_sha256=train_sha256,
-                    run_id=run_id,
-                    run_attempt=run_attempt,
-                    train_prefix=train_prefix,
-                    content_prefix=content_prefix,
-                )
-                chosen = find_reuse(s3, args, key_record)
-                if chosen is None:
-                    missed.append(row)
-                    outcomes.append((job["id"], _label(row), "builds: no earlier complete build"))
-                    continue
-                bound[job["id"]].extend(bind_reuse(s3, args, chosen).values())
-                outcomes.append((job["id"], _label(row), f"reused from run {chosen[0]}.{chosen[1]}"))
-        if missed:
-            matrices[job["id"]] = {"include": missed}
-        else:
-            reused_jobs.append(job["id"])
-    return matrices, reused_jobs, outcomes
+                upstream = sorted(upstream_of[job["id"]], key=order.__getitem__)
+                records = _catalog_records(s3, [ref for name in upstream for ref in bound[name]])
+                build = build_inputs(train, _source_inputs(train_path, job["unit"], workspace))
+                rows[job["id"]] = [
+                    (
+                        row,
+                        pool.submit(_decide_row, s3, job, row, train, build, records, image_map, workspace, context),
+                        None,
+                    )
+                    for row in job["matrix"]["include"]
+                ]
+            for job in wave:
+                missed = []
+                bound[job["id"]] = []
+                for row, future, reason in rows[job["id"]]:
+                    references, outcome = future.result() if future is not None else (None, reason)
+                    if references is None:
+                        missed.append(row)
+                    else:
+                        bound[job["id"]].extend(references)
+                    outcomes.append((job["id"], _label(row), outcome))
+                if missed:
+                    matrices[job["id"]] = {"include": missed}
+                else:
+                    reused.add(job["id"])
+            decided |= {job["id"] for job in wave}
+            pending = [job for job in pending if job["id"] not in decided]
+    return matrices, sorted(reused, key=order.__getitem__), outcomes
 
 
-def _summary(outcomes: list[tuple[str, str, str]], reused_jobs: list[str]) -> str:
+def _decide_row(
+    s3: S3,
+    job: dict[str, Any],
+    row: dict[str, str],
+    train: dict[str, Any],
+    build: dict[str, Any],
+    records: list[dict[str, Any]],
+    image_map: dict[str, str],
+    workspace: Path,
+    context: dict[str, str],
+) -> tuple[list[dict[str, Any]] | None, str]:
+    """Compute one row's key, look it up and bind a hit; return (bound references or None, outcome)."""
+    started = time.monotonic()
+    computed = _row_key(job, row, train, build, records, image_map, workspace)
+    if computed is None:
+        return None, "builds: no reuse key"
+    key, key_record = computed
+    args = argparse.Namespace(key=key, repository=job["repository"], **context)
+    chosen = find_reuse(s3, args, key_record)
+    elapsed = time.monotonic() - started
+    print(f"{job['id']} {_label(row)}: reuse key {key} ({elapsed:.1f} s)", flush=True)
+    if chosen is None:
+        return None, "builds: no earlier complete build"
+    references = list(bind_reuse(s3, args, chosen).values())
+    return references, f"reused from run {chosen[0]}.{chosen[1]}"
+
+
+_RUN_REFERENCE = re.compile(r"\brun ([0-9]+)\.([0-9]+)\b")
+_SERVER = re.compile(r"https://[A-Za-z0-9.-]+(:[0-9]+)?\Z")
+
+
+def _linked(outcome: str, runs_url: str) -> str:
+    """Make each "run <id>.<attempt>" a link to that run attempt."""
+    return _RUN_REFERENCE.sub(lambda match: f"[{match[0]}]({runs_url}/{match[1]}/attempts/{match[2]})", outcome)
+
+
+def _summary(outcomes: list[tuple[str, str, str]], reused_jobs: list[str], runs_url: str) -> str:
     lines = [
         "## Reuse plan",
         "",
@@ -347,7 +404,7 @@ def _summary(outcomes: list[tuple[str, str, str]], reused_jobs: list[str]) -> st
         "| Job | Row | Outcome |",
         "| --- | --- | --- |",
     ]
-    lines += [f"| {job} | {row} | {outcome} |" for job, row, outcome in outcomes]
+    lines += [f"| {job} | {row} | {_linked(outcome, runs_url)} |" for job, row, outcome in outcomes]
     return "\n".join(lines) + "\n"
 
 
@@ -357,9 +414,14 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("manifest", "image-map", "train-sha256", "run-id", "run-attempt", "bucket", "github-output"):
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--summary", required=True, help="File the summary table is appended to.")
+    parser.add_argument("--server-url", required=True, help="GITHUB_SERVER_URL, for links to earlier runs.")
+    parser.add_argument("--repository", required=True, help="GITHUB_REPOSITORY, whose runs the plan reuses.")
     parser.add_argument("--train-prefix", default="train-state")
     parser.add_argument("--content-prefix", default="artifacts")
     args = parser.parse_args(argv)
+    if _SERVER.fullmatch(args.server_url) is None or SAFE_REPOSITORY.fullmatch(args.repository) is None:
+        raise SystemExit("reuse plan failed: --server-url and --repository must name a GitHub server and owner/name")
+    runs_url = f"{args.server_url}/{args.repository}/actions/runs"
     try:
         image_map = json.loads(args.image_map)
         if not isinstance(image_map, dict):
@@ -382,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
         output.write(f"matrices={json.dumps(matrices, sort_keys=True, separators=(',', ':'))}\n")
         output.write(f"reused-jobs={json.dumps(reused_jobs, separators=(',', ':'))}\n")
     with Path(args.summary).open("a") as summary:
-        summary.write(_summary(outcomes, reused_jobs))
+        summary.write(_summary(outcomes, reused_jobs, runs_url))
     return 0
 
 

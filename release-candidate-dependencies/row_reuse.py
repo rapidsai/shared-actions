@@ -35,6 +35,7 @@ import re
 import subprocess  # nosec B404 - the AWS CLI with fixed arguments
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,8 @@ class Miss(Exception):
 class S3:
     def __init__(self, bucket: str) -> None:
         self.bucket = bucket
+        self.completed: dict[tuple[str, str, str, str], bool] = {}
+        self.completed_lock = threading.Lock()
 
     def _aws(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(["aws", "s3api", *args], capture_output=True, text=True, check=False)  # noqa: S603, S607 # nosec B603 B607
@@ -111,6 +114,16 @@ def _unchanged(s3: S3, key: str, sha256: str) -> dict[str, Any]:
 
 
 def _completed(s3: S3, train_prefix: str, train: str, run: str, attempt: str) -> bool:
+    # Completion records are written once and never change, so one store asks about each run once: the reuse plan
+    # checks the same earlier run for every row it reuses from it.
+    identity = (train_prefix, train, run, attempt)
+    with s3.completed_lock:
+        if identity not in s3.completed:
+            s3.completed[identity] = _completion_recorded(s3, train_prefix, train, run, attempt)
+        return s3.completed[identity]
+
+
+def _completion_recorded(s3: S3, train_prefix: str, train: str, run: str, attempt: str) -> bool:
     prefix = f"{train_prefix}/{train}/completions/{run}."
     for key in s3.keys(prefix):
         recorded = key.removeprefix(prefix).removesuffix(".json")

@@ -40,6 +40,7 @@ runs:
   using: composite
   steps:
     - name: Install the plan's pinned dependency
+      id: install
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -49,12 +50,13 @@ runs:
         python3 -m venv "${environment}"
         "${environment}/bin/python" -m pip install --quiet --no-deps --require-hashes \
           -r "${ACTION_PATH}/requirements.txt"
-        printf 'REUSE_PLAN_PYTHON=%s\n' "${environment}/bin/python" >> "${GITHUB_ENV}"
+        printf 'python=%s\n' "${environment}/bin/python" >> "${GITHUB_OUTPUT}"
     - name: Decide every row
       id: plan
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
+        REUSE_PLAN_PYTHON: ${{ steps.install.outputs.python }}
         MANIFEST: ${{ inputs.manifest }}
         IMAGE_MAP: ${{ inputs.image-map }}
         TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
@@ -66,7 +68,7 @@ runs:
         manifest="$(mktemp)"
         trap 'rm -f "${manifest}"' EXIT
         printf '%s' "${MANIFEST}" > "${manifest}"
-        "${REUSE_PLAN_PYTHON:?}" "${ACTION_PATH}/../release-candidate-dependencies/reuse_plan.py" \
+        "${REUSE_PLAN_PYTHON:?}" -u "${ACTION_PATH}/../release-candidate-dependencies/reuse_plan.py" \
           --manifest "${manifest}" \
           --image-map "${IMAGE_MAP}" \
           --train-sha256 "${TRAIN_SHA256}" \
@@ -76,4 +78,6 @@ runs:
           --train-prefix "${TRAIN_PREFIX}" \
           --content-prefix "${CONTENT_PREFIX}" \
           --github-output "${GITHUB_OUTPUT}" \
-          --summary "${GITHUB_STEP_SUMMARY}"
+          --summary "${GITHUB_STEP_SUMMARY}" \
+          --server-url "${GITHUB_SERVER_URL:?}" \
+          --repository "${GITHUB_REPOSITORY:?}"

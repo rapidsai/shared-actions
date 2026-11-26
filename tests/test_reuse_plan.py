@@ -7,8 +7,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -34,50 +36,83 @@ IMAGES = {
 TRAIN = {
     "release_version": "26.12",
     "release_units": [
-        {"id": "source:rapids-logger", "artifact_family": "source", "repository": "rapids-logger",
-         "source_revision": LOGGER_SHA, "dependencies": []},
+        {
+            "id": "source:rapids-logger",
+            "artifact_family": "source",
+            "repository": "rapids-logger",
+            "source_revision": LOGGER_SHA,
+            "dependencies": [],
+        },
         {"id": "conda:rapids-logger", "artifact_family": "conda", "dependencies": ["source:rapids-logger"]},
-        {"id": "source:kvikio", "artifact_family": "source", "repository": "kvikio", "source_revision": KVIKIO_SHA,
-         "dependencies": []},
+        {
+            "id": "source:kvikio",
+            "artifact_family": "source",
+            "repository": "kvikio",
+            "source_revision": KVIKIO_SHA,
+            "dependencies": [],
+        },
         {"id": "conda:kvikio", "artifact_family": "conda", "dependencies": ["source:kvikio", "conda:rapids-logger"]},
     ],
     "source_revisions": {"rapids-logger": LOGGER_SHA, "kvikio": KVIKIO_SHA},
     "github_repositories": {"rapids-logger": "rapidsai/rapids-logger", "kvikio": "rapidsai/kvikio"},
-    "build_tool_revisions": {"dependency-file-generator": "8" * 40, "rapids-build-backend": "9" * 40,
-                             "rapids-cmake": "a" * 40},
+    "build_tool_revisions": {
+        "dependency-file-generator": "8" * 40,
+        "rapids-build-backend": "9" * 40,
+        "rapids-cmake": "a" * 40,
+    },
     "build_implementation_revisions": TOOLS,
-    "input_receipts": {"locks": {"path": "locks/index.json", "sha256": "b" * 64},
-                       "variants": {"path": "variants/collection.json", "sha256": "d" * 64}},
+    "input_receipts": {
+        "locks": {"path": "locks/index.json", "sha256": "b" * 64},
+        "variants": {"path": "variants/collection.json", "sha256": "d" * 64},
+    },
     "candidate_build_policy": {"sccache": True},
 }
 
 
 def rows(*arches):
     return [
-        {"ARCH": arch, "PY_VER": "3.12", "CUDA_VER": "13.4.3", "LINUX_VER": "rockylinux8",
-         "candidate_image_key": f"ci-conda:13-{arch}"}
+        {
+            "ARCH": arch,
+            "PY_VER": "3.12",
+            "CUDA_VER": "13.4.3",
+            "LINUX_VER": "rockylinux8",
+            "candidate_image_key": f"ci-conda:13-{arch}",
+        }
         for arch in arches
     ]
 
 
 LOGGER_JOB = {
-    "id": "rapids-logger--conda-cpp-build", "repository": "rapidsai/rapids-logger", "project": "rapids-logger",
-    "unit": "conda:rapids-logger", "family": "conda", "entrypoint": "conda-cpp-build-release",
-    "identity": {"script": "ci/build_conda.sh", "repo": "rapidsai/rapids-logger"}, "needs": [],
+    "id": "rapids-logger--conda-cpp-build",
+    "repository": "rapidsai/rapids-logger",
+    "project": "rapids-logger",
+    "unit": "conda:rapids-logger",
+    "family": "conda",
+    "entrypoint": "conda-cpp-build-release",
+    "identity": {"script": "ci/build_conda.sh", "repo": "rapidsai/rapids-logger"},
+    "needs": [],
     "matrix": {"include": rows("amd64", "arm64")},
 }
 KVIKIO_JOB = {
-    "id": "kvikio--cpp-build", "repository": "rapidsai/kvikio", "project": "kvikio", "unit": "conda:kvikio",
-    "family": "conda", "entrypoint": "conda-cpp-build-release",
+    "id": "kvikio--cpp-build",
+    "repository": "rapidsai/kvikio",
+    "project": "kvikio",
+    "unit": "conda:kvikio",
+    "family": "conda",
+    "entrypoint": "conda-cpp-build-release",
     "identity": {"script": "ci/build_cpp.sh", "repo": "rapidsai/kvikio", "node_type": "cpu8"},
-    "needs": ["rapids-logger--conda-cpp-build"], "matrix": {"include": rows("amd64", "arm64")},
+    "needs": ["rapids-logger--conda-cpp-build"],
+    "matrix": {"include": rows("amd64", "arm64")},
 }
 MANIFEST = {"schema_version": 1, "jobs": [KVIKIO_JOB, LOGGER_JOB]}
 
 
 def train_digest(train):
-    canonical = subprocess.run(  # noqa: S603
-        ["jq", "-cSj", "del(.train_sha256)"], input=json.dumps(train).encode(), capture_output=True, check=True  # noqa: S607
+    canonical = subprocess.run(  # noqa: S603 - jq with a fixed program
+        [shutil.which("jq") or "jq", "-cSj", "del(.train_sha256)"],
+        input=json.dumps(train).encode(),
+        capture_output=True,
+        check=True,
     ).stdout
     return hashlib.sha256(canonical).hexdigest()
 
@@ -96,8 +131,11 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setenv("AWS_CALLS", str(tmp_path / "aws-calls"))
     root = tmp_path / "s3" / "candidate-store"
     put(root, f"train-state/{CURRENT}/release-train.json", json.dumps({**TRAIN, "train_sha256": CURRENT}).encode())
-    put(root, f"train-state/{CURRENT}/scheduler-state.json",
-        json.dumps({"workflow_runs": {"rapids-logger": RUN, "kvikio": RUN}}).encode())
+    put(
+        root,
+        f"train-state/{CURRENT}/scheduler-state.json",
+        json.dumps({"workflow_runs": {"rapids-logger": RUN, "kvikio": RUN}}).encode(),
+    )
     return root
 
 
@@ -135,32 +173,86 @@ def index_row(root, tmp_path, job, row, *, references=(), run="400", attempt="1"
     artifact_key = f"artifacts/{repository}/{digest}"
     package_path = f"{platform}/{repository}-26.12.00-h0.conda"
     payload_sha = put(root, f"{artifact_key}/{package_path}", f"{artifact} bytes".encode())
-    index_sha = put(root, f"{artifact_key}/artifact-index.json", json.dumps({
-        "schema_version": 3, "build_input_digest": digest, "source_artifact": artifact,
-        "entries": [{"path": package_path, "sha256": payload_sha}]}).encode())
+    index_sha = put(
+        root,
+        f"{artifact_key}/artifact-index.json",
+        json.dumps(
+            {
+                "schema_version": 3,
+                "build_input_digest": digest,
+                "source_artifact": artifact,
+                "entries": [{"path": package_path, "sha256": payload_sha}],
+            }
+        ).encode(),
+    )
     record_sha = put(root, f"{artifact_key}/build-record.json", b'{"record": true}')
     bundle_key = f"train-state/{EARLIER}/{repository}/{run}.{attempt}/{digest}/release-catalog-entries.{artifact}.json"
-    catalog_sha = put(root, bundle_key, json.dumps({
-        "source": {"repository": job["repository"], "sha": TRAIN["source_revisions"][job["project"]],
-                   "matrix": {"python_version": row["PY_VER"]}},
-        "entries": [{"release_catalog_key": job["unit"], "path": package_path, "sha256": payload_sha,
-                     "package": {"name": repository, "version": "26.12.00", "build": "h0", "platform": platform}}],
-    }).encode())
+    catalog_sha = put(
+        root,
+        bundle_key,
+        json.dumps(
+            {
+                "source": {
+                    "repository": job["repository"],
+                    "sha": TRAIN["source_revisions"][job["project"]],
+                    "matrix": {"python_version": row["PY_VER"]},
+                },
+                "entries": [
+                    {
+                        "release_catalog_key": job["unit"],
+                        "path": package_path,
+                        "sha256": payload_sha,
+                        "package": {"name": repository, "version": "26.12.00", "build": "h0", "platform": platform},
+                    }
+                ],
+            }
+        ).encode(),
+    )
     reference = {
-        "schema_version": 4, "producer": "shared-workflows", "storage_layout": 2, "train_sha256": EARLIER,
-        "repository": job["repository"], "source_artifact": artifact, "source_run_id": run,
-        "source_run_attempt": attempt, "build_input_digest": digest, "artifact_key": artifact_key,
+        "schema_version": 4,
+        "producer": "shared-workflows",
+        "storage_layout": 2,
+        "train_sha256": EARLIER,
+        "repository": job["repository"],
+        "source_artifact": artifact,
+        "source_run_id": run,
+        "source_run_attempt": attempt,
+        "build_input_digest": digest,
+        "artifact_key": artifact_key,
         "build_record_key": f"{artifact_key}/build-record.json",
-        "artifact_index_key": f"{artifact_key}/artifact-index.json", "bundle_key": bundle_key,
+        "artifact_index_key": f"{artifact_key}/artifact-index.json",
+        "bundle_key": bundle_key,
     }
-    put(root, f"artifacts/{repository}/row-reuse-index/{key}/{artifact}/{run}-{attempt}.json", json.dumps({
-        "schema_version": 1, "row_reuse_key": key, "key_record": key_record, "reference": reference,
-        "build_record_sha256": record_sha, "artifact_index_sha256": index_sha, "catalog_sha256": catalog_sha,
-        "same_run_inputs": []}).encode())
+    put(
+        root,
+        f"artifacts/{repository}/row-reuse-index/{key}/{artifact}/{run}-{attempt}.json",
+        json.dumps(
+            {
+                "schema_version": 1,
+                "row_reuse_key": key,
+                "key_record": key_record,
+                "reference": reference,
+                "build_record_sha256": record_sha,
+                "artifact_index_sha256": index_sha,
+                "catalog_sha256": catalog_sha,
+                "same_run_inputs": [],
+            }
+        ).encode(),
+    )
     if complete:
-        put(root, f"train-state/{EARLIER}/completions/{run}.{attempt}.json", json.dumps({
-            "schema_version": 1, "train_sha256": EARLIER, "run_id": run, "run_attempt": attempt,
-            "result": "complete"}).encode())
+        put(
+            root,
+            f"train-state/{EARLIER}/completions/{run}.{attempt}.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "train_sha256": EARLIER,
+                    "run_id": run,
+                    "run_attempt": attempt,
+                    "result": "complete",
+                }
+            ).encode(),
+        )
     return reference
 
 
@@ -179,8 +271,14 @@ def earlier_run(root, tmp_path, *, skip_logger_arch=None, complete=True):
 def run_plan(tmp_path, manifest=MANIFEST, **overrides):
     workspace = tmp_path / "plan-work"
     workspace.mkdir(exist_ok=True)
-    arguments = {"train_sha256": CURRENT, "run_id": RUN, "run_attempt": "1", "image_map": IMAGES,
-                 "workspace": workspace, **overrides}
+    arguments = {
+        "train_sha256": CURRENT,
+        "run_id": RUN,
+        "run_attempt": "1",
+        "image_map": IMAGES,
+        "workspace": workspace,
+        **overrides,
+    }
     return reuse_plan.plan(S3("candidate-store"), manifest, **arguments)
 
 
@@ -191,7 +289,9 @@ def test_everything_reused_skips_every_job_and_binds_every_row(store, tmp_path):
     assert reused == ["rapids-logger--conda-cpp-build", "kvikio--cpp-build"]  # noqa: S101
     assert [outcome for _, _, outcome in outcomes] == ["reused from run 400.1"] * 4  # noqa: S101
     for repository, arch in (("rapids-logger", "amd64"), ("rapids-logger", "arm64"), ("kvikio", "amd64")):
-        binding = get(store, f"train-state/{CURRENT}/{repository}/reuse-bindings/{RUN}/{repository}_conda_cpp_{arch}.json")
+        binding = get(
+            store, f"train-state/{CURRENT}/{repository}/reuse-bindings/{RUN}/{repository}_conda_cpp_{arch}.json"
+        )
         assert binding["source_run_id"] == "400"  # noqa: S101
         assert binding["train_sha256"] == CURRENT  # noqa: S101
 
@@ -259,8 +359,13 @@ def test_a_train_that_does_not_match_its_digest_stops_the_plan(store, tmp_path):
         ([], "lists no jobs"),
         ([LOGGER_JOB, LOGGER_JOB], "invalid or repeated"),
         ([{**KVIKIO_JOB, "needs": ["missing"]}, LOGGER_JOB], "needs unknown jobs"),
-        ([{**KVIKIO_JOB, "needs": ["rapids-logger--conda-cpp-build"]},
-          {**LOGGER_JOB, "needs": ["kvikio--cpp-build"]}], "cycle"),
+        (
+            [
+                {**KVIKIO_JOB, "needs": ["rapids-logger--conda-cpp-build"]},
+                {**LOGGER_JOB, "needs": ["kvikio--cpp-build"]},
+            ],
+            "cycle",
+        ),
         ([{**LOGGER_JOB, "family": "docs", "unit": "docs:rapids-logger"}], "conda and wheel rows only"),
         ([{**LOGGER_JOB, "identity": {}}], "non-empty object"),
         ([{**LOGGER_JOB, "matrix": {"include": [{"ARCH": "amd64"}]}}], "every row needs"),
@@ -276,17 +381,42 @@ def test_cli_writes_the_outputs_and_the_summary(store, tmp_path):
     (tmp_path / "manifest.json").write_text(json.dumps(MANIFEST))
     output, summary = tmp_path / "github-output", tmp_path / "summary.md"
     result = subprocess.run(  # noqa: S603
-        [sys.executable, str(SCRIPT), "--manifest", str(tmp_path / "manifest.json"), "--image-map", json.dumps(IMAGES),
-         "--train-sha256", CURRENT, "--run-id", RUN, "--run-attempt", "1", "--bucket", "candidate-store",
-         "--github-output", str(output), "--summary", str(summary)],
-        capture_output=True, text=True, check=False,
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--image-map",
+            json.dumps(IMAGES),
+            "--train-sha256",
+            CURRENT,
+            "--run-id",
+            RUN,
+            "--run-attempt",
+            "1",
+            "--bucket",
+            "candidate-store",
+            "--github-output",
+            str(output),
+            "--summary",
+            str(summary),
+            "--server-url",
+            "https://github.com",
+            "--repository",
+            "rapidsai/release-tracking",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert result.returncode == 0, result.stderr  # noqa: S101
     outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert json.loads(outputs["reused-jobs"]) == []  # noqa: S101
     assert json.loads(outputs["matrices"])["rapids-logger--conda-cpp-build"] == {"include": rows("amd64")}  # noqa: S101
     table = summary.read_text()
-    assert "| rapids-logger--conda-cpp-build | 13.4.3, 3.12, arm64 | reused from run 400.1 |" in table  # noqa: S101
+    # A run is a link to that run attempt, not a bare number.
+    run_link = "[run 400.1](https://github.com/rapidsai/release-tracking/actions/runs/400/attempts/1)"
+    assert f"| rapids-logger--conda-cpp-build | 13.4.3, 3.12, arm64 | reused from {run_link} |" in table  # noqa: S101
     assert "| rapids-logger--conda-cpp-build | 13.4.3, 3.12, amd64 | builds: no earlier complete build |" in table  # noqa: S101
     assert "reuse key" in result.stdout  # noqa: S101
 
@@ -295,10 +425,33 @@ def test_cli_fails_closed_on_a_bad_plan(store, tmp_path):
     (tmp_path / "manifest.json").write_text(json.dumps({"schema_version": 1, "jobs": []}))
     output = tmp_path / "github-output"
     result = subprocess.run(  # noqa: S603
-        [sys.executable, str(SCRIPT), "--manifest", str(tmp_path / "manifest.json"), "--image-map", "{}",
-         "--train-sha256", CURRENT, "--run-id", RUN, "--run-attempt", "1", "--bucket", "candidate-store",
-         "--github-output", str(output), "--summary", str(tmp_path / "summary.md")],
-        capture_output=True, text=True, check=False,
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--image-map",
+            "{}",
+            "--train-sha256",
+            CURRENT,
+            "--run-id",
+            RUN,
+            "--run-attempt",
+            "1",
+            "--bucket",
+            "candidate-store",
+            "--github-output",
+            str(output),
+            "--summary",
+            str(tmp_path / "summary.md"),
+            "--server-url",
+            "https://github.com",
+            "--repository",
+            "rapidsai/release-tracking",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert result.returncode != 0  # noqa: S101
     assert "reuse plan failed" in result.stderr  # noqa: S101
@@ -315,6 +468,10 @@ def test_the_action_passes_inputs_through_the_environment_and_pins_its_dependenc
     for step in action["runs"]["steps"]:
         assert "${{" not in step["run"], step["name"]  # noqa: S101
     assert "--require-hashes" in action["runs"]["steps"][0]["run"]  # noqa: S101
+    # The interpreter passes as a step output read through env, never through GITHUB_ENV.
+    assert "GITHUB_ENV" not in ACTION.read_text()  # noqa: S101
+    plan_step = next(step for step in action["runs"]["steps"] if step.get("id") == "plan")
+    assert plan_step["env"]["REUSE_PLAN_PYTHON"] == "${{ steps.install.outputs.python }}"  # noqa: S101
     requirements = (ACTION.parent / "requirements.txt").read_text()
     assert "packaging==25.0" in requirements  # noqa: S101
     assert "--hash=sha256:" in requirements  # noqa: S101
@@ -342,6 +499,8 @@ def test_the_action_step_runs_the_plan(store, tmp_path):
         "GITHUB_OUTPUT": str(output),
         "GITHUB_STEP_SUMMARY": str(summary),
         "REUSE_PLAN_PYTHON": sys.executable,
+        "GITHUB_SERVER_URL": "https://github.com",
+        "GITHUB_REPOSITORY": "rapidsai/release-tracking",
     }
     result = subprocess.run(  # noqa: S603
         ["/bin/bash", "-c", step["run"]], env=environment, capture_output=True, text=True, check=False
@@ -351,3 +510,104 @@ def test_the_action_step_runs_the_plan(store, tmp_path):
     assert json.loads(outputs["reused-jobs"]) == ["rapids-logger--conda-cpp-build", "kvikio--cpp-build"]  # noqa: S101
     assert json.loads(outputs["matrices"]) == {}  # noqa: S101
     assert "## Reuse plan" in summary.read_text()  # noqa: S101
+    assert "(https://github.com/rapidsai/release-tracking/actions/runs/400/attempts/1)" in summary.read_text()  # noqa: S101
+
+
+class BarrierS3(S3):
+    """Makes the first index listings wait for each other: a plan that decides rows one at a time breaks the barrier."""
+
+    def __init__(self, bucket, parties):
+        super().__init__(bucket)
+        self.barrier = threading.Barrier(parties, timeout=20)
+        self.waiting = parties
+        self.lock = threading.Lock()
+
+    def keys(self, prefix):
+        if "/row-reuse-index/" in prefix:
+            with self.lock:
+                wait = self.waiting > 0
+                self.waiting -= 1
+            if wait:
+                self.barrier.wait()
+        return super().keys(prefix)
+
+
+def test_the_rows_of_a_wave_are_decided_at_the_same_time(store, tmp_path):
+    # Live, deciding 20 rows one at a time took 167 s (release run 45727545063).
+    earlier_run(store, tmp_path)
+    workspace = tmp_path / "plan-work"
+    workspace.mkdir()
+    matrices, reused, _ = reuse_plan.plan(
+        BarrierS3("candidate-store", parties=2),
+        MANIFEST,
+        train_sha256=CURRENT,
+        run_id=RUN,
+        run_attempt="1",
+        image_map=IMAGES,
+        workspace=workspace,
+    )
+    assert matrices == {}  # noqa: S101
+    assert reused == ["rapids-logger--conda-cpp-build", "kvikio--cpp-build"]  # noqa: S101
+
+
+def test_an_earlier_runs_completion_records_are_listed_once(store, tmp_path):
+    earlier_run(store, tmp_path)
+    calls = tmp_path / "aws-calls"
+    calls.unlink(missing_ok=True)
+    run_plan(tmp_path)
+    listings = [
+        line for line in calls.read_text().splitlines() if "list-objects-v2" in line and "/completions/" in line
+    ]
+    assert len(listings) == 1, listings  # noqa: S101
+
+
+def test_the_action_runs_the_plan_unbuffered_so_its_log_shows_each_row_as_it_is_decided():
+    import yaml
+
+    step = next(step for step in yaml.safe_load(ACTION.read_text())["runs"]["steps"] if step.get("id") == "plan")
+    assert '"${REUSE_PLAN_PYTHON:?}" -u ' in step["run"]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    ("server", "repository"),
+    [
+        ("", "rapidsai/release-tracking"),
+        ("https://github.com", ""),
+        ("javascript:x", "rapidsai/release-tracking"),
+        ("https://github.com", "../evil"),
+    ],
+)
+def test_the_summary_links_need_a_valid_server_and_repository(store, tmp_path, server, repository):
+    (tmp_path / "manifest.json").write_text(json.dumps(MANIFEST))
+    output = tmp_path / "github-output"
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--image-map",
+            json.dumps(IMAGES),
+            "--train-sha256",
+            CURRENT,
+            "--run-id",
+            RUN,
+            "--run-attempt",
+            "1",
+            "--bucket",
+            "candidate-store",
+            "--github-output",
+            str(output),
+            "--summary",
+            str(tmp_path / "summary.md"),
+            "--server-url",
+            server,
+            "--repository",
+            repository,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0  # noqa: S101
+    assert not output.exists()  # noqa: S101

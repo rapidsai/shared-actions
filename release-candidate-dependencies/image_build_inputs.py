@@ -117,6 +117,23 @@ def image_source_inputs(train: Mapping[str, Any]) -> dict[str, Any]:
     return {"schema_version": 1, "sources": {}, "build_tools": {}}
 
 
+DEVELOPMENT_TOOLING = "excluded for development"
+
+
+def _build_policy(value: Any, label: str) -> dict[str, bool]:
+    """sccache, and tooling_in_reuse_keys only when false (the normal setting is left out, keeping existing keys)."""
+    if (
+        not isinstance(value, Mapping)
+        or not {"sccache"} <= set(value) <= {"sccache", "tooling_in_reuse_keys"}
+        or not all(type(setting) is bool for setting in value.values())
+    ):
+        raise ValueError(f"{label} require an exact compiler-cache and development-key policy")
+    policy = {"sccache": value["sccache"]}
+    if value.get("tooling_in_reuse_keys") is False:
+        policy["tooling_in_reuse_keys"] = False
+    return policy
+
+
 def legacy_image_build_inputs(
     train: Mapping[str, Any], package: Mapping[str, Any], *, refresh_key: str = ""
 ) -> dict[str, Any]:
@@ -138,27 +155,24 @@ def legacy_image_build_inputs(
     source = {"repository": repositories.get("ci-imgs"), "sha": revisions.get("ci-imgs")}
     _repositories({"ci-imgs": source["repository"]}, keys=frozenset({"ci-imgs"}))
     _revisions({"ci-imgs": source["sha"]})
-    build_policy = train.get("candidate_build_policy")
-    if (
-        not isinstance(build_policy, Mapping)
-        or set(build_policy) != {"sccache"}
-        or type(build_policy["sccache"]) is not bool
-    ):
-        raise ValueError("CI image inputs require an exact compiler-cache policy")
+    build_policy = _build_policy(train.get("candidate_build_policy"), "CI image inputs")
+    development = build_policy.get("tooling_in_reuse_keys") is False
     return validate_image_build_inputs(
         {
             "schema_version": 1,
             "resolution_policy": "retain-prior-resolved-environment",
             "source": source,
             "package": package,
-            "build_implementation_revisions": _revisions(
-                train.get("build_implementation_revisions"), keys=_IMPLEMENTATIONS
-            ),
+            # A development train (candidate_build_policy.tooling_in_reuse_keys: false) keys images without the
+            # tooling commits, as it keys package rows: every row's key holds its image digest.
+            "build_implementation_revisions": DEVELOPMENT_TOOLING
+            if development
+            else _revisions(train.get("build_implementation_revisions"), keys=_IMPLEMENTATIONS),
             "build_implementation_repositories": _repositories(
                 train.get("build_implementation_repositories"), keys=_IMPLEMENTATIONS
             ),
             "source_inputs": image_source_inputs(train),
-            "build_policy": dict(build_policy),
+            "build_policy": build_policy,
             "refresh_key": refresh_key,
         }
     )
@@ -186,18 +200,16 @@ def validate_image_build_inputs(descriptor: Mapping[str, Any]) -> dict[str, Any]
     _repositories({"source": source["repository"]}, keys=frozenset({"source"}))
     _revisions({"source": source["sha"]})
     _package_identity(descriptor["package"])
-    _revisions(descriptor["build_implementation_revisions"], keys=_IMPLEMENTATIONS)
+    build_policy = _build_policy(descriptor["build_policy"], "image descriptor")
+    if build_policy.get("tooling_in_reuse_keys") is False:
+        if descriptor["build_implementation_revisions"] != DEVELOPMENT_TOOLING:
+            raise ValueError("a development image descriptor must leave the tooling commits out")
+    else:
+        _revisions(descriptor["build_implementation_revisions"], keys=_IMPLEMENTATIONS)
     _repositories(descriptor["build_implementation_repositories"], keys=_IMPLEMENTATIONS)
     image_reuse_policy(
         {"candidate_image_policy": {"schema_version": 1, "mode": "retain", "refresh_key": descriptor["refresh_key"]}}
     )
-    build_policy = descriptor["build_policy"]
-    if (
-        not isinstance(build_policy, Mapping)
-        or set(build_policy) != {"sccache"}
-        or type(build_policy["sccache"]) is not bool
-    ):
-        raise ValueError("image descriptor requires an exact compiler-cache policy")
     inputs = descriptor["source_inputs"]
     if not isinstance(inputs, Mapping) or set(inputs) != {"schema_version", "sources", "build_tools"}:
         raise ValueError("image descriptor requires its complete source/tool input mapping")

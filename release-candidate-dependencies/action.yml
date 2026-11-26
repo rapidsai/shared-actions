@@ -69,6 +69,12 @@ inputs:
       input). It is keyed exactly as given; see row-entrypoint.
     required: false
     default: ""
+  image-row:
+    description: >-
+      A candidate CI image row's matrix row, as JSON (artifact-family container only). The row is then keyed from its
+      base images by digest, as the release train records them, instead of a runtime image and upstream packages.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -111,6 +117,7 @@ runs:
         RELEASE_CANDIDATE_RUNTIME_IMAGE_REFERENCE: ${{ inputs.runtime-image-reference }}
         RELEASE_CANDIDATE_ROW_ENTRYPOINT: ${{ inputs.row-entrypoint }}
         RELEASE_CANDIDATE_ROW_IDENTITY: ${{ inputs.row-identity }}
+        RELEASE_CANDIDATE_IMAGE_ROW: ${{ inputs.image-row }}
         RELEASE_CANDIDATE_SHARED_ACTIONS_REPOSITORY: ${{ github.action_repository }}
         RELEASE_CANDIDATE_SHARED_ACTIONS_REVISION: ${{ github.action_ref }}
         RELEASE_CANDIDATE_SHARED_WORKFLOWS_REPOSITORY: ${{ job.workflow_repository }}

@@ -237,3 +237,149 @@ def test_a_development_key_leaves_the_tooling_commits_out(tmp_path):
     assert base == new_tooling  # noqa: S101
     # And a development key is never a normal train's key.
     assert base != key(tmp_path, "normal")  # noqa: S101
+
+
+# A candidate CI image row (plans/per-row-reuse.md, 4a): keyed from its matrix row and base images by digest.
+IMAGE_ROW = {
+    "ARCH": "amd64",
+    "CUDA_VER": "13.4.3",
+    "PYTHON_VER": "3.12",
+    "LINUX_VER": "rockylinux8",
+    "IMAGE_REPO": "ci-conda",
+    "IMAGE_NAME": "rapidsai/ci-conda:26.12-cuda13.4.3-rockylinux8-py3.12",
+    "DOCKERFILE": "ci-conda.Dockerfile",
+    "DOCKER_TARGET": "",
+}
+CUDA_BASE = "docker.io/nvidia/cuda:13.4.3-base-rockylinux8@sha256:" + "e" * 64
+MINIFORGE_BASE = "docker.io/condaforge/miniforge3:26.9.4-0@sha256:" + "f" * 64
+
+
+def image_inputs(**changes):
+    value = {
+        "schema_version": 1,
+        "base_images": {"CUDA_BASE_IMAGE": CUDA_BASE, "MINIFORGE_BASE_IMAGE": MINIFORGE_BASE},
+        "refresh_key": "",
+        "build_policy": {"sccache": True},
+        "build_implementation_repositories": {"shared-actions": "rapidsai/shared-actions"},
+    }
+    value.update(changes)
+    return value
+
+
+def image_compute(tmp_path, *, inputs=None, row=None, **overrides):
+    arguments = {
+        "producer-repository": "rapidsai/ci-imgs",
+        "unit": "container:ci-images",
+        "family": "container",
+        "arch": "amd64",
+        "cuda-version": "13.4.3",
+        "python-version": "3.12",
+        "runtime-image": None,
+        "row-entrypoint": "ci-images-build-release",
+        "row-identity": json.dumps({"rapids-version": "26.12"}),
+        "image-row": json.dumps(row or IMAGE_ROW),
+        **overrides,
+    }
+    return compute(tmp_path, inputs=inputs or image_inputs(), deps=upstream(), **arguments)
+
+
+def image_key(tmp_path, name, **overrides):
+    directory = tmp_path / name
+    directory.mkdir()
+    result, _ = image_compute(directory, **overrides)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    return result.stdout.strip()
+
+
+def test_an_image_row_is_keyed_by_its_row_and_its_base_images(tmp_path):
+    result, output = image_compute(tmp_path)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    record = json.loads(output.read_bytes())
+    assert result.stdout.strip() == hashlib.sha256(output.read_bytes()).hexdigest()  # noqa: S101
+    # row.image tells ci-conda and ci-wheel apart in the upload's per-row history.
+    assert record["row"]["image"] == "ci-conda:26.12-cuda13.4.3-rockylinux8-py3.12-amd64"  # noqa: S101
+    assert record["image_row"] == IMAGE_ROW  # noqa: S101
+    assert record["build_inputs"]["base_images"]["CUDA_BASE_IMAGE"] == CUDA_BASE  # noqa: S101
+    assert record["upstream"] == []  # noqa: S101
+    assert "runtime_image" not in record  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"inputs": image_inputs(base_images={"CUDA_BASE_IMAGE": CUDA_BASE.replace("e" * 64, "d" * 64)})},
+        {"inputs": image_inputs(refresh_key="2026-11-25")},
+        {"row": {**IMAGE_ROW, "DOCKER_TARGET": "base"}},
+        {"producer-sha": "b" * 40},
+        {"implementation-revisions": json.dumps({**REVISIONS, "shared-actions": "f" * 40})},
+    ],
+)
+def test_every_input_of_an_image_changes_its_key(tmp_path, change):
+    assert image_key(tmp_path, "base") != image_key(tmp_path, "changed", **change)  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        image_inputs(base_images={}),
+        image_inputs(base_images={"CUDA_BASE_IMAGE": "docker.io/nvidia/cuda:13.4.3-base-rockylinux8"}),
+    ],
+)
+def test_an_image_without_digest_pinned_bases_gets_no_key(tmp_path, inputs):
+    result, output = image_compute(tmp_path, inputs=inputs)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert result.stdout == ""  # noqa: S101
+    assert not output.exists()  # noqa: S101
+    assert "not all pinned by digest" in result.stderr  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"runtime-image": IMAGE},
+        {"family": "conda", "unit": "conda:ci-images"},
+        {"arch": "arm64"},
+        {"row": {**IMAGE_ROW, "IMAGE_NAME": "rapidsai/ci-wheel:26.12"}},
+        {"row": {**IMAGE_ROW, "IMAGE_REPO": "citestwheel", "IMAGE_NAME": "rapidsai/citestwheel:26.12"}},
+        {"row": {key: value for key, value in IMAGE_ROW.items() if key != "IMAGE_NAME"}},
+        {"row": {**IMAGE_ROW, "nested": {"x": 1}}},
+        {"image-row": "not json"},
+    ],
+)
+def test_a_malformed_image_row_fails(tmp_path, overrides):
+    result, output = image_compute(tmp_path, **overrides)
+    assert result.returncode != 0  # noqa: S101
+    assert not output.exists()  # noqa: S101
+
+
+def test_an_image_row_with_upstream_packages_fails(tmp_path):
+    arguments = {
+        "family": "container",
+        "unit": "container:ci-images",
+        "cuda-version": "13.4.3",
+        "runtime-image": None,
+        "image-row": json.dumps(IMAGE_ROW),
+    }
+    result, output = compute(tmp_path, inputs=image_inputs(), deps=upstream(dependency()), **arguments)
+    assert result.returncode != 0  # noqa: S101
+    assert "consumes no upstream packages" in result.stderr  # noqa: S101
+    assert not output.exists()  # noqa: S101
+
+
+def test_a_container_row_without_an_image_row_still_gets_no_key(tmp_path):
+    # The image entrypoint called setup without an image row before 4a; that must keep working.
+    result, output = compute(
+        tmp_path, family="container", unit="container:ci-images", **{"runtime-image": None}, deps=upstream()
+    )
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert result.stdout == ""  # noqa: S101
+    assert not output.exists()  # noqa: S101
+
+
+def test_setup_keys_an_image_row_from_its_image_inputs():
+    setup = (Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh").read_text()
+    assert 'row_key_inputs.py" image-inputs' in setup  # noqa: S101
+    assert '--image-row "${image_row}"' in setup  # noqa: S101
+    assert '--build-inputs "${key_build_inputs}"' in setup  # noqa: S101
+    action = (Path(__file__).parents[1] / "release-candidate-dependencies" / "action.yml").read_text()
+    assert "RELEASE_CANDIDATE_IMAGE_ROW: ${{ inputs.image-row }}" in action  # noqa: S101

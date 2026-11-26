@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Decide every package build row of a release run before any build job starts (plans/per-row-reuse.md, 4b).
+"""Decide every build row of a release run before any build job starts (plans/per-row-reuse.md, 4a and 4b).
 
-The generator writes a manifest of the release file's package jobs: each job's repository, unit, family, release
-entrypoint, static identity (candidate-row-identity), the jobs it needs and its matrix. Jobs are decided in
-dependency order. A job is eligible only when every job it needs, and every job producing a unit its unit consumes,
-was reused in full: then every input of its rows is known, the upstream ones being the references just bound. Each
-eligible row's key is computed with the same modules dependency setup uses (upstream_selection.py,
-row_key_inputs.py, row_reuse_key.py), looked up and verified as the in-row check does (row_reuse.py), and bound on a
-hit. Any other row is left to build; its in-row check can still reuse it once its upstream finished.
+The generator writes a manifest of the release file's build jobs: each job's repository, unit, family, release
+entrypoint, static identity (candidate-row-identity), the jobs it needs and its matrix.
+
+CI image rows (family ``container``) are the first wave. Each is keyed from its ci-imgs commit, matrix row, tooling
+and base images by digest (row_key_inputs.py's image inputs), looked up and bound like a package row. A reused image
+goes into the image map straight from its earlier run's image record; a train asking for an image refresh rebuilds
+every image. A package row whose image builds in this run cannot be keyed yet: it builds, naming that image.
+
+Package jobs are then decided in dependency order. A job is eligible only when every job it needs, and every job
+producing a unit its unit consumes, was reused in full: then every input of its rows is known, the upstream ones being
+the references just bound. Each eligible row's key is computed with the same modules dependency setup uses
+(upstream_selection.py, row_key_inputs.py, row_reuse_key.py), looked up and verified as the in-row check does
+(row_reuse.py), and bound on a hit. Any other row is left to build; its in-row check can still reuse it once its
+upstream finished.
 
 Writes to --github-output:
 - ``matrices``: JSON object, job id -> the matrix of its rows that build (only jobs with such rows);
-- ``reused-jobs``: JSON list of the jobs whose every row was reused, which the release file skips.
+- ``reused-jobs``: JSON list of the jobs whose every row was reused, which the release file skips;
+- ``image-map``: JSON object, the given image map plus every image this plan reused (image key -> GHCR digest).
 Writes a table of every row and its outcome to --summary.
 """
 
@@ -29,12 +37,12 @@ import subprocess  # nosec B404 - jq, bash and this directory's scripts with fix
 import sys
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
-from row_key_inputs import build_inputs, upstream_document
+from row_key_inputs import build_inputs, image_inputs, image_key, image_refresh, upstream_document
 from row_reuse import HEX64, S3, SAFE, _completed, bind_reuse, find_reuse
 from s3_boto import Boto3S3
 from upstream_selection import select_upstream
@@ -46,6 +54,9 @@ _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 SAFE_REPOSITORY = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*\Z")
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _ROW_FIELDS = ("ARCH", "CUDA_VER", "PY_VER", "candidate_image_key")
+_IMAGE_ROW_FIELDS = ("ARCH", "CUDA_VER", "PYTHON_VER", "IMAGE_REPO", "IMAGE_NAME")
+_CANDIDATE_IMAGE = re.compile(r"ghcr\.io/rapidsai/release-candidates/ci-(conda|wheel)@sha256:[0-9a-f]{64}\Z")
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 class PlanError(Exception):
@@ -72,8 +83,8 @@ def _validate_manifest(manifest: Any) -> list[dict[str, Any]]:
             raise PlanError(f"{job_id}: unsafe repository name")
         if not isinstance(job.get("project"), str) or not SAFE.fullmatch(job["project"]):
             raise PlanError(f"{job_id}: invalid project")
-        if job.get("family") not in {"conda", "wheel"}:
-            raise PlanError(f"{job_id}: the reuse plan decides conda and wheel rows only")
+        if job.get("family") not in {"conda", "wheel", "container"}:
+            raise PlanError(f"{job_id}: the reuse plan decides conda, wheel and CI image rows only")
         if not isinstance(job.get("unit"), str) or not job["unit"].startswith(job["family"] + ":"):
             raise PlanError(f"{job_id}: unit must belong to its family")
         if not isinstance(job.get("entrypoint"), str) or _ENTRYPOINT.fullmatch(job["entrypoint"]) is None:
@@ -90,13 +101,31 @@ def _validate_manifest(manifest: Any) -> list[dict[str, Any]]:
         rows = (job.get("matrix") or {}).get("include") if isinstance(job.get("matrix"), dict) else None
         if not isinstance(rows, list) or not rows:
             raise PlanError(f"{job_id}: matrix must include at least one row")
+        fields = _IMAGE_ROW_FIELDS if job["family"] == "container" else _ROW_FIELDS
         for row in rows:
-            if not isinstance(row, dict) or not all(isinstance(row.get(field), str) for field in _ROW_FIELDS):
-                raise PlanError(f"{job_id}: every row needs {', '.join(_ROW_FIELDS)}")
+            if not isinstance(row, dict) or not all(isinstance(row.get(field), str) for field in fields):
+                raise PlanError(f"{job_id}: every row needs {', '.join(fields)}")
+        if job["family"] == "container":
+            if job["needs"]:
+                raise PlanError(f"{job_id}: CI image rows are the first wave and need no job")
+            if not all(isinstance(value, (str, bool, int, float)) for row in rows for value in row.values()):
+                raise PlanError(f"{job_id}: image rows hold only scalar values")
+            try:
+                keys = [image_key(row) for row in rows]
+            except ValueError as error:
+                raise PlanError(f"{job_id}: {error}") from error
+            if len(set(keys)) != len(keys):
+                raise PlanError(f"{job_id}: image rows repeat an image")
+    images = {job["id"] for job in jobs if job["family"] == "container"}
     for job in jobs:
         unknown = [need for need in job["needs"] if need not in ids]
         if unknown:
             raise PlanError(f"{job['id']}: needs unknown jobs {unknown}")
+        if images & set(job["needs"]):
+            raise PlanError(f"{job['id']}: a package job reaches its image through candidate_image_key, not needs")
+    keys = [image_key(row) for job in jobs if job["id"] in images for row in job["matrix"]["include"]]
+    if len(set(keys)) != len(keys):
+        raise PlanError("two image jobs build the same image")
     return _in_dependency_order(jobs)
 
 
@@ -273,6 +302,128 @@ def _row_key(
     return key, json.loads(record_bytes)
 
 
+def _image_row_key(
+    job: dict[str, Any], row: dict[str, str], train: dict[str, Any], workspace: Path
+) -> tuple[str, Any] | None:
+    """A CI image row's reuse key and key record, computed as setup computes them, or None when it has none."""
+    try:
+        inputs = image_inputs(train, row)
+    except ValueError as error:
+        raise PlanError(f"{job['id']}: {error}") from error
+    if inputs is None:
+        return None
+    directory = Path(tempfile.mkdtemp(dir=workspace))
+    (directory / "image-inputs.json").write_text(json.dumps(inputs))
+    (directory / "upstream-inputs.json").write_text(json.dumps(upstream_document([])))
+    producer_sha = (train.get("source_revisions") or {}).get(job["project"])
+    if not isinstance(producer_sha, str) or _SHA.fullmatch(producer_sha) is None:
+        raise PlanError(f"{job['id']}: the train has no source revision for {job['project']}")
+    result = subprocess.run(  # noqa: S603 # nosec B603
+        [
+            sys.executable,
+            str(_DIRECTORY / "row_reuse_key.py"),
+            "--producer-repository",
+            job["repository"],
+            "--producer-sha",
+            producer_sha,
+            "--unit",
+            job["unit"],
+            "--family",
+            job["family"],
+            "--arch",
+            row["ARCH"],
+            "--cuda-version",
+            row["CUDA_VER"],
+            "--python-version",
+            row["PYTHON_VER"],
+            "--implementation-revisions",
+            json.dumps(train.get("build_implementation_revisions"), sort_keys=True, separators=(",", ":")),
+            "--row-entrypoint",
+            job["entrypoint"],
+            "--row-identity",
+            json.dumps(job["identity"], sort_keys=True),
+            "--image-row",
+            json.dumps(row, sort_keys=True),
+            "--build-inputs",
+            str(directory / "image-inputs.json"),
+            "--upstream-inputs",
+            str(directory / "upstream-inputs.json"),
+            "--output",
+            str(directory / "row-reuse-key.json"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise PlanError(f"{job['id']}: cannot compute an image reuse key: {result.stderr.strip()}")
+    key = result.stdout.strip()
+    if not key:
+        return None
+    record_bytes = (directory / "row-reuse-key.json").read_bytes()
+    if not HEX64.fullmatch(key) or hashlib.sha256(record_bytes).hexdigest() != key:
+        raise PlanError(f"{job['id']}: the image reuse key does not match its key record")
+    return key, json.loads(record_bytes)
+
+
+def _reused_image(s3: S3, row: dict[str, str], references: dict[str, dict[str, Any]]) -> str:
+    """The digest-pinned GHCR image an earlier run's image row recorded, read from its verified artifact index."""
+    label = image_key(row)
+    if len(references) != 1:
+        raise PlanError(f"{label}: an image row indexes exactly one artifact, not {len(references)}")
+    reference = next(iter(references.values()))
+    index = json.loads(s3.get(reference["artifact_index_key"]) or b"null")
+    entries = [
+        entry
+        for entry in (index.get("entries") if isinstance(index, dict) else None) or []
+        if isinstance(entry, dict) and str(entry.get("path", "")).endswith(".oci-image.json")
+    ]
+    if len(entries) != 1:
+        raise PlanError(f"{label}: the earlier run's artifact index names {len(entries)} image records, not one")
+    data = s3.get(f"{reference['artifact_key']}/{entries[0]['path']}")
+    if data is None or hashlib.sha256(data).hexdigest() != entries[0].get("sha256"):
+        raise PlanError(f"{label}: the earlier run's image record is missing or changed")
+    record = json.loads(data)
+    repository = f"rapidsai/release-candidates/{row['IMAGE_REPO']}"
+    if (
+        not isinstance(record, dict)
+        or record.get("registry") != "ghcr.io"
+        or record.get("repository") != repository
+        or record.get("platform") != f"linux/{row['ARCH']}"
+        or not _DIGEST.fullmatch(str(record.get("digest")))
+    ):
+        raise PlanError(f"{label}: the earlier run's image record is not a {repository} linux/{row['ARCH']} image")
+    image = f"ghcr.io/{repository}@{record['digest']}"
+    if _CANDIDATE_IMAGE.fullmatch(image) is None:
+        raise PlanError(f"{label}: {image} is not a digest-pinned candidate image")
+    return image
+
+
+def _decide_image_row(
+    s3: S3, job: dict[str, Any], row: dict[str, str], train: dict[str, Any], workspace: Path, context: dict[str, str]
+) -> tuple[str | None, str]:
+    """Key, look up and bind one image row; return (its GHCR image, outcome) or (None, why it builds)."""
+    if image_refresh(train):
+        return None, "image refresh requested (candidate_image_policy.mode: refresh)"
+    computed = _image_row_key(job, row, train, workspace)
+    if computed is None:
+        return None, "no reuse key: the train records no base image digests"
+    key, key_record = computed
+    args = argparse.Namespace(key=key, repository=job["repository"], **context)
+    chosen = find_reuse(s3, args, key_record)
+    print(f"{job['id']} {_label(row)}: reuse key {key}", flush=True)
+    if chosen is None:
+        previous = _previous_build(s3, job, key_record, context)
+        if previous is None:
+            return None, "no earlier build of this row"
+        record, run, attempt = previous
+        return None, _cause(key_record, record) or f"the earlier build in run {run}.{attempt} could not be reused"
+    # Read the image before binding, so a bad record stops the plan without binding anything.
+    image = _reused_image(s3, row, chosen[2])
+    bind_reuse(s3, args, chosen)
+    return image, f"reused from run {chosen[0]}.{chosen[1]}"
+
+
 # What names a row, as opposed to what it was built from. The upload files every key record under this digest
 # (upload-candidate-s3.sh runs exactly this jq filter), so a row that misses can be compared with its previous build.
 ROW_DIGEST_JQ = "{producer: .producer.repository, row: .row, entrypoint: .build.entrypoint}"
@@ -351,6 +502,15 @@ def _cause(current: dict[str, Any], previous: dict[str, Any], upstream: str | No
             return f"tooling: {tool} {_short(then.get(tool))} → {_short(now.get(tool))}"
     if current.get("runtime_image") != previous.get("runtime_image"):
         return f"CI image: {_short(previous.get('runtime_image'))} → {_short(current.get('runtime_image'))}"
+    now_bases = (current.get("build_inputs") or {}).get("base_images") or {}
+    then_bases = (previous.get("build_inputs") or {}).get("base_images") or {}
+    for argument in sorted(set(now_bases) | set(then_bases)):
+        now_base, then_base = now_bases.get(argument), then_bases.get(argument)
+        if now_base != then_base:
+            now_tag, then_tag = str(now_base).split("@", 1)[0], str(then_base).split("@", 1)[0]
+            if now_tag != then_tag:
+                return f"base image: {argument} {then_tag} → {now_tag}"
+            return f"base image: {argument} {_short(then_base)} → {_short(now_base)}"
     if upstream is not None:
         return upstream
     now_upstream, then_upstream = _upstream_by_repository(current), _upstream_by_repository(previous)
@@ -370,9 +530,14 @@ def _cause(current: dict[str, Any], previous: dict[str, Any], upstream: str | No
         ("build_policy", "build policy"),
         ("source_inputs", "build sources or tools"),
         ("build_implementation_repositories", "tooling repositories"),
+        ("refresh_key", "image refresh key"),
     ):
         if now_inputs.get(field) != then_inputs.get(field):
             return f"{label} changed"
+    now_row, then_row = current.get("image_row") or {}, previous.get("image_row") or {}
+    for name in sorted(set(now_row) | set(then_row)):
+        if now_row.get(name) != then_row.get(name):
+            return f"ci-imgs matrix row: {name}"
     now_build, then_build = current.get("build") or {}, previous.get("build") or {}
     if now_build.get("entrypoint") != then_build.get("entrypoint"):
         return "release entrypoint changed"
@@ -380,10 +545,14 @@ def _cause(current: dict[str, Any], previous: dict[str, Any], upstream: str | No
     for name in sorted(set(now_identity) | set(then_identity)):
         if now_identity.get(name) != then_identity.get(name):
             return f"release-file settings: {name}"
+    if now_inputs != then_inputs:
+        return "build inputs changed"
     return None
 
 
 def _label(row: dict[str, str]) -> str:
+    if "IMAGE_REPO" in row:
+        return f"{row['IMAGE_REPO']} {row['CUDA_VER']}, {row['PYTHON_VER']}, {row['ARCH']}"
     return f"{row['CUDA_VER']}, {row['PY_VER']}, {row['ARCH']}"
 
 
@@ -398,13 +567,19 @@ def plan(
     workspace: Path,
     train_prefix: str = "train-state",
     content_prefix: str = "artifacts",
-) -> tuple[dict[str, Any], list[str], list[tuple[str, str, str]]]:
-    """Decide every row; return (matrices of rows that build, fully reused job ids, (job, row, outcome) lines)."""
+) -> tuple[dict[str, Any], list[str], list[tuple[str, str, str]], dict[str, str]]:
+    """Decide every row.
+
+    Returns (matrices of rows that build, fully reused job ids, (job, row, outcome) lines, the image map: the given
+    one plus every image this plan reused).
+    """
     if not HEX64.fullmatch(train_sha256) or not run_id.isdigit() or not run_attempt.isdigit():
         raise PlanError("invalid train digest, run id or run attempt")
-    jobs = _validate_manifest(manifest)
+    every_job = _validate_manifest(manifest)
     train, train_path = _load_train(s3, train_prefix, train_sha256, workspace)
-    _require_bound(s3, train_prefix, train_sha256, run_id, jobs)
+    _require_bound(s3, train_prefix, train_sha256, run_id, every_job)
+    image_jobs = [job for job in every_job if job["family"] == "container"]
+    jobs = [job for job in every_job if job["family"] != "container"]
 
     unit_jobs: dict[str, list[str]] = {}
     for job in jobs:
@@ -431,9 +606,36 @@ def plan(
         "content_prefix": content_prefix,
     }
 
+    image_map = dict(image_map)
+    building_images: set[str] = set()
     decided: set[str] = set()
     pending = list(jobs)
     with ThreadPoolExecutor(max_workers=_workers()) as pool:
+        # The first wave: every CI image row. A package row's key holds its image's digest, so images come first.
+        image_rows = {
+            job["id"]: [
+                (row, pool.submit(_decide_image_row, s3, job, row, train, workspace, context))
+                for row in job["matrix"]["include"]
+            ]
+            for job in image_jobs
+        }
+        for job in image_jobs:
+            missed = []
+            for row, future in image_rows[job["id"]]:
+                image, outcome = future.result()
+                key = image_key(row)
+                if image is None:
+                    missed.append(row)
+                    building_images.add(key)
+                    outcomes.append((job["id"], _label(row), f"builds: {outcome}"))
+                    continue
+                if image_map.setdefault(key, image) != image:
+                    raise PlanError(f"{key}: the given image map names {image_map[key]}, not the reused {image}")
+                outcomes.append((job["id"], _label(row), outcome))
+            if missed:
+                matrices[job["id"]] = {"include": missed}
+            else:
+                reused.add(job["id"])
         while pending:
             # A wave is every job whose upstream jobs are decided; its jobs and rows are independent of each other.
             wave = [job for job in pending if upstream_of[job["id"]] <= decided]
@@ -445,10 +647,17 @@ def plan(
                     (upstream for upstream in upstream_of[job["id"]] if upstream not in reused), key=order.__getitem__
                 )
                 build = build_inputs(train, _source_inputs(train_path, job["unit"], workspace))
+                waiting = [row for row in job["matrix"]["include"] if row["candidate_image_key"] in building_images]
+                if waiting:
+                    # Its image has no digest until it is built: the row can't be keyed, so its image is its cause.
+                    rows[job["id"]] = [
+                        (row, _done(f"CI image: {row['candidate_image_key']} builds"), True) for row in waiting
+                    ]
+                rest = [row for row in job["matrix"]["include"] if row not in waiting]
                 if building:
                     # The row can't be looked up, but its own previous build says whether something of its own changed;
                     # failing that, the cause is the matching row of the first upstream job that builds.
-                    rows[job["id"]] = [
+                    rows[job["id"]] = rows.get(job["id"], []) + [
                         (
                             row,
                             pool.submit(
@@ -465,23 +674,24 @@ def plan(
                             ),
                             True,
                         )
-                        for row in job["matrix"]["include"]
+                        for row in rest
                     ]
                     continue
                 upstream = sorted(upstream_of[job["id"]], key=order.__getitem__)
                 records = _catalog_records(s3, [ref for name in upstream for ref in bound[name]])
-                rows[job["id"]] = [
+                rows[job["id"]] = rows.get(job["id"], []) + [
                     (
                         row,
                         pool.submit(_decide_row, s3, job, row, train, build, records, image_map, workspace, context),
                         False,
                     )
-                    for row in job["matrix"]["include"]
+                    for row in rest
                 ]
             for job in wave:
                 missed = []
                 bound[job["id"]] = []
-                for row, future, cascaded in rows[job["id"]]:
+                position = {id(row): index for index, row in enumerate(job["matrix"]["include"])}
+                for row, future, cascaded in sorted(rows[job["id"]], key=lambda item: position[id(item[0])]):
                     if cascaded:
                         missed.append(row)
                         outcomes.append((job["id"], _label(row), f"builds: {future.result()}"))
@@ -500,7 +710,18 @@ def plan(
                     reused.add(job["id"])
             decided |= {job["id"] for job in wave}
             pending = [job for job in pending if job["id"] not in decided]
-    return matrices, sorted(reused, key=order.__getitem__), outcomes
+    image_order = {job["id"]: position for position, job in enumerate(image_jobs)}
+    reused_jobs = sorted(reused & set(image_order), key=image_order.__getitem__) + sorted(
+        reused - set(image_order), key=order.__getitem__
+    )
+    return matrices, reused_jobs, outcomes, image_map
+
+
+def _done(value: str) -> Future:
+    """An already-decided outcome, in the same form as the rows the pool decides."""
+    future: Future = Future()
+    future.set_result(value)
+    return future
 
 
 def _decide_row(
@@ -631,7 +852,7 @@ def main(argv: list[str] | None = None) -> int:
             development = not tooling_in_keys(
                 _load_train(store, args.train_prefix, args.train_sha256, Path(workspace))[0]
             )
-            matrices, reused_jobs, outcomes = plan(
+            matrices, reused_jobs, outcomes, image_map = plan(
                 store,
                 json.loads(Path(args.manifest).read_text()),
                 train_sha256=args.train_sha256,
@@ -647,6 +868,7 @@ def main(argv: list[str] | None = None) -> int:
     with Path(args.github_output).open("a") as output:
         output.write(f"matrices={json.dumps(matrices, sort_keys=True, separators=(',', ':'))}\n")
         output.write(f"reused-jobs={json.dumps(reused_jobs, separators=(',', ':'))}\n")
+        output.write(f"image-map={json.dumps(image_map, sort_keys=True, separators=(',', ':'))}\n")
     with Path(args.summary).open("a") as summary:
         summary.write(_summary(outcomes, reused_jobs, runs_url, development=development))
     return 0

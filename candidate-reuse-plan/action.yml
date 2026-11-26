@@ -1,17 +1,22 @@
 name: Plan release-candidate row reuse
 description: >-
-  Decide every package build row of a release run before any build job starts: bind the rows an earlier complete
-  run can supply, and output each job's matrix of rows that must build (plans/per-row-reuse.md, 4b).
+  Decide every build row of a release run before any build job starts, CI images first: bind the rows an earlier
+  complete run can supply, and output each job's matrix of rows that must build and the image map
+  (plans/per-row-reuse.md, 4a and 4b).
 
 inputs:
   manifest:
     description: >-
-      JSON written by the release-file generator: schema_version 1 and the package jobs, each with id, repository,
-      project, unit, family, entrypoint, identity (its static with: values), needs and matrix.
+      JSON written by the release-file generator: schema_version 1 and the build jobs, each with id, repository,
+      project, unit, family, entrypoint, identity (its static with: values), needs and matrix. A CI image job
+      (family container) needs no job and its matrix is the image matrix.
     required: true
   image-map:
-    description: JSON object, candidate image key -> digest-pinned candidate image (verify-ci-imgs' image map).
-    required: true
+    description: >-
+      JSON object, candidate image key -> digest-pinned candidate image, for images not decided by this plan
+      (verify-ci-imgs' image map); "{}" when the manifest lists the image job.
+    required: false
+    default: "{}"
   candidate-train-sha256:
     description: Canonical SHA-256 of the immutable release train.
     required: true
@@ -35,6 +40,11 @@ outputs:
   reused-jobs:
     description: JSON list of the jobs whose every row was reused; the release file skips them.
     value: ${{ steps.plan.outputs.reused-jobs }}
+  image-map:
+    description: >-
+      JSON object, candidate image key -> digest-pinned GHCR image: the given image map plus every image this plan
+      reused. When every image was reused, package jobs read it instead of verify-ci-imgs' map.
+    value: ${{ steps.plan.outputs.image-map }}
 
 runs:
   using: composite

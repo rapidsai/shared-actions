@@ -12,6 +12,12 @@ and the image map, since the row's own image is already in the key. Every other 
 new input is covered unless it is excluded here on purpose. A row whose image is not a digest-pinned candidate
 image, or that names no build, gets no key and is never indexed or reused.
 
+A candidate CI image row (family ``container``, plans/per-row-reuse.md, 4a) runs in no candidate image and consumes
+no upstream packages. Its key holds the ci-imgs commit, its matrix row (``image_row``; ``row.image`` names it, so the
+upload's per-row history tells ci-conda and ci-wheel apart), the build, the tooling and row_key_inputs.py's image
+inputs: its base images by digest, the refresh generation, the build policy and the tooling repositories. An image
+whose bases are not all pinned by digest gets no key.
+
 Writes the canonical record to --output and prints its SHA-256, the key.
 """
 
@@ -24,6 +30,8 @@ import re
 import sys
 from pathlib import Path
 
+PINNED_BASE = re.compile(r"docker\.io/[a-z0-9._/-]+:[A-Za-z0-9._-]{1,128}@sha256:[0-9a-f]{64}\Z")
+IMAGE_ROW_FIELDS = ("ARCH", "CUDA_VER", "PYTHON_VER", "IMAGE_REPO", "IMAGE_NAME")
 IMAGE = re.compile(r"ghcr\.io/rapidsai/release-candidates/ci-(conda|wheel)@sha256:[0-9a-f]{64}\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TOOLS = ("gha-tools", "shared-actions", "shared-workflows")
@@ -52,6 +60,9 @@ def main(argv: list[str] | None = None) -> int:
         "--row-identity",
         default="",
         help="The release file's static with: values for the row's job, as JSON (candidate-row-identity).",
+    )
+    parser.add_argument(
+        "--image-row", default="", help="A container row's image matrix row, as JSON; --build-inputs are its inputs."
     )
     parser.add_argument("--build-inputs", required=True)
     parser.add_argument("--upstream-inputs", required=True)
@@ -98,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("the row identity's values must be scalars, as with: values are")
         build = {"entrypoint": args.row_entrypoint, "identity": identity}
 
+    if args.image_row:
+        return _image_key(args, revisions, build_inputs, tooling_in_keys, dependencies, build)
     if IMAGE.fullmatch(args.runtime_image) is None:
         print(
             f"no reuse key: {args.runtime_image or 'no image'} is not a digest-pinned candidate image", file=sys.stderr
@@ -122,10 +135,75 @@ def main(argv: list[str] | None = None) -> int:
         "upstream": sorted(dependencies, key=lambda item: json.dumps(item, sort_keys=True)),
         "runtime_image": args.runtime_image,
     }
+    return _write(record, args.output)
+
+
+def _write(record: dict, output: str) -> int:
     data = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
-    Path(args.output).write_bytes(data)
+    Path(output).write_bytes(data)
     print(hashlib.sha256(data).hexdigest())
     return 0
+
+
+def _image_key(
+    args: argparse.Namespace,
+    revisions: dict,
+    inputs: dict,
+    tooling_in_keys: bool,
+    dependencies: list,
+    build: dict | None,
+) -> int:
+    """A candidate CI image row's key: its row, ci-imgs commit, build, tooling and image inputs."""
+    if args.family != "container":
+        raise SystemExit("only a container row has an image row")
+    if args.runtime_image:
+        raise SystemExit("a candidate image row runs in no candidate image")
+    if dependencies:
+        raise SystemExit("a candidate image row consumes no upstream packages")
+    try:
+        row = json.loads(args.image_row)
+    except json.JSONDecodeError as error:
+        raise SystemExit("the image row must be JSON") from error
+    if (
+        not isinstance(row, dict)
+        or not all(isinstance(row.get(field), str) and row[field] for field in IMAGE_ROW_FIELDS)
+        or not all(isinstance(value, (str, bool, int, float)) for value in row.values())
+    ):
+        raise SystemExit(f"the image row needs {', '.join(IMAGE_ROW_FIELDS)} and only scalar values")
+    if (row["ARCH"], row["CUDA_VER"], row["PYTHON_VER"]) != (args.arch, args.cuda_version, args.python_version):
+        raise SystemExit("the image row's ARCH, CUDA_VER and PYTHON_VER must be the row's")
+    variant = row["IMAGE_NAME"].removeprefix(f"rapidsai/{row['IMAGE_REPO']}:")
+    if row["IMAGE_REPO"] not in ("ci-conda", "ci-wheel") or variant == row["IMAGE_NAME"]:
+        raise SystemExit("the image row must name rapidsai/<ci-conda|ci-wheel>:<variant>")
+    bases = inputs.get("base_images")
+    if (
+        not isinstance(bases, dict)
+        or not bases
+        or not all(isinstance(value, str) and PINNED_BASE.fullmatch(value) for value in bases.values())
+    ):
+        print("no reuse key: the image's base images are not all pinned by digest", file=sys.stderr)
+        return 0
+    if build is None:
+        print("no reuse key: the row names no build (entrypoint and inputs)", file=sys.stderr)
+        return 0
+    record = {
+        "schema_version": 1,
+        "producer": {"repository": args.producer_repository, "sha": args.producer_sha},
+        "row": {
+            "unit": args.unit,
+            "family": args.family,
+            "arch": args.arch,
+            "cuda_version": args.cuda_version,
+            "python_version": args.python_version,
+            "image": f"{row['IMAGE_REPO']}:{variant}-{row['ARCH']}",
+        },
+        "image_row": row,
+        "build": build,
+        "implementation_revisions": revisions if tooling_in_keys else DEVELOPMENT_TOOLING,
+        "build_inputs": inputs,
+        "upstream": [],
+    }
+    return _write(record, args.output)
 
 
 if __name__ == "__main__":

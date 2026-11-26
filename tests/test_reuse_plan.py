@@ -28,6 +28,7 @@ RUN = "500"
 EARLIER = "c" * 64
 LOGGER_SHA = "1" * 40
 KVIKIO_SHA = "2" * 40
+IMAGES_SHA = "0" * 40
 TOOLS = {"gha-tools": "3" * 40, "shared-actions": "4" * 40, "shared-workflows": "5" * 40}
 IMAGES = {
     f"ci-conda:13-{arch}": "ghcr.io/rapidsai/release-candidates/ci-conda@sha256:" + digit * 64
@@ -53,8 +54,20 @@ TRAIN = {
         },
         {"id": "conda:kvikio", "artifact_family": "conda", "dependencies": ["source:kvikio", "conda:rapids-logger"]},
     ],
-    "source_revisions": {"rapids-logger": LOGGER_SHA, "kvikio": KVIKIO_SHA},
-    "github_repositories": {"rapids-logger": "rapidsai/rapids-logger", "kvikio": "rapidsai/kvikio"},
+    "source_revisions": {"rapids-logger": LOGGER_SHA, "kvikio": KVIKIO_SHA, "ci-imgs": IMAGES_SHA},
+    "github_repositories": {
+        "rapids-logger": "rapidsai/rapids-logger",
+        "kvikio": "rapidsai/kvikio",
+        "ci-imgs": "rapidsai/ci-imgs",
+    },
+    # The planner records each candidate image's bases by digest (plans/per-row-reuse.md, 4a).
+    "candidate_image_bases": {
+        f"ci-conda:13-{arch}": {
+            "CUDA_BASE_IMAGE": "docker.io/nvidia/cuda:13.4.3-base-rockylinux8@sha256:" + "e" * 64,
+            "MINIFORGE_BASE_IMAGE": "docker.io/condaforge/miniforge3:26.9.4-0@sha256:" + "f" * 64,
+        }
+        for arch in ("amd64", "arm64")
+    },
     "build_tool_revisions": {
         "dependency-file-generator": "8" * 40,
         "rapids-build-backend": "9" * 40,
@@ -122,6 +135,11 @@ CURRENT = train_digest(TRAIN)
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
+    return make_store(tmp_path, monkeypatch)
+
+
+def make_store(tmp_path, monkeypatch):
+    """A fake candidate store holding the current train, every repository bound to this run."""
     fake = tmp_path / "bin" / "aws"
     fake.parent.mkdir()
     fake.write_text(FAKE_AWS)
@@ -134,7 +152,7 @@ def store(tmp_path, monkeypatch):
     put(
         root,
         f"train-state/{CURRENT}/scheduler-state.json",
-        json.dumps({"workflow_runs": {"rapids-logger": RUN, "kvikio": RUN}}).encode(),
+        json.dumps({"workflow_runs": {"rapids-logger": RUN, "kvikio": RUN, "ci-imgs": RUN}}).encode(),
     )
     return root
 
@@ -284,7 +302,7 @@ def run_plan(tmp_path, manifest=MANIFEST, **overrides):
 
 def test_everything_reused_skips_every_job_and_binds_every_row(store, tmp_path):
     earlier_run(store, tmp_path)
-    matrices, reused, outcomes = run_plan(tmp_path)
+    matrices, reused, outcomes, _ = run_plan(tmp_path)
     assert matrices == {}  # noqa: S101
     assert reused == ["rapids-logger--conda-cpp-build", "kvikio--cpp-build"]  # noqa: S101
     assert [outcome for _, _, outcome in outcomes] == ["reused from run 400.1"] * 4  # noqa: S101
@@ -298,7 +316,7 @@ def test_everything_reused_skips_every_job_and_binds_every_row(store, tmp_path):
 
 def test_an_upstream_miss_builds_that_row_and_every_job_consuming_its_job(store, tmp_path):
     earlier_run(store, tmp_path, skip_logger_arch="amd64")
-    matrices, reused, outcomes = run_plan(tmp_path)
+    matrices, reused, outcomes, _ = run_plan(tmp_path)
     assert matrices == {  # noqa: S101
         "rapids-logger--conda-cpp-build": {"include": rows("amd64")},
         "kvikio--cpp-build": {"include": rows("amd64", "arm64")},
@@ -315,7 +333,7 @@ def test_an_upstream_miss_builds_that_row_and_every_job_consuming_its_job(store,
 
 def test_a_run_without_a_completion_record_is_not_reused(store, tmp_path):
     earlier_run(store, tmp_path, complete=False)
-    matrices, reused, _ = run_plan(tmp_path)
+    matrices, reused, _, _ = run_plan(tmp_path)
     assert set(matrices) == {"rapids-logger--conda-cpp-build", "kvikio--cpp-build"}  # noqa: S101
     assert reused == []  # noqa: S101
 
@@ -323,14 +341,14 @@ def test_a_run_without_a_completion_record_is_not_reused(store, tmp_path):
 def test_a_changed_input_changes_the_key_and_builds(store, tmp_path):
     earlier_run(store, tmp_path)
     changed = {**LOGGER_JOB, "identity": {**LOGGER_JOB["identity"], "script": "ci/build_conda_v2.sh"}}
-    matrices, reused, _ = run_plan(tmp_path, {"schema_version": 1, "jobs": [KVIKIO_JOB, changed]})
+    matrices, reused, _, _ = run_plan(tmp_path, {"schema_version": 1, "jobs": [KVIKIO_JOB, changed]})
     assert set(matrices) == {"rapids-logger--conda-cpp-build", "kvikio--cpp-build"}  # noqa: S101
     assert reused == []  # noqa: S101
 
 
 def test_a_row_without_a_digest_pinned_image_builds(store, tmp_path):
     earlier_run(store, tmp_path)
-    matrices, reused, outcomes = run_plan(tmp_path, image_map={})
+    matrices, reused, outcomes, _ = run_plan(tmp_path, image_map={})
     assert reused == []  # noqa: S101
     assert {outcome for _, _, outcome in outcomes if outcome.startswith("builds: no reuse key")}  # noqa: S101
     assert set(matrices) == {"rapids-logger--conda-cpp-build", "kvikio--cpp-build"}  # noqa: S101
@@ -368,7 +386,7 @@ def test_a_train_that_does_not_match_its_digest_stops_the_plan(store, tmp_path):
             ],
             "cycle",
         ),
-        ([{**LOGGER_JOB, "family": "docs", "unit": "docs:rapids-logger"}], "conda and wheel rows only"),
+        ([{**LOGGER_JOB, "family": "docs", "unit": "docs:rapids-logger"}], "conda, wheel and CI image rows only"),
         ([{**LOGGER_JOB, "identity": {}}], "non-empty object"),
         ([{**LOGGER_JOB, "matrix": {"include": [{"ARCH": "amd64"}]}}], "every row needs"),
     ],
@@ -547,7 +565,7 @@ def test_the_rows_of_a_wave_are_decided_at_the_same_time(store, tmp_path):
     earlier_run(store, tmp_path)
     workspace = tmp_path / "plan-work"
     workspace.mkdir()
-    matrices, reused, _ = reuse_plan.plan(
+    matrices, reused, _, _ = reuse_plan.plan(
         BarrierS3("candidate-store", parties=2),
         MANIFEST,
         train_sha256=CURRENT,
@@ -688,7 +706,7 @@ def changed(record, path, value):
 def test_a_root_miss_names_the_first_input_that_changed(store, tmp_path, path, value, cause):
     row = LOGGER_JOB["matrix"]["include"][0]
     history(store, LOGGER_JOB, row, changed(current_record(tmp_path, LOGGER_JOB, row), path, value))
-    _, _, outcomes = run_plan(tmp_path)
+    _, _, outcomes, _ = run_plan(tmp_path)
     assert (LOGGER_JOB["id"], "13.4.3, 3.12, amd64", f"builds: {cause}") in outcomes  # noqa: S101
 
 
@@ -697,7 +715,7 @@ def test_the_first_difference_wins_when_several_inputs_changed(store, tmp_path):
     previous = changed(current_record(tmp_path, LOGGER_JOB, row), ("producer", "sha"), "0" * 40)
     previous = changed(previous, ("implementation_revisions", "shared-actions"), "9" * 40)
     history(store, LOGGER_JOB, row, previous)
-    _, _, outcomes = run_plan(tmp_path)
+    _, _, outcomes, _ = run_plan(tmp_path)
     assert (LOGGER_JOB["id"], "13.4.3, 3.12, amd64", "builds: tooling: shared-actions 9999999 → 4444444") in outcomes  # noqa: S101
 
 
@@ -710,12 +728,12 @@ def test_an_upstream_package_change_names_the_upstream_repository(store, tmp_pat
     for path in (store / "artifacts/kvikio/row-reuse-index").rglob("*.json"):
         path.unlink()
     history(store, KVIKIO_JOB, row, previous)
-    _, _, outcomes = run_plan(tmp_path)
+    _, _, outcomes, _ = run_plan(tmp_path)
     assert (KVIKIO_JOB["id"], "13.4.3, 3.12, amd64", "builds: upstream: rapidsai/rapids-logger changed") in outcomes  # noqa: S101
 
 
 def test_a_row_without_a_previous_build_says_so(store, tmp_path):
-    _, _, outcomes = run_plan(tmp_path)
+    _, _, outcomes, _ = run_plan(tmp_path)
     assert (LOGGER_JOB["id"], "13.4.3, 3.12, amd64", "builds: no earlier build of this row") in outcomes  # noqa: S101
 
 
@@ -731,7 +749,7 @@ def test_a_previous_build_that_never_completed_is_not_the_comparison(store, tmp_
         run="350",
         complete=False,
     )
-    _, _, outcomes = run_plan(tmp_path)
+    _, _, outcomes, _ = run_plan(tmp_path)
     expected = (LOGGER_JOB["id"], "13.4.3, 3.12, amd64", "builds: source: rapidsai/rapids-logger 0000000 → 1111111")
     assert expected in outcomes  # noqa: S101
 
@@ -746,7 +764,7 @@ def test_a_cascaded_row_names_its_own_change_before_its_upstream(store, tmp_path
                 row,
                 changed(current_record(tmp_path, job, row), ("implementation_revisions", "shared-actions"), "9" * 40),
             )
-    _, _, outcomes = run_plan(tmp_path)
+    _, _, outcomes, _ = run_plan(tmp_path)
     kvikio = {outcome for job, _, outcome in outcomes if job == KVIKIO_JOB["id"]}
     assert kvikio == {"builds: tooling: shared-actions 9999999 → 4444444"}  # noqa: S101
 
@@ -758,7 +776,7 @@ def test_a_cascaded_row_with_nothing_else_changed_names_its_matching_upstream_ro
         previous = current_record(tmp_path, KVIKIO_JOB, row)
         previous["upstream"] = [{"producer": {"repository": "rapidsai/rapids-logger"}, "sha256": "0" * 64}]
         history(store, KVIKIO_JOB, row, previous)
-    _, _, outcomes = run_plan(tmp_path)
+    _, _, outcomes, _ = run_plan(tmp_path)
     assert {(row, outcome) for job, row, outcome in outcomes if job == KVIKIO_JOB["id"]} == {  # noqa: S101
         (f"13.4.3, 3.12, {arch}", f"builds: upstream: rapids-logger--conda-cpp-build 13.4.3, 3.12, {arch} builds")
         for arch in ("amd64", "arm64")
@@ -831,7 +849,7 @@ def test_the_summary_says_when_tooling_is_out_of_the_keys(store, tmp_path):
     )
     workspace = tmp_path / "plan-work"
     workspace.mkdir()
-    _, reused, outcomes = reuse_plan.plan(
+    _, reused, outcomes, _ = reuse_plan.plan(
         S3("candidate-store"),
         MANIFEST,
         train_sha256=digest,

@@ -189,3 +189,91 @@ def test_a_development_train_says_so_in_its_build_inputs():
 def test_a_build_policy_setting_that_is_unknown_or_not_boolean_fails(policy):
     with pytest.raises(ValueError, match=r"."):
         inputs.build_inputs({**TRAIN, "candidate_build_policy": policy}, SOURCE_INPUTS)
+
+
+IMAGE_ROW = {
+    "ARCH": "arm64",
+    "IMAGE_REPO": "ci-wheel",
+    "IMAGE_NAME": "rapidsai/ci-wheel:26.12-cuda13.4.3-rockylinux8-py3.12",
+    "CUDA_VER": "13.4.3",
+    "PYTHON_VER": "3.12",
+}
+IMAGE_KEY = "ci-wheel:26.12-cuda13.4.3-rockylinux8-py3.12-arm64"
+BASE = "docker.io/nvidia/cuda:13.4.3-devel-rockylinux8@sha256:" + "e" * 64
+IMAGE_TRAIN = {**TRAIN, "candidate_image_bases": {IMAGE_KEY: {"BASE_IMAGE": BASE}}}
+
+
+def test_an_image_key_is_the_image_maps():
+    assert inputs.image_key(IMAGE_ROW) == IMAGE_KEY  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"IMAGE_REPO": "citestwheel"}, {"ARCH": "ppc64le"}, {"IMAGE_NAME": "rapidsai/ci-conda:26.12"}, {"IMAGE_NAME": 1}],
+)
+def test_an_image_row_that_names_no_candidate_image_fails(change):
+    with pytest.raises(ValueError, match=r"."):
+        inputs.image_key({**IMAGE_ROW, **change})
+
+
+def test_image_inputs_are_its_bases_refresh_generation_policy_and_tooling_repositories():
+    assert inputs.image_inputs(IMAGE_TRAIN, IMAGE_ROW) == {  # noqa: S101
+        "schema_version": 1,
+        "base_images": {"BASE_IMAGE": BASE},
+        "refresh_key": "",
+        "build_policy": {"sccache": True},
+        "build_implementation_repositories": REPOSITORIES,
+    }
+    refreshed = {**IMAGE_TRAIN, "candidate_image_policy": {"schema_version": 1, "mode": "retain", "refresh_key": "r2"}}
+    assert inputs.image_inputs(refreshed, IMAGE_ROW)["refresh_key"] == "r2"  # noqa: S101
+    # Not the package locks or variants: the image consumes neither, so a lock change keeps every image.
+    relocked = {**IMAGE_TRAIN, "input_receipts": {**TRAIN["input_receipts"], "locks": {"sha256": "9" * 64}}}
+    assert inputs.image_inputs(relocked, IMAGE_ROW) == inputs.image_inputs(IMAGE_TRAIN, IMAGE_ROW)  # noqa: S101
+
+
+def test_a_train_without_base_digests_has_no_image_inputs():
+    assert inputs.image_inputs(TRAIN, IMAGE_ROW) is None  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "bases",
+    [
+        {},
+        {IMAGE_KEY: {}},
+        {IMAGE_KEY: {"BASE_IMAGE": "docker.io/nvidia/cuda:13.4.3-devel-rockylinux8"}},
+        {IMAGE_KEY: {"BASE_IMAGE": "ghcr.io/x/y:z@sha256:" + "e" * 64}},
+        {"ci-wheel:other-arm64": {"BASE_IMAGE": BASE}},
+    ],
+)
+def test_bases_missing_or_not_pinned_by_digest_fail(bases):
+    with pytest.raises(ValueError, match=r"."):
+        inputs.image_inputs({**TRAIN, "candidate_image_bases": bases}, IMAGE_ROW)
+
+
+def test_image_refresh_is_the_trains_image_policy():
+    assert inputs.image_refresh(TRAIN) is False  # noqa: S101
+    policy = {"schema_version": 1, "mode": "refresh", "refresh_key": ""}
+    assert inputs.image_refresh({**TRAIN, "candidate_image_policy": policy}) is True  # noqa: S101
+
+
+@pytest.mark.parametrize(("train", "expected"), [(IMAGE_TRAIN, True), (TRAIN, False)])
+def test_cli_prints_image_inputs_or_nothing(tmp_path, train, expected):
+    (tmp_path / "train.json").write_text(json.dumps(train))
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            str(_SCRIPT),
+            "image-inputs",
+            "--train",
+            str(tmp_path / "train.json"),
+            "--image-row",
+            json.dumps(IMAGE_ROW),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert (json.loads(result.stdout) if expected else result.stdout) == (  # noqa: S101
+        inputs.image_inputs(train, IMAGE_ROW) if expected else ""
+    )

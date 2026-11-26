@@ -603,22 +603,44 @@ python3 "${script_directory}/row_key_inputs.py" upstream --selected "${selected}
 # (row-entrypoint and row-identity). Its upload files the row
 # under this key, and an in-row reuse check looks it up. A row without a
 # digest-pinned candidate image gets no key and is never indexed or reused.
+#
+# A candidate CI image row (RELEASE_CANDIDATE_IMAGE_ROW, its matrix row) is keyed
+# from its image inputs instead: its base images by digest from the train, the
+# refresh generation, the build policy and the tooling repositories
+# (plans/per-row-reuse.md, 4a). A train that records no base digests gives it no key.
 row_reuse_key_file="${workspace}/row-reuse-key.json"
-row_reuse_key="$(python3 "${script_directory}/row_reuse_key.py" \
-  --producer-repository "${producer_repository}" \
-  --producer-sha "${producer_sha}" \
-  --unit "${candidate_unit_id}" \
-  --family "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" \
-  --arch "${RELEASE_CANDIDATE_ARCH}" \
-  --cuda-version "${RELEASE_CANDIDATE_CUDA_VERSION}" \
-  --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION:-}" \
-  --implementation-revisions "${build_implementation_revisions}" \
-  --runtime-image "${RELEASE_CANDIDATE_RUNTIME_IMAGE:-}" \
-  --row-entrypoint "${RELEASE_CANDIDATE_ROW_ENTRYPOINT:-}" \
-  --row-identity "${RELEASE_CANDIDATE_ROW_IDENTITY:-}" \
-  --build-inputs "${candidate_build_inputs}" \
-  --upstream-inputs "${upstream_inputs}" \
-  --output "${row_reuse_key_file}")"
+key_build_inputs="${candidate_build_inputs}"
+image_row="${RELEASE_CANDIDATE_IMAGE_ROW:-}"
+if [[ -n "${image_row}" ]]; then
+  if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" != "container" ]]; then
+    echo "an image row is given only for a container row" >&2
+    exit 1
+  fi
+  key_build_inputs="${workspace}/image-key-inputs.json"
+  python3 "${script_directory}/row_key_inputs.py" image-inputs \
+    --train "${workspace}/release-train.json" --image-row "${image_row}" >"${key_build_inputs}"
+fi
+row_reuse_key=""
+if [[ -s "${key_build_inputs}" ]]; then
+  row_reuse_key="$(python3 "${script_directory}/row_reuse_key.py" \
+    --producer-repository "${producer_repository}" \
+    --producer-sha "${producer_sha}" \
+    --unit "${candidate_unit_id}" \
+    --family "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" \
+    --arch "${RELEASE_CANDIDATE_ARCH}" \
+    --cuda-version "${RELEASE_CANDIDATE_CUDA_VERSION}" \
+    --python-version "${RELEASE_CANDIDATE_PYTHON_VERSION:-}" \
+    --implementation-revisions "${build_implementation_revisions}" \
+    --runtime-image "${RELEASE_CANDIDATE_RUNTIME_IMAGE:-}" \
+    --row-entrypoint "${RELEASE_CANDIDATE_ROW_ENTRYPOINT:-}" \
+    --row-identity "${RELEASE_CANDIDATE_ROW_IDENTITY:-}" \
+    --image-row "${image_row}" \
+    --build-inputs "${key_build_inputs}" \
+    --upstream-inputs "${upstream_inputs}" \
+    --output "${row_reuse_key_file}")"
+else
+  echo "no reuse key: the release train records no base image digests for this image" >&2
+fi
 
 index_candidate_conda_channel() {
   bash "${script_directory}/index-conda-channel.sh" "${channel}"

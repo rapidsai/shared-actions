@@ -634,6 +634,13 @@ jq -e --arg key "${row_key}" '.schema_version == 1 and .row_reuse_key == $key an
 jq -e --arg a "${digest_a}" --arg b "${digest_b}" \
   '.same_run_inputs == [{artifact: "a_cpp", build_input_digest: $a}, {artifact: "z_cpp", build_input_digest: $b}]' \
   "${row_index}" >/dev/null
+# The key record is also filed under the row itself, for the reuse plan's "what changed".
+row_digest="$(jq -cSj '{producer: .producer.repository, row: .row, entrypoint: .build.entrypoint}' "${row_key_file}" \
+  | sha256sum | awk '{print $1}')"
+row_history="${temporary_directory}/s3/candidate-store/artifacts/ci-imgs/row-reuse-history/${row_digest}/ci-image/909-1.json"
+test -f "${row_history}"
+jq -e --arg key "${row_key}" '.schema_version == 1 and .row_reuse_key == $key and .key_record.row == "example"
+  and .run_id == "909" and .run_attempt == "1" and (.train_sha256 | test("^[0-9a-f]{64}$"))' "${row_history}" >/dev/null
 # A keyed row without its record, or with a malformed one, fails before anything is uploaded.
 for bad in missing malformed; do
   before_bad="$(wc -l <"${temporary_directory}/put-objects.log")"

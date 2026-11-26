@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from row_key_inputs import build_inputs, upstream_document
-from row_reuse import HEX64, S3, SAFE, bind_reuse, find_reuse
+from row_reuse import HEX64, S3, SAFE, _completed, bind_reuse, find_reuse
 from upstream_selection import select_upstream
 
 _DIRECTORY = Path(__file__).resolve().parent
@@ -267,6 +267,106 @@ def _row_key(
     return key, json.loads(record_bytes)
 
 
+# What names a row, as opposed to what it was built from. The upload files every key record under this digest
+# (upload-candidate-s3.sh runs exactly this jq filter), so a row that misses can be compared with its previous build.
+ROW_DIGEST_JQ = "{producer: .producer.repository, row: .row, entrypoint: .build.entrypoint}"
+_HISTORY_RUN = re.compile(r"([0-9]+)-([0-9]+)\.json\Z")
+_TOOL_ORDER = ("gha-tools", "shared-actions", "shared-workflows")
+
+
+def row_digest(record: dict[str, Any]) -> str:
+    """sha256 of ROW_DIGEST_JQ applied to a key record, as jq -cSj prints it."""
+    named = {
+        "producer": (record.get("producer") or {}).get("repository"),
+        "row": record.get("row"),
+        "entrypoint": (record.get("build") or {}).get("entrypoint"),
+    }
+    return hashlib.sha256(
+        json.dumps(named, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def _previous_build(
+    s3: S3, job: dict[str, Any], record: dict[str, Any], context: dict[str, str]
+) -> tuple[dict[str, Any], str, str] | None:
+    """The newest completed earlier build of this row, as (key record, run, attempt), or None."""
+    repository = job["repository"].rsplit("/", 1)[-1]
+    prefix = f"{context['content_prefix']}/{repository}/row-reuse-history/{row_digest(record)}/"
+    runs: dict[tuple[int, int], str] = {}
+    for key in s3.keys(prefix):
+        parts = key.removeprefix(prefix).split("/")
+        match = _HISTORY_RUN.fullmatch(parts[-1]) if len(parts) == 2 else None
+        if match is not None and SAFE.fullmatch(parts[0]) and match[1] != context["run_id"]:
+            runs.setdefault((int(match[1]), int(match[2])), key)
+    for (run, attempt), key in sorted(runs.items(), reverse=True):
+        data = s3.get(key)
+        try:
+            entry = json.loads(data) if data is not None else None
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(entry, dict)
+            and isinstance(entry.get("key_record"), dict)
+            and HEX64.fullmatch(str(entry.get("train_sha256")))
+            and _completed(s3, context["train_prefix"], entry["train_sha256"], str(run), str(attempt))
+        ):
+            return entry["key_record"], str(run), str(attempt)
+    return None
+
+
+def _short(value: Any) -> str:
+    text = str(value)
+    if "@sha256:" in text:
+        return "sha256:" + text.split("@sha256:", 1)[1][:7]
+    return text[:7]
+
+
+def _upstream_by_repository(record: dict[str, Any]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for dependency in record.get("upstream") or []:
+        repository = str((dependency.get("producer") or {}).get("repository") or "")
+        grouped.setdefault(repository, []).append(json.dumps(dependency, sort_keys=True))
+    return {repository: sorted(entries) for repository, entries in grouped.items()}
+
+
+def _cause(current: dict[str, Any], previous: dict[str, Any]) -> str | None:
+    """The first input that differs from the row's previous build, in the order a reader would look for it."""
+    now, then = current.get("implementation_revisions") or {}, previous.get("implementation_revisions") or {}
+    for tool in (*_TOOL_ORDER, *sorted(set(now) | set(then))):
+        if now.get(tool) != then.get(tool):
+            return f"tooling: {tool} {_short(then.get(tool))} → {_short(now.get(tool))}"
+    if current.get("runtime_image") != previous.get("runtime_image"):
+        return f"CI image: {_short(previous.get('runtime_image'))} → {_short(current.get('runtime_image'))}"
+    now_upstream, then_upstream = _upstream_by_repository(current), _upstream_by_repository(previous)
+    for repository in sorted(set(now_upstream) | set(then_upstream)):
+        if now_upstream.get(repository) != then_upstream.get(repository):
+            return f"upstream: {repository} changed"
+    now_producer, then_producer = current.get("producer") or {}, previous.get("producer") or {}
+    if now_producer.get("sha") != then_producer.get("sha"):
+        before, after = _short(then_producer.get("sha")), _short(now_producer.get("sha"))
+        return f"source: {now_producer.get('repository')} {before} → {after}"
+    now_inputs, then_inputs = current.get("build_inputs") or {}, previous.get("build_inputs") or {}
+    now_train, then_train = now_inputs.get("train_inputs") or {}, then_inputs.get("train_inputs") or {}
+    for field, label in (("lock_receipt_sha256", "locks"), ("variant_receipt_sha256", "variants")):
+        if now_train.get(field) != then_train.get(field):
+            return f"{label} changed"
+    for field, label in (
+        ("build_policy", "build policy"),
+        ("source_inputs", "build sources or tools"),
+        ("build_implementation_repositories", "tooling repositories"),
+    ):
+        if now_inputs.get(field) != then_inputs.get(field):
+            return f"{label} changed"
+    now_build, then_build = current.get("build") or {}, previous.get("build") or {}
+    if now_build.get("entrypoint") != then_build.get("entrypoint"):
+        return "release entrypoint changed"
+    now_identity, then_identity = now_build.get("identity") or {}, then_build.get("identity") or {}
+    for name in sorted(set(now_identity) | set(then_identity)):
+        if now_identity.get(name) != then_identity.get(name):
+            return f"release-file settings: {name}"
+    return None
+
+
 def _label(row: dict[str, str]) -> str:
     return f"{row['CUDA_VER']}, {row['PY_VER']}, {row['ARCH']}"
 
@@ -304,6 +404,7 @@ def plan(
     order = {job["id"]: position for position, job in enumerate(jobs)}
     bound: dict[str, list[dict[str, Any]]] = {}
     reused: set[str] = set()
+    root: dict[str, str] = {}  # job -> the first thing that forced it to build, named for jobs below it
     matrices: dict[str, Any] = {}
     outcomes: list[tuple[str, str, str]] = []
     context = {
@@ -324,10 +425,12 @@ def plan(
                 raise PlanError("the manifest's jobs cannot be ordered")
             rows: dict[str, list[Any]] = {}
             for job in wave:
-                building = sorted(upstream for upstream in upstream_of[job["id"]] if upstream not in reused)
+                building = sorted(
+                    (upstream for upstream in upstream_of[job["id"]] if upstream not in reused), key=order.__getitem__
+                )
                 if building:
-                    reason = f"builds: {', '.join(building)} builds in this run"
-                    rows[job["id"]] = [(row, None, reason) for row in job["matrix"]["include"]]
+                    # Only the first thing that forced the build: the root cause of the first upstream job that builds.
+                    rows[job["id"]] = [(row, None, root[building[0]]) for row in job["matrix"]["include"]]
                     continue
                 upstream = sorted(upstream_of[job["id"]], key=order.__getitem__)
                 records = _catalog_records(s3, [ref for name in upstream for ref in bound[name]])
@@ -343,13 +446,20 @@ def plan(
             for job in wave:
                 missed = []
                 bound[job["id"]] = []
-                for row, future, reason in rows[job["id"]]:
-                    references, outcome = future.result() if future is not None else (None, reason)
+                for row, future, inherited in rows[job["id"]]:
+                    if future is None:
+                        missed.append(row)
+                        outcomes.append((job["id"], _label(row), f"builds: {inherited}"))
+                        root.setdefault(job["id"], inherited)
+                        continue
+                    references, outcome = future.result()
                     if references is None:
                         missed.append(row)
+                        outcomes.append((job["id"], _label(row), f"builds: {outcome}"))
+                        root.setdefault(job["id"], f"{job['id']} {_label(row)} builds ({outcome})")
                     else:
                         bound[job["id"]].extend(references)
-                    outcomes.append((job["id"], _label(row), outcome))
+                        outcomes.append((job["id"], _label(row), outcome))
                 if missed:
                     matrices[job["id"]] = {"include": missed}
                 else:
@@ -370,18 +480,22 @@ def _decide_row(
     workspace: Path,
     context: dict[str, str],
 ) -> tuple[list[dict[str, Any]] | None, str]:
-    """Compute one row's key, look it up and bind a hit; return (bound references or None, outcome)."""
+    """Compute one row's key, look it up and bind a hit; return (bound references, outcome) or (None, its cause)."""
     started = time.monotonic()
     computed = _row_key(job, row, train, build, records, image_map, workspace)
     if computed is None:
-        return None, "builds: no reuse key"
+        return None, "no reuse key"
     key, key_record = computed
     args = argparse.Namespace(key=key, repository=job["repository"], **context)
     chosen = find_reuse(s3, args, key_record)
     elapsed = time.monotonic() - started
     print(f"{job['id']} {_label(row)}: reuse key {key} ({elapsed:.1f} s)", flush=True)
     if chosen is None:
-        return None, "builds: no earlier complete build"
+        previous = _previous_build(s3, job, key_record, context)
+        if previous is None:
+            return None, "no earlier build of this row"
+        record, run, attempt = previous
+        return None, _cause(key_record, record) or f"the earlier build in run {run}.{attempt} could not be reused"
     references = list(bind_reuse(s3, args, chosen).values())
     return references, f"reused from run {chosen[0]}.{chosen[1]}"
 

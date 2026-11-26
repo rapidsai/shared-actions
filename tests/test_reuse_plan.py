@@ -308,7 +308,9 @@ def test_an_upstream_miss_builds_that_row_and_every_job_consuming_its_job(store,
     assert get(store, f"train-state/{CURRENT}/rapids-logger/reuse-bindings/{RUN}/rapids-logger_conda_cpp_arm64.json")  # noqa: S101
     assert not (store / f"train-state/{CURRENT}/kvikio/reuse-bindings").exists()  # noqa: S101
     kvikio = [outcome for job, _, outcome in outcomes if job == "kvikio--cpp-build"]
-    assert kvikio == ["builds: rapids-logger--conda-cpp-build builds in this run"] * 2  # noqa: S101
+    # Only the first thing that forced the build: the rapids-logger row that had no earlier build.
+    expected = "builds: rapids-logger--conda-cpp-build 13.4.3, 3.12, amd64 builds (no earlier build of this row)"
+    assert kvikio == [expected] * 2  # noqa: S101
 
 
 def test_a_run_without_a_completion_record_is_not_reused(store, tmp_path):
@@ -417,7 +419,7 @@ def test_cli_writes_the_outputs_and_the_summary(store, tmp_path):
     # A run is a link to that run attempt, not a bare number.
     run_link = "[run 400.1](https://github.com/rapidsai/release-tracking/actions/runs/400/attempts/1)"
     assert f"| rapids-logger--conda-cpp-build | 13.4.3, 3.12, arm64 | reused from {run_link} |" in table  # noqa: S101
-    assert "| rapids-logger--conda-cpp-build | 13.4.3, 3.12, amd64 | builds: no earlier complete build |" in table  # noqa: S101
+    assert "| rapids-logger--conda-cpp-build | 13.4.3, 3.12, amd64 | builds: no earlier build of this row |" in table  # noqa: S101
     assert "reuse key" in result.stdout  # noqa: S101
 
 
@@ -611,3 +613,155 @@ def test_the_summary_links_need_a_valid_server_and_repository(store, tmp_path, s
     )
     assert result.returncode != 0  # noqa: S101
     assert not output.exists()  # noqa: S101
+
+
+def current_record(tmp_path, job, row, references=()):
+    return key_for(tmp_path, job, row, list(references), S3("candidate-store"))[1]
+
+
+def history(root, job, row, key_record, *, run="300", attempt="1", train=EARLIER, complete=True):
+    """A previous build of the row, filed under the row as the upload files it."""
+    repository = job["repository"].rsplit("/", 1)[-1]
+    digest = reuse_plan.row_digest(key_record)
+    key = hashlib.sha256(json.dumps(key_record, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    put(
+        root,
+        f"artifacts/{repository}/row-reuse-history/{digest}/{repository}_conda_cpp_{row['ARCH']}/{run}-{attempt}.json",
+        json.dumps(
+            {
+                "schema_version": 1,
+                "row_reuse_key": key,
+                "key_record": key_record,
+                "train_sha256": train,
+                "run_id": run,
+                "run_attempt": attempt,
+            }
+        ).encode(),
+    )
+    if complete:
+        put(
+            root,
+            f"train-state/{train}/completions/{run}.{attempt}.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "train_sha256": train,
+                    "run_id": run,
+                    "run_attempt": attempt,
+                    "result": "complete",
+                }
+            ).encode(),
+        )
+
+
+def changed(record, path, value):
+    record = json.loads(json.dumps(record))
+    target = record
+    for part in path[:-1]:
+        target = target[part]
+    target[path[-1]] = value
+    return record
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "cause"),
+    [
+        (("implementation_revisions", "shared-actions"), "9" * 40, "tooling: shared-actions 9999999 → 4444444"),
+        (
+            ("runtime_image",),
+            "ghcr.io/rapidsai/release-candidates/ci-conda@sha256:" + "0" * 64,
+            "CI image: sha256:0000000 → sha256:6666666",
+        ),
+        (("producer", "sha"), "0" * 40, "source: rapidsai/rapids-logger 0000000 → 1111111"),
+        (("build_inputs", "train_inputs", "lock_receipt_sha256"), "0" * 64, "locks changed"),
+        (("build", "identity", "script"), "ci/old.sh", "release-file settings: script"),
+    ],
+)
+def test_a_root_miss_names_the_first_input_that_changed(store, tmp_path, path, value, cause):
+    row = LOGGER_JOB["matrix"]["include"][0]
+    history(store, LOGGER_JOB, row, changed(current_record(tmp_path, LOGGER_JOB, row), path, value))
+    _, _, outcomes = run_plan(tmp_path)
+    assert (LOGGER_JOB["id"], "13.4.3, 3.12, amd64", f"builds: {cause}") in outcomes  # noqa: S101
+
+
+def test_the_first_difference_wins_when_several_inputs_changed(store, tmp_path):
+    row = LOGGER_JOB["matrix"]["include"][0]
+    previous = changed(current_record(tmp_path, LOGGER_JOB, row), ("producer", "sha"), "0" * 40)
+    previous = changed(previous, ("implementation_revisions", "shared-actions"), "9" * 40)
+    history(store, LOGGER_JOB, row, previous)
+    _, _, outcomes = run_plan(tmp_path)
+    assert (LOGGER_JOB["id"], "13.4.3, 3.12, amd64", "builds: tooling: shared-actions 9999999 → 4444444") in outcomes  # noqa: S101
+
+
+def test_an_upstream_package_change_names_the_upstream_repository(store, tmp_path):
+    loggers = earlier_run(store, tmp_path)
+    row = KVIKIO_JOB["matrix"]["include"][0]
+    previous = current_record(tmp_path, KVIKIO_JOB, row, loggers)
+    previous["upstream"][0]["sha256"] = "0" * 64
+    # The earlier run's kvikio rows are indexed under today's key; remove them so this row misses on its own.
+    for path in (store / "artifacts/kvikio/row-reuse-index").rglob("*.json"):
+        path.unlink()
+    history(store, KVIKIO_JOB, row, previous)
+    _, _, outcomes = run_plan(tmp_path)
+    assert (KVIKIO_JOB["id"], "13.4.3, 3.12, amd64", "builds: upstream: rapidsai/rapids-logger changed") in outcomes  # noqa: S101
+
+
+def test_a_row_without_a_previous_build_says_so(store, tmp_path):
+    _, _, outcomes = run_plan(tmp_path)
+    assert (LOGGER_JOB["id"], "13.4.3, 3.12, amd64", "builds: no earlier build of this row") in outcomes  # noqa: S101
+
+
+def test_a_previous_build_that_never_completed_is_not_the_comparison(store, tmp_path):
+    row = LOGGER_JOB["matrix"]["include"][0]
+    record = current_record(tmp_path, LOGGER_JOB, row)
+    history(store, LOGGER_JOB, row, changed(record, ("producer", "sha"), "0" * 40), run="300")
+    history(
+        store,
+        LOGGER_JOB,
+        row,
+        changed(record, ("runtime_image",), IMAGES["ci-conda:13-arm64"]),
+        run="350",
+        complete=False,
+    )
+    _, _, outcomes = run_plan(tmp_path)
+    expected = (LOGGER_JOB["id"], "13.4.3, 3.12, amd64", "builds: source: rapidsai/rapids-logger 0000000 → 1111111")
+    assert expected in outcomes  # noqa: S101
+
+
+def test_a_cascaded_row_names_only_the_root_cause(store, tmp_path):
+    row = LOGGER_JOB["matrix"]["include"][0]
+    history(
+        store,
+        LOGGER_JOB,
+        row,
+        changed(current_record(tmp_path, LOGGER_JOB, row), ("implementation_revisions", "shared-actions"), "9" * 40),
+    )
+    _, _, outcomes = run_plan(tmp_path)
+    kvikio = {outcome for job, _, outcome in outcomes if job == KVIKIO_JOB["id"]}
+    assert kvikio == {  # noqa: S101
+        "builds: rapids-logger--conda-cpp-build 13.4.3, 3.12, amd64 builds (tooling: shared-actions 9999999 → 4444444)"
+    }
+
+
+def test_the_row_digest_is_the_uploads_jq_filter():
+    upload = (Path(__file__).parents[1] / "release-catalog" / "upload-candidate-s3.sh").read_text()
+    assert f"jq -cSj '{reuse_plan.ROW_DIGEST_JQ}'" in upload  # noqa: S101
+    record = {
+        "producer": {"repository": "rapidsai/kvikio", "sha": "1" * 40},
+        "build": {"entrypoint": "x-release"},
+        "row": {
+            "unit": "conda:kvikio",
+            "family": "conda",
+            "arch": "arm64",
+            "cuda_version": "12.9.2",
+            "python_version": "3.12",
+        },
+        "runtime_image": "ignored",
+    }
+    jq = subprocess.run(  # noqa: S603 - jq with the upload's fixed filter
+        [shutil.which("jq") or "jq", "-cSj", reuse_plan.ROW_DIGEST_JQ],
+        input=json.dumps(record).encode(),
+        capture_output=True,
+        check=True,
+    ).stdout
+    assert reuse_plan.row_digest(record) == hashlib.sha256(jq).hexdigest()  # noqa: S101

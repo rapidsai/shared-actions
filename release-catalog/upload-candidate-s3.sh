@@ -523,6 +523,24 @@ if [[ -n "${row_reuse_key}" ]]; then
     >"${row_reuse_index}"
   upload_immutable "${row_reuse_index}" \
     "${RELEASE_CANDIDATE_CONTENT_PREFIX}/${repository_name}/row-reuse-index/${row_reuse_key}/${RELEASE_SOURCE_ARTIFACT_NAME}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+  # Also file the key record under the row itself (what names it, not what it was
+  # built from), so the reuse plan can say which input changed when a later run
+  # of the row misses: the index above is looked up by the whole key and can't.
+  # reuse_plan.py's ROW_DIGEST_JQ is this exact filter.
+  row_digest="$(jq -cSj '{producer: .producer.repository, row: .row, entrypoint: .build.entrypoint}' \
+    "${row_reuse_key_file}" | sha256sum | awk '{print $1}')"
+  row_reuse_history="${validation_directory}/row-reuse-history.json"
+  jq -cnS \
+    --slurpfile key_record "${row_reuse_key_file}" \
+    --arg row_reuse_key "${row_reuse_key}" \
+    --arg train_sha256 "${RELEASE_CANDIDATE_TRAIN_SHA256}" \
+    --arg run_id "${GITHUB_RUN_ID}" \
+    --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+    '{schema_version: 1, row_reuse_key: $row_reuse_key, key_record: $key_record[0], train_sha256: $train_sha256,
+      run_id: $run_id, run_attempt: $run_attempt}' \
+    >"${row_reuse_history}"
+  upload_immutable "${row_reuse_history}" \
+    "${RELEASE_CANDIDATE_CONTENT_PREFIX}/${repository_name}/row-reuse-history/${row_digest}/${RELEASE_SOURCE_ARTIFACT_NAME}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
 else
   echo "No row reuse key for ${RELEASE_SOURCE_ARTIFACT_NAME}; it is not indexed for reuse."
 fi

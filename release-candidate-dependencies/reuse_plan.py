@@ -333,14 +333,20 @@ def _upstream_by_repository(record: dict[str, Any]) -> dict[str, list[str]]:
     return {repository: sorted(entries) for repository, entries in grouped.items()}
 
 
-def _cause(current: dict[str, Any], previous: dict[str, Any]) -> str | None:
-    """The first input that differs from the row's previous build, in the order a reader would look for it."""
+def _cause(current: dict[str, Any], previous: dict[str, Any], upstream: str | None = None) -> str | None:
+    """The first input that differs from the row's previous build, in the order a reader would look for it.
+
+    ``upstream`` names an upstream row that builds in this run: the row's upstream packages aren't known yet, so that
+    row is the upstream cause, after tooling and the CI image.
+    """
     now, then = current.get("implementation_revisions") or {}, previous.get("implementation_revisions") or {}
     for tool in (*_TOOL_ORDER, *sorted(set(now) | set(then))):
         if now.get(tool) != then.get(tool):
             return f"tooling: {tool} {_short(then.get(tool))} → {_short(now.get(tool))}"
     if current.get("runtime_image") != previous.get("runtime_image"):
         return f"CI image: {_short(previous.get('runtime_image'))} → {_short(current.get('runtime_image'))}"
+    if upstream is not None:
+        return upstream
     now_upstream, then_upstream = _upstream_by_repository(current), _upstream_by_repository(previous)
     for repository in sorted(set(now_upstream) | set(then_upstream)):
         if now_upstream.get(repository) != then_upstream.get(repository):
@@ -408,7 +414,7 @@ def plan(
     order = {job["id"]: position for position, job in enumerate(jobs)}
     bound: dict[str, list[dict[str, Any]]] = {}
     reused: set[str] = set()
-    root: dict[str, str] = {}  # job -> the first thing that forced it to build, named for jobs below it
+    missed_rows: dict[str, list[dict[str, str]]] = {}  # job -> its rows that build, for the jobs below it to name
     matrices: dict[str, Any] = {}
     outcomes: list[tuple[str, str, str]] = []
     context = {
@@ -432,38 +438,56 @@ def plan(
                 building = sorted(
                     (upstream for upstream in upstream_of[job["id"]] if upstream not in reused), key=order.__getitem__
                 )
+                build = build_inputs(train, _source_inputs(train_path, job["unit"], workspace))
                 if building:
-                    # Only the first thing that forced the build: the root cause of the first upstream job that builds.
-                    rows[job["id"]] = [(row, None, root[building[0]]) for row in job["matrix"]["include"]]
+                    # The row can't be looked up, but its own previous build says whether something of its own changed;
+                    # failing that, the cause is the matching row of the first upstream job that builds.
+                    rows[job["id"]] = [
+                        (
+                            row,
+                            pool.submit(
+                                _cascaded_row,
+                                s3,
+                                job,
+                                row,
+                                train,
+                                build,
+                                image_map,
+                                workspace,
+                                context,
+                                _upstream_text(building[0], missed_rows[building[0]], row),
+                            ),
+                            True,
+                        )
+                        for row in job["matrix"]["include"]
+                    ]
                     continue
                 upstream = sorted(upstream_of[job["id"]], key=order.__getitem__)
                 records = _catalog_records(s3, [ref for name in upstream for ref in bound[name]])
-                build = build_inputs(train, _source_inputs(train_path, job["unit"], workspace))
                 rows[job["id"]] = [
                     (
                         row,
                         pool.submit(_decide_row, s3, job, row, train, build, records, image_map, workspace, context),
-                        None,
+                        False,
                     )
                     for row in job["matrix"]["include"]
                 ]
             for job in wave:
                 missed = []
                 bound[job["id"]] = []
-                for row, future, inherited in rows[job["id"]]:
-                    if future is None:
+                for row, future, cascaded in rows[job["id"]]:
+                    if cascaded:
                         missed.append(row)
-                        outcomes.append((job["id"], _label(row), f"builds: {inherited}"))
-                        root.setdefault(job["id"], inherited)
+                        outcomes.append((job["id"], _label(row), f"builds: {future.result()}"))
                         continue
                     references, outcome = future.result()
                     if references is None:
                         missed.append(row)
                         outcomes.append((job["id"], _label(row), f"builds: {outcome}"))
-                        root.setdefault(job["id"], f"{job['id']} {_label(row)} builds ({outcome})")
                     else:
                         bound[job["id"]].extend(references)
                         outcomes.append((job["id"], _label(row), outcome))
+                missed_rows[job["id"]] = missed
                 if missed:
                     matrices[job["id"]] = {"include": missed}
                 else:
@@ -511,6 +535,40 @@ _SERVER = re.compile(r"https://[A-Za-z0-9.-]+(:[0-9]+)?\Z")
 def _linked(outcome: str, runs_url: str) -> str:
     """Make each "run <id>.<attempt>" a link to that run attempt."""
     return _RUN_REFERENCE.sub(lambda match: f"[{match[0]}]({runs_url}/{match[1]}/attempts/{match[2]})", outcome)
+
+
+def _upstream_text(job_id: str, missed: list[dict[str, str]], row: dict[str, str]) -> str:
+    """Name the upstream job's building row that matches this row: same arch and CUDA, else same arch, else its first.
+
+    A CUDA-agnostic upstream (rapids-logger builds only CUDA 13.4.3 and serves both majors) matches by arch alone.
+    """
+    match = (
+        next((other for other in missed if (other["ARCH"], other["CUDA_VER"]) == (row["ARCH"], row["CUDA_VER"])), None)
+        or next((other for other in missed if other["ARCH"] == row["ARCH"]), None)
+        or missed[0]
+    )
+    return f"upstream: {job_id} {_label(match)} builds"
+
+
+def _cascaded_row(
+    s3: S3,
+    job: dict[str, Any],
+    row: dict[str, str],
+    train: dict[str, Any],
+    build: dict[str, Any],
+    image_map: dict[str, str],
+    workspace: Path,
+    context: dict[str, str],
+    upstream: str,
+) -> str:
+    """Why a row whose upstream builds in this run builds: a change of its own if any, else that upstream row."""
+    computed = _row_key(job, row, train, build, [], image_map, workspace)
+    if computed is None:
+        return "no reuse key"
+    previous = _previous_build(s3, job, computed[1], context)
+    if previous is None:
+        return "no earlier build of this row"
+    return _cause(computed[1], previous[0], upstream) or upstream
 
 
 def _summary(outcomes: list[tuple[str, str, str]], reused_jobs: list[str], runs_url: str) -> str:

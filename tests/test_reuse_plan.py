@@ -309,8 +309,8 @@ def test_an_upstream_miss_builds_that_row_and_every_job_consuming_its_job(store,
     assert not (store / f"train-state/{CURRENT}/kvikio/reuse-bindings").exists()  # noqa: S101
     kvikio = [outcome for job, _, outcome in outcomes if job == "kvikio--cpp-build"]
     # Only the first thing that forced the build: the rapids-logger row that had no earlier build.
-    expected = "builds: rapids-logger--conda-cpp-build 13.4.3, 3.12, amd64 builds (no earlier build of this row)"
-    assert kvikio == [expected] * 2  # noqa: S101
+    # kvikio has no earlier build of its own, which is all its rows need to say.
+    assert kvikio == ["builds: no earlier build of this row"] * 2  # noqa: S101
 
 
 def test_a_run_without_a_completion_record_is_not_reused(store, tmp_path):
@@ -729,18 +729,32 @@ def test_a_previous_build_that_never_completed_is_not_the_comparison(store, tmp_
     assert expected in outcomes  # noqa: S101
 
 
-def test_a_cascaded_row_names_only_the_root_cause(store, tmp_path):
-    row = LOGGER_JOB["matrix"]["include"][0]
-    history(
-        store,
-        LOGGER_JOB,
-        row,
-        changed(current_record(tmp_path, LOGGER_JOB, row), ("implementation_revisions", "shared-actions"), "9" * 40),
-    )
+def test_a_cascaded_row_names_its_own_change_before_its_upstream(store, tmp_path):
+    # Release run 45740919736 named the upstream job's cause on every kvikio row, though kvikio's own tooling changed.
+    for job in (LOGGER_JOB, KVIKIO_JOB):
+        for row in job["matrix"]["include"]:
+            history(
+                store,
+                job,
+                row,
+                changed(current_record(tmp_path, job, row), ("implementation_revisions", "shared-actions"), "9" * 40),
+            )
     _, _, outcomes = run_plan(tmp_path)
     kvikio = {outcome for job, _, outcome in outcomes if job == KVIKIO_JOB["id"]}
-    assert kvikio == {  # noqa: S101
-        "builds: rapids-logger--conda-cpp-build 13.4.3, 3.12, amd64 builds (tooling: shared-actions 9999999 → 4444444)"
+    assert kvikio == {"builds: tooling: shared-actions 9999999 → 4444444"}  # noqa: S101
+
+
+def test_a_cascaded_row_with_nothing_else_changed_names_its_matching_upstream_row(store, tmp_path):
+    # Only the upstream changed for kvikio, so it names the rapids-logger row with its own arch and CUDA (rapids-logger
+    # builds only CUDA 13.4.3, which serves both CUDA majors, so the arch is what must match).
+    for row in KVIKIO_JOB["matrix"]["include"]:
+        previous = current_record(tmp_path, KVIKIO_JOB, row)
+        previous["upstream"] = [{"producer": {"repository": "rapidsai/rapids-logger"}, "sha256": "0" * 64}]
+        history(store, KVIKIO_JOB, row, previous)
+    _, _, outcomes = run_plan(tmp_path)
+    assert {(row, outcome) for job, row, outcome in outcomes if job == KVIKIO_JOB["id"]} == {  # noqa: S101
+        (f"13.4.3, 3.12, {arch}", f"builds: upstream: rapids-logger--conda-cpp-build 13.4.3, 3.12, {arch} builds")
+        for arch in ("amd64", "arm64")
     }
 
 

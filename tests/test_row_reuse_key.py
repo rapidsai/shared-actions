@@ -219,3 +219,21 @@ def test_candidate_setup_computes_and_exports_the_key_after_upstream_inputs():
     assert "RELEASE_CANDIDATE_ROW_ENTRYPOINT: ${{ inputs.row-entrypoint }}" in action  # noqa: S101
     assert "RELEASE_CANDIDATE_ROW_IDENTITY: ${{ inputs.row-identity }}" in action  # noqa: S101
     assert "row-inputs" not in action  # noqa: S101
+
+
+def development_inputs():
+    return build_inputs(build_policy={"sccache": True, "tooling_in_reuse_keys": False})
+
+
+def test_a_development_key_leaves_the_tooling_commits_out(tmp_path):
+    result, output = compute(tmp_path, inputs=development_inputs())
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert json.loads(output.read_bytes())["implementation_revisions"] == "excluded for development"  # noqa: S101
+    changed_tooling = json.dumps({**REVISIONS, "shared-actions": "f" * 40})
+    base = key(tmp_path, "development", inputs=development_inputs())
+    new_tooling = key(
+        tmp_path, "new-tooling", inputs=development_inputs(), **{"implementation-revisions": changed_tooling}
+    )
+    assert base == new_tooling  # noqa: S101
+    # And a development key is never a normal train's key.
+    assert base != key(tmp_path, "normal")  # noqa: S101

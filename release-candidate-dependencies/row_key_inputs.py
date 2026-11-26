@@ -38,6 +38,17 @@ def build_inputs(train: dict[str, Any], source_inputs: dict[str, Any]) -> dict[s
     sccache = policy.get("sccache") if isinstance(policy, dict) else None
     if not isinstance(sccache, bool):
         raise ValueError("release train must declare candidate_build_policy.sccache as true or false")
+    unknown = sorted(set(policy) - {"sccache", "tooling_in_reuse_keys"})
+    if unknown:
+        raise ValueError(f"release train has unknown candidate_build_policy settings: {', '.join(unknown)}")
+    tooling_in_keys = policy.get("tooling_in_reuse_keys", True)
+    if not isinstance(tooling_in_keys, bool):
+        raise ValueError("candidate_build_policy.tooling_in_reuse_keys must be true or false")
+    build_policy: dict[str, bool] = {"sccache": sccache}
+    if not tooling_in_keys:
+        # A development setting: row_reuse_key.py then keys rows without the tooling commits. Recording it here keeps
+        # those keys apart from every normal train's; the normal setting is left out so existing keys don't change.
+        build_policy["tooling_in_reuse_keys"] = False
     repositories = train.get("build_implementation_repositories", _DEFAULT_REPOSITORIES)
     if (
         not isinstance(repositories, dict)
@@ -49,7 +60,7 @@ def build_inputs(train: dict[str, Any], source_inputs: dict[str, Any]) -> dict[s
     return {
         "schema_version": 1,
         "train_inputs": {"lock_receipt_sha256": digests["locks"], "variant_receipt_sha256": digests["variants"]},
-        "build_policy": {"sccache": sccache},
+        "build_policy": build_policy,
         "build_implementation_repositories": repositories,
         "source_inputs": source_inputs,
     }

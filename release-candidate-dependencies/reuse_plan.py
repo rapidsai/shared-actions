@@ -340,6 +340,10 @@ def _cause(current: dict[str, Any], previous: dict[str, Any], upstream: str | No
     row is the upstream cause, after tooling and the CI image.
     """
     now, then = current.get("implementation_revisions") or {}, previous.get("implementation_revisions") or {}
+    if isinstance(now, str) != isinstance(then, str):
+        return f"tooling: development keys switched {'on' if isinstance(now, str) else 'off'}"
+    if isinstance(now, str):
+        now, then = {}, {}
     for tool in (*_TOOL_ORDER, *sorted(set(now) | set(then))):
         if now.get(tool) != then.get(tool):
             return f"tooling: {tool} {_short(then.get(tool))} → {_short(now.get(tool))}"
@@ -571,8 +575,25 @@ def _cascaded_row(
     return _cause(computed[1], previous[0], upstream) or upstream
 
 
-def _summary(outcomes: list[tuple[str, str, str]], reused_jobs: list[str], runs_url: str) -> str:
+def tooling_in_keys(train: dict[str, Any]) -> bool:
+    """False when the train keys rows without the tooling commits (a per-release development setting)."""
+    return (train.get("candidate_build_policy") or {}).get("tooling_in_reuse_keys", True) is not False
+
+
+def _summary(
+    outcomes: list[tuple[str, str, str]], reused_jobs: list[str], runs_url: str, *, development: bool = False
+) -> str:
+    notice = (
+        [
+            "**Development: the tooling commits are not in this train's reuse keys**"
+            " (`candidate_build_policy.tooling_in_reuse_keys: false`). Not for a release.",
+            "",
+        ]
+        if development
+        else []
+    )
     lines = [
+        *notice,
         "## Reuse plan",
         "",
         f"{len(reused_jobs)} jobs reused in full and skipped; their rows are listed here, not as jobs.",
@@ -603,8 +624,12 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(image_map, dict):
             raise PlanError("the image map must be a JSON object")
         with tempfile.TemporaryDirectory() as workspace:
+            store = S3(args.bucket)
+            development = not tooling_in_keys(
+                _load_train(store, args.train_prefix, args.train_sha256, Path(workspace))[0]
+            )
             matrices, reused_jobs, outcomes = plan(
-                S3(args.bucket),
+                store,
                 json.loads(Path(args.manifest).read_text()),
                 train_sha256=args.train_sha256,
                 run_id=args.run_id,
@@ -620,7 +645,7 @@ def main(argv: list[str] | None = None) -> int:
         output.write(f"matrices={json.dumps(matrices, sort_keys=True, separators=(',', ':'))}\n")
         output.write(f"reused-jobs={json.dumps(reused_jobs, separators=(',', ':'))}\n")
     with Path(args.summary).open("a") as summary:
-        summary.write(_summary(outcomes, reused_jobs, runs_url))
+        summary.write(_summary(outcomes, reused_jobs, runs_url, development=development))
     return 0
 
 

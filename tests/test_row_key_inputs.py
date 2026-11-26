@@ -166,3 +166,26 @@ def test_cli_writes_both_documents(tmp_path):
         )
         assert result.returncode == 0, result.stderr  # noqa: S101
         assert json.loads(result.stdout) == expected  # noqa: S101
+
+
+DEVELOPMENT = {**TRAIN, "candidate_build_policy": {"sccache": True, "tooling_in_reuse_keys": False}}
+
+
+def test_a_development_train_says_so_in_its_build_inputs():
+    # Leaving tooling out of reuse keys (a per-release development setting) must give keys no normal train can have.
+    assert inputs.build_inputs(DEVELOPMENT, SOURCE_INPUTS)["build_policy"] == {  # noqa: S101
+        "sccache": True,
+        "tooling_in_reuse_keys": False,
+    }
+    normal = {**TRAIN, "candidate_build_policy": {"sccache": True, "tooling_in_reuse_keys": True}}
+    # The normal setting changes nothing, so every existing key stays as it is.
+    assert inputs.build_inputs(normal, SOURCE_INPUTS) == inputs.build_inputs(TRAIN, SOURCE_INPUTS)  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [{"sccache": True, "tooling_in_reuse_keys": "no"}, {"sccache": True, "unknown": True}],
+)
+def test_a_build_policy_setting_that_is_unknown_or_not_boolean_fails(policy):
+    with pytest.raises(ValueError, match=r"."):
+        inputs.build_inputs({**TRAIN, "candidate_build_policy": policy}, SOURCE_INPUTS)

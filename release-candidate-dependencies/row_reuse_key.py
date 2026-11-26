@@ -28,6 +28,7 @@ IMAGE = re.compile(r"ghcr\.io/rapidsai/release-candidates/ci-(conda|wheel)@sha25
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TOOLS = ("gha-tools", "shared-actions", "shared-workflows")
 ENTRYPOINT = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
+DEVELOPMENT_TOOLING = "excluded for development"
 
 
 def _load(path: str, description: str) -> dict:
@@ -70,6 +71,10 @@ def main(argv: list[str] | None = None) -> int:
     ):
         raise SystemExit("implementation revisions must name exactly the three tooling commits")
     build_inputs = _load(args.build_inputs, "candidate build inputs")
+    # A per-release development setting (candidate_build_policy.tooling_in_reuse_keys: false) keys rows without the
+    # tooling commits, so rebuilding the release tooling doesn't rebuild every row. build_inputs records the setting,
+    # so such keys never equal a normal train's.
+    tooling_in_keys = (build_inputs.get("build_policy") or {}).get("tooling_in_reuse_keys", True) is not False
     upstream = _load(args.upstream_inputs, "upstream inputs")
     dependencies = upstream.get("dependencies")
     if not isinstance(dependencies, list):
@@ -112,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             "python_version": args.python_version,
         },
         "build": build,
-        "implementation_revisions": revisions,
+        "implementation_revisions": revisions if tooling_in_keys else DEVELOPMENT_TOOLING,
         "build_inputs": build_inputs,
         "upstream": sorted(dependencies, key=lambda item: json.dumps(item, sort_keys=True)),
         "runtime_image": args.runtime_image,

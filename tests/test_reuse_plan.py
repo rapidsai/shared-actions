@@ -811,3 +811,38 @@ def test_the_action_checks_its_tools_before_planning(tmp_path):
     )
     assert result.returncode != 0  # noqa: S101
     assert "needs aws" in result.stderr  # noqa: S101
+
+
+def test_the_summary_says_when_tooling_is_out_of_the_keys(store, tmp_path):
+    development = {**TRAIN, "candidate_build_policy": {"sccache": True, "tooling_in_reuse_keys": False}}
+    digest = train_digest(development)
+    put(store, f"train-state/{digest}/release-train.json", json.dumps({**development, "train_sha256": digest}).encode())
+    put(
+        store,
+        f"train-state/{digest}/scheduler-state.json",
+        json.dumps({"workflow_runs": {"rapids-logger": RUN, "kvikio": RUN}}).encode(),
+    )
+    workspace = tmp_path / "plan-work"
+    workspace.mkdir()
+    _, reused, outcomes = reuse_plan.plan(
+        S3("candidate-store"),
+        MANIFEST,
+        train_sha256=digest,
+        run_id=RUN,
+        run_attempt="1",
+        image_map=IMAGES,
+        workspace=workspace,
+    )
+    summary = reuse_plan._summary(
+        outcomes, reused, "https://github.com/rapidsai/release-tracking/actions/runs", development=True
+    )
+    assert "Development: the tooling commits are not in this train's reuse keys" in summary  # noqa: S101
+    assert reuse_plan.tooling_in_keys(development) is False  # noqa: S101
+    assert reuse_plan.tooling_in_keys(TRAIN) is True  # noqa: S101
+
+
+def test_switching_the_development_setting_is_named_as_a_tooling_change():
+    current = {"implementation_revisions": "excluded for development"}
+    previous = {"implementation_revisions": {"shared-actions": "4" * 40}}
+    assert reuse_plan._cause(current, previous) == "tooling: development keys switched on"  # noqa: S101
+    assert reuse_plan._cause(previous, current) == "tooling: development keys switched off"  # noqa: S101

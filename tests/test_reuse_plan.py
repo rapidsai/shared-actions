@@ -378,40 +378,42 @@ def test_a_malformed_manifest_stops_the_plan(store, tmp_path, jobs, message):
         run_plan(tmp_path, {"schema_version": 1, "jobs": jobs})
 
 
-def test_cli_writes_the_outputs_and_the_summary(store, tmp_path):
+def cli_arguments(tmp_path, manifest, image_map, output, summary):
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    return [
+        "--manifest",
+        str(tmp_path / "manifest.json"),
+        "--image-map",
+        json.dumps(image_map),
+        "--train-sha256",
+        CURRENT,
+        "--run-id",
+        RUN,
+        "--run-attempt",
+        "1",
+        "--bucket",
+        "candidate-store",
+        "--github-output",
+        str(output),
+        "--summary",
+        str(summary),
+        "--server-url",
+        "https://github.com",
+        "--repository",
+        "rapidsai/release-tracking",
+    ]
+
+
+@pytest.fixture
+def cli_store(monkeypatch):
+    # The plan runs on boto3 (s3_boto.py, tested on its own); here the same plan runs on the fake AWS CLI store.
+    monkeypatch.setattr(reuse_plan, "Boto3S3", S3)
+
+
+def test_cli_writes_the_outputs_and_the_summary(store, tmp_path, cli_store, capsys):
     earlier_run(store, tmp_path, skip_logger_arch="amd64")
-    (tmp_path / "manifest.json").write_text(json.dumps(MANIFEST))
     output, summary = tmp_path / "github-output", tmp_path / "summary.md"
-    result = subprocess.run(  # noqa: S603
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--manifest",
-            str(tmp_path / "manifest.json"),
-            "--image-map",
-            json.dumps(IMAGES),
-            "--train-sha256",
-            CURRENT,
-            "--run-id",
-            RUN,
-            "--run-attempt",
-            "1",
-            "--bucket",
-            "candidate-store",
-            "--github-output",
-            str(output),
-            "--summary",
-            str(summary),
-            "--server-url",
-            "https://github.com",
-            "--repository",
-            "rapidsai/release-tracking",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert reuse_plan.main(cli_arguments(tmp_path, MANIFEST, IMAGES, output, summary)) == 0  # noqa: S101
     outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert json.loads(outputs["reused-jobs"]) == []  # noqa: S101
     assert json.loads(outputs["matrices"])["rapids-logger--conda-cpp-build"] == {"include": rows("amd64")}  # noqa: S101
@@ -420,43 +422,28 @@ def test_cli_writes_the_outputs_and_the_summary(store, tmp_path):
     run_link = "[run 400.1](https://github.com/rapidsai/release-tracking/actions/runs/400/attempts/1)"
     assert f"| rapids-logger--conda-cpp-build | 13.4.3, 3.12, arm64 | reused from {run_link} |" in table  # noqa: S101
     assert "| rapids-logger--conda-cpp-build | 13.4.3, 3.12, amd64 | builds: no earlier build of this row |" in table  # noqa: S101
-    assert "reuse key" in result.stdout  # noqa: S101
+    assert "reuse key" in capsys.readouterr().out  # noqa: S101
 
 
-def test_cli_fails_closed_on_a_bad_plan(store, tmp_path):
-    (tmp_path / "manifest.json").write_text(json.dumps({"schema_version": 1, "jobs": []}))
+def test_cli_fails_closed_on_a_bad_plan(store, tmp_path, cli_store):
     output = tmp_path / "github-output"
-    result = subprocess.run(  # noqa: S603
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--manifest",
-            str(tmp_path / "manifest.json"),
-            "--image-map",
-            "{}",
-            "--train-sha256",
-            CURRENT,
-            "--run-id",
-            RUN,
-            "--run-attempt",
-            "1",
-            "--bucket",
-            "candidate-store",
-            "--github-output",
-            str(output),
-            "--summary",
-            str(tmp_path / "summary.md"),
-            "--server-url",
-            "https://github.com",
-            "--repository",
-            "rapidsai/release-tracking",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode != 0  # noqa: S101
-    assert "reuse plan failed" in result.stderr  # noqa: S101
+    arguments = cli_arguments(tmp_path, {"schema_version": 1, "jobs": []}, {}, output, tmp_path / "summary.md")
+    with pytest.raises(SystemExit, match="reuse plan failed"):
+        reuse_plan.main(arguments)
+    assert not output.exists()  # noqa: S101
+
+
+def test_a_store_error_fails_the_plan_with_its_message(store, tmp_path, monkeypatch):
+    from botocore.exceptions import ClientError
+
+    class DeniedS3(S3):
+        def get(self, key):
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}}, "GetObject")
+
+    monkeypatch.setattr(reuse_plan, "Boto3S3", DeniedS3)
+    output = tmp_path / "github-output"
+    with pytest.raises(SystemExit, match=r"reuse plan failed: .*AccessDenied"):
+        reuse_plan.main(cli_arguments(tmp_path, MANIFEST, IMAGES, output, tmp_path / "summary.md"))
     assert not output.exists()  # noqa: S101
 
 
@@ -482,14 +469,21 @@ def test_the_action_passes_inputs_through_the_environment_and_pins_its_dependenc
     assert action["outputs"]["reused-jobs"]["value"] == "${{ steps.plan.outputs.reused-jobs }}"  # noqa: S101
 
 
-def test_the_action_step_runs_the_plan(store, tmp_path):
+def test_the_action_step_runs_the_plan_with_every_input(tmp_path):
     import yaml
 
-    earlier_run(store, tmp_path)
     step = next(step for step in yaml.safe_load(ACTION.read_text())["runs"]["steps"] if step.get("id") == "plan")
-    output, summary = tmp_path / "github-output", tmp_path / "summary.md"
+    recorded = tmp_path / "argv.json"
+    interpreter = tmp_path / "python"
+    interpreter.write_text(
+        "#!/usr/bin/env bash\n"
+        f"printf '%s\\n' \"$@\" > {recorded}\n"
+        'manifest="$(sed -n "/^--manifest$/{n;p;}" ' + str(recorded) + ')"\n'
+        f'cp "$manifest" {tmp_path}/manifest-seen.json\n'
+    )
+    interpreter.chmod(0o755)
     environment = {
-        **os.environ,
+        "PATH": os.environ["PATH"],
         "ACTION_PATH": str(ACTION.parent),
         "MANIFEST": json.dumps(MANIFEST),
         "IMAGE_MAP": json.dumps(IMAGES),
@@ -499,9 +493,9 @@ def test_the_action_step_runs_the_plan(store, tmp_path):
         "CONTENT_PREFIX": "artifacts",
         "GITHUB_RUN_ID": RUN,
         "GITHUB_RUN_ATTEMPT": "1",
-        "GITHUB_OUTPUT": str(output),
-        "GITHUB_STEP_SUMMARY": str(summary),
-        "REUSE_PLAN_PYTHON": sys.executable,
+        "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"),
+        "REUSE_PLAN_PYTHON": str(interpreter),
         "GITHUB_SERVER_URL": "https://github.com",
         "GITHUB_REPOSITORY": "rapidsai/release-tracking",
     }
@@ -509,11 +503,24 @@ def test_the_action_step_runs_the_plan(store, tmp_path):
         ["/bin/bash", "-c", step["run"]], env=environment, capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr  # noqa: S101
-    outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    assert json.loads(outputs["reused-jobs"]) == ["rapids-logger--conda-cpp-build", "kvikio--cpp-build"]  # noqa: S101
-    assert json.loads(outputs["matrices"]) == {}  # noqa: S101
-    assert "## Reuse plan" in summary.read_text()  # noqa: S101
-    assert "(https://github.com/rapidsai/release-tracking/actions/runs/400/attempts/1)" in summary.read_text()  # noqa: S101
+    argv = recorded.read_text().splitlines()
+    assert argv[0] == "-u" and argv[1].endswith("/release-candidate-dependencies/reuse_plan.py")  # noqa: S101
+    flags = dict(zip(argv[2::2], argv[3::2], strict=True))
+    assert flags | {"--manifest": None} == {  # noqa: S101
+        "--manifest": None,
+        "--image-map": json.dumps(IMAGES),
+        "--train-sha256": CURRENT,
+        "--run-id": RUN,
+        "--run-attempt": "1",
+        "--bucket": "candidate-store",
+        "--train-prefix": "train-state",
+        "--content-prefix": "artifacts",
+        "--github-output": str(tmp_path / "github-output"),
+        "--summary": str(tmp_path / "summary.md"),
+        "--server-url": "https://github.com",
+        "--repository": "rapidsai/release-tracking",
+    }
+    assert json.loads((tmp_path / "manifest-seen.json").read_text()) == MANIFEST  # noqa: S101
 
 
 class BarrierS3(S3):
@@ -810,7 +817,7 @@ def test_the_action_checks_its_tools_before_planning(tmp_path):
         check=False,
     )
     assert result.returncode != 0  # noqa: S101
-    assert "needs aws" in result.stderr  # noqa: S101
+    assert "needs jq" in result.stderr  # noqa: S101
 
 
 def test_the_summary_says_when_tooling_is_out_of_the_keys(store, tmp_path):

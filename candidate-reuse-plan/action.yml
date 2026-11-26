@@ -43,9 +43,10 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        for tool in aws jq python3; do
+        # S3 goes through boto3 in-process (s3_boto.py); jq and bash run the shared key scripts.
+        for tool in jq python3; do
           if ! command -v "${tool}" >/dev/null; then
-            echo "candidate-reuse-plan needs ${tool} on the runner; run it on a runner that has aws, jq and python3" >&2
+            echo "candidate-reuse-plan needs ${tool} on the runner; run it on a runner that has jq and python3" >&2
             exit 1
           fi
         done

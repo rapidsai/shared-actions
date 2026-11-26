@@ -33,8 +33,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from botocore.exceptions import BotoCoreError, ClientError
 from row_key_inputs import build_inputs, upstream_document
 from row_reuse import HEX64, S3, SAFE, _completed, bind_reuse, find_reuse
+from s3_boto import Boto3S3
 from upstream_selection import select_upstream
 
 _DIRECTORY = Path(__file__).resolve().parent
@@ -624,7 +626,8 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(image_map, dict):
             raise PlanError("the image map must be a JSON object")
         with tempfile.TemporaryDirectory() as workspace:
-            store = S3(args.bucket)
+            # In-process S3: the AWS CLI's process start was most of each call (s3_boto.py).
+            store = Boto3S3(args.bucket)
             development = not tooling_in_keys(
                 _load_train(store, args.train_prefix, args.train_sha256, Path(workspace))[0]
             )
@@ -639,7 +642,7 @@ def main(argv: list[str] | None = None) -> int:
                 train_prefix=args.train_prefix,
                 content_prefix=args.content_prefix,
             )
-    except (PlanError, ValueError, json.JSONDecodeError) as error:
+    except (PlanError, ValueError, json.JSONDecodeError, BotoCoreError, ClientError) as error:
         raise SystemExit(f"reuse plan failed: {error}") from error
     with Path(args.github_output).open("a") as output:
         output.write(f"matrices={json.dumps(matrices, sort_keys=True, separators=(',', ':'))}\n")

@@ -469,7 +469,8 @@ def test_the_action_passes_inputs_through_the_environment_and_pins_its_dependenc
     action = yaml.safe_load(ACTION.read_text())
     for step in action["runs"]["steps"]:
         assert "${{" not in step["run"], step["name"]  # noqa: S101
-    assert "--require-hashes" in action["runs"]["steps"][0]["run"]  # noqa: S101
+    install = next(step for step in action["runs"]["steps"] if step.get("id") == "install")
+    assert "--require-hashes" in install["run"]  # noqa: S101
     # The interpreter passes as a step output read through env, never through GITHUB_ENV.
     assert "GITHUB_ENV" not in ACTION.read_text()  # noqa: S101
     plan_step = next(step for step in action["runs"]["steps"] if step.get("id") == "plan")
@@ -765,3 +766,34 @@ def test_the_row_digest_is_the_uploads_jq_filter():
         check=True,
     ).stdout
     assert reuse_plan.row_digest(record) == hashlib.sha256(jq).hexdigest()  # noqa: S101
+
+
+def test_the_plan_uses_more_workers_on_a_bigger_runner(monkeypatch):
+    # Each row's AWS CLI calls are mostly process start-up, so rows compete for cores (release run 45736667710:
+    # 14 s per row four at a time, 31-34 s eight at a time on a 4-core runner).
+    monkeypatch.setattr(reuse_plan.os, "cpu_count", lambda: 16)
+    assert reuse_plan._workers() == 32  # noqa: S101
+    monkeypatch.setattr(reuse_plan.os, "cpu_count", lambda: 2)
+    assert reuse_plan._workers() == 4  # noqa: S101
+    monkeypatch.setattr(reuse_plan.os, "cpu_count", lambda: None)
+    assert reuse_plan._workers() == 2  # noqa: S101
+
+
+def test_the_action_checks_its_tools_before_planning(tmp_path):
+    import yaml
+
+    steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
+    check = steps[0]
+    assert check["name"] == "Require the plan's tools on this runner"  # noqa: S101
+    empty = tmp_path / "empty-path"
+    empty.mkdir()
+    (empty / "bash").symlink_to(shutil.which("bash"))
+    result = subprocess.run(  # noqa: S603
+        [shutil.which("bash"), "-c", check["run"]],
+        env={"PATH": str(empty)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0  # noqa: S101
+    assert "needs aws" in result.stderr  # noqa: S101

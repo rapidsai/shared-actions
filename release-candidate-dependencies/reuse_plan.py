@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess  # nosec B404 - jq, bash and this directory's scripts with fixed arguments
@@ -43,8 +44,6 @@ _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 SAFE_REPOSITORY = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*\Z")
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _ROW_FIELDS = ("ARCH", "CUDA_VER", "PY_VER", "candidate_image_key")
-# Each row waits mostly on S3 round trips through the AWS CLI, so rows of a wave run side by side.
-_WORKERS = 8
 
 
 class PlanError(Exception):
@@ -118,6 +117,11 @@ def _in_dependency_order(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for job in jobs:
         visit(job["id"])
     return ordered
+
+
+def _workers() -> int:
+    """Two rows per core: a row's AWS CLI calls are mostly process start-up, so rows compete for cores."""
+    return 2 * (os.cpu_count() or 1)
 
 
 def _closure(train: dict[str, Any], unit: str) -> set[str]:
@@ -417,7 +421,7 @@ def plan(
 
     decided: set[str] = set()
     pending = list(jobs)
-    with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=_workers()) as pool:
         while pending:
             # A wave is every job whose upstream jobs are decided; its jobs and rows are independent of each other.
             wave = [job for job in pending if upstream_of[job["id"]] <= decided]

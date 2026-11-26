@@ -354,3 +354,69 @@ def test_the_action_outputs_the_image_map_and_defaults_to_an_empty_given_map():
     action = yaml.safe_load((Path(__file__).parents[1] / "candidate-reuse-plan" / "action.yml").read_text())
     assert action["outputs"]["image-map"]["value"] == "${{ steps.plan.outputs.image-map }}"  # noqa: S101
     assert action["inputs"]["image-map"]["default"] == "{}"  # noqa: S101
+
+
+def test_a_train_plan_applied_in_the_run_rebinds_the_images_and_gives_the_run_plans_image_map(store, tmp_path):
+    # plans/per-row-reuse.md, 4c: the image wave planned with the train, re-checked and bound in the run.
+    for row in IMAGE_JOB["matrix"]["include"]:
+        index_image(store, tmp_path, row)
+    earlier_run(store, tmp_path)
+    (tmp_path / "train-work").mkdir()
+    (tmp_path / "apply-work").mkdir()
+    record, _, _ = reuse_plan.plan_train(
+        S3("candidate-store"),
+        MANIFEST,
+        train_sha256=CURRENT,
+        planning_run_id="900",
+        planning_run_attempt="1",
+        workspace=tmp_path / "train-work",
+    )
+    assert [row["hit"]["image"] for row in record["rows"] if row["wave"] == 0] == [  # noqa: S101
+        IMAGES[reuse_plan.image_key(row)] for row in IMAGE_JOB["matrix"]["include"]
+    ]
+    assert not list(store.rglob("reuse-bindings"))  # noqa: S101
+
+    matrices, reused, _, image_map, _ = reuse_plan.apply_plan(
+        S3("candidate-store"),
+        MANIFEST,
+        train_sha256=CURRENT,
+        run_id=RUN,
+        run_attempt="1",
+        workspace=tmp_path / "apply-work",
+    )
+
+    assert matrices == {}  # noqa: S101
+    assert reused == [IMAGE_JOB_ID, "rapids-logger--conda-cpp-build", "kvikio--cpp-build"]  # noqa: S101
+    assert image_map == IMAGES  # noqa: S101
+    assert get(store, f"train-state/{CURRENT}/ci-imgs/reuse-bindings/{RUN}/ci-images-amd64.json")  # noqa: S101
+
+
+def test_a_planned_image_whose_record_now_names_another_image_stops_the_run(store, tmp_path):
+    for row in IMAGE_JOB["matrix"]["include"]:
+        index_image(store, tmp_path, row)
+    earlier_run(store, tmp_path)
+    (tmp_path / "train-work").mkdir()
+    (tmp_path / "apply-work").mkdir()
+    reuse_plan.plan_train(
+        S3("candidate-store"),
+        MANIFEST,
+        train_sha256=CURRENT,
+        planning_run_id="900",
+        planning_run_attempt="1",
+        workspace=tmp_path / "train-work",
+    )
+    plan_key = f"train-state/{CURRENT}/reuse-plans/900-1.json"
+    recorded = get(store, plan_key)
+    recorded["rows"][0]["hit"]["image"] = "ghcr.io/rapidsai/release-candidates/ci-conda@sha256:" + "0" * 64
+    put(store, plan_key, json.dumps(recorded).encode())
+
+    with pytest.raises(reuse_plan.PlanError, match="its image record names"):
+        reuse_plan.apply_plan(
+            S3("candidate-store"),
+            MANIFEST,
+            train_sha256=CURRENT,
+            run_id=RUN,
+            run_attempt="1",
+            workspace=tmp_path / "apply-work",
+        )
+    assert not (store / f"train-state/{CURRENT}/ci-imgs/reuse-bindings/{RUN}/ci-images-amd64.json").exists()  # noqa: S101

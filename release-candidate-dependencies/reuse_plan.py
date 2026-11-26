@@ -36,6 +36,7 @@ import shutil
 import subprocess  # nosec B404 - jq, bash and this directory's scripts with fixed arguments
 import sys
 import tempfile
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -43,7 +44,8 @@ from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
 from row_key_inputs import build_inputs, image_inputs, image_key, image_refresh, upstream_document
-from row_reuse import HEX64, S3, SAFE, _completed, bind_reuse, find_reuse
+from row_reuse import HEX64, S3, SAFE, Miss, _canonical, _completed, _json, _verify, bind_reuse, find_reuse
+from row_reuse_key import DEVELOPMENT_TOOLING
 from s3_boto import Boto3S3
 from upstream_selection import select_upstream
 
@@ -401,13 +403,13 @@ def _reused_image(s3: S3, row: dict[str, str], references: dict[str, dict[str, A
 
 def _decide_image_row(
     s3: S3, job: dict[str, Any], row: dict[str, str], train: dict[str, Any], workspace: Path, context: dict[str, str]
-) -> tuple[str | None, str]:
-    """Key, look up and bind one image row; return (its GHCR image, outcome) or (None, why it builds)."""
+) -> tuple[str | None, str, dict[str, Any]]:
+    """Key, look up and bind one image row; return (its GHCR image, outcome, hit) or (None, why it builds, {})."""
     if image_refresh(train):
-        return None, "image refresh requested (candidate_image_policy.mode: refresh)"
+        return None, "image refresh requested (candidate_image_policy.mode: refresh)", {}
     computed = _image_row_key(job, row, train, workspace)
     if computed is None:
-        return None, "no reuse key: the train records no base image digests"
+        return None, "no reuse key: the train records no base image digests", {}
     key, key_record = computed
     args = argparse.Namespace(key=key, repository=job["repository"], **context)
     chosen = find_reuse(s3, args, key_record)
@@ -415,13 +417,23 @@ def _decide_image_row(
     if chosen is None:
         previous = _previous_build(s3, job, key_record, context)
         if previous is None:
-            return None, "no earlier build of this row"
+            return None, "no earlier build of this row", {}
         record, run, attempt = previous
-        return None, _cause(key_record, record) or f"the earlier build in run {run}.{attempt} could not be reused"
+        return None, _cause(key_record, record) or f"the earlier build in run {run}.{attempt} could not be reused", {}
     # Read the image before binding, so a bad record stops the plan without binding anything.
     image = _reused_image(s3, row, chosen[2])
     bind_reuse(s3, args, chosen)
-    return image, f"reused from run {chosen[0]}.{chosen[1]}"
+    return image, f"reused from run {chosen[0]}.{chosen[1]}", _hit(key, key_record, chosen, image=image)
+
+
+def _hit(
+    key: str, key_record: Any, chosen: tuple[str, str, dict[str, Any]], *, image: str | None = None
+) -> dict[str, Any]:
+    """What a train-time plan records of a reused row, for the release run to re-check and bind."""
+    hit = {"key": key, "key_record": key_record, "run": chosen[0], "attempt": chosen[1], "references": chosen[2]}
+    if image is not None:
+        hit["image"] = image
+    return hit
 
 
 # What names a row, as opposed to what it was built from. The upload files every key record under this digest
@@ -567,17 +579,23 @@ def plan(
     workspace: Path,
     train_prefix: str = "train-state",
     content_prefix: str = "artifacts",
+    decisions: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[str], list[tuple[str, str, str]], dict[str, str]]:
     """Decide every row.
 
     Returns (matrices of rows that build, fully reused job ids, (job, row, outcome) lines, the image map: the given
-    one plus every image this plan reused).
+    one plus every image this plan reused). Each row's decision is appended to ``decisions`` when given: job, row,
+    wave (images 0, then each package wave), outcome and, for a hit, what ``_hit`` records.
+
+    A ``PlanningStore`` plans a train before it has a run: nothing is written, and no repository is bound yet.
     """
     if not HEX64.fullmatch(train_sha256) or not run_id.isdigit() or not run_attempt.isdigit():
         raise PlanError("invalid train digest, run id or run attempt")
     every_job = _validate_manifest(manifest)
     train, train_path = _load_train(s3, train_prefix, train_sha256, workspace)
-    _require_bound(s3, train_prefix, train_sha256, run_id, every_job)
+    if not isinstance(s3, PlanningStore):
+        _require_bound(s3, train_prefix, train_sha256, run_id, every_job)
+    recorded: list[dict[str, Any]] = decisions if decisions is not None else []
     image_jobs = [job for job in every_job if job["family"] == "container"]
     jobs = [job for job in every_job if job["family"] != "container"]
 
@@ -610,6 +628,7 @@ def plan(
     building_images: set[str] = set()
     decided: set[str] = set()
     pending = list(jobs)
+    wave_number = 0
     with ThreadPoolExecutor(max_workers=_workers()) as pool:
         # The first wave: every CI image row. A package row's key holds its image's digest, so images come first.
         image_rows = {
@@ -622,16 +641,18 @@ def plan(
         for job in image_jobs:
             missed = []
             for row, future in image_rows[job["id"]]:
-                image, outcome = future.result()
+                image, outcome, hit = future.result()
                 key = image_key(row)
                 if image is None:
                     missed.append(row)
                     building_images.add(key)
                     outcomes.append((job["id"], _label(row), f"builds: {outcome}"))
+                    recorded.append(_decision(job, row, 0, f"builds: {outcome}"))
                     continue
                 if image_map.setdefault(key, image) != image:
                     raise PlanError(f"{key}: the given image map names {image_map[key]}, not the reused {image}")
                 outcomes.append((job["id"], _label(row), outcome))
+                recorded.append(_decision(job, row, 0, outcome, hit))
             if missed:
                 matrices[job["id"]] = {"include": missed}
             else:
@@ -641,6 +662,7 @@ def plan(
             wave = [job for job in pending if upstream_of[job["id"]] <= decided]
             if not wave:
                 raise PlanError("the manifest's jobs cannot be ordered")
+            wave_number += 1
             rows: dict[str, list[Any]] = {}
             for job in wave:
                 building = sorted(
@@ -695,14 +717,17 @@ def plan(
                     if cascaded:
                         missed.append(row)
                         outcomes.append((job["id"], _label(row), f"builds: {future.result()}"))
+                        recorded.append(_decision(job, row, wave_number, f"builds: {future.result()}"))
                         continue
-                    references, outcome = future.result()
+                    references, outcome, hit = future.result()
                     if references is None:
                         missed.append(row)
                         outcomes.append((job["id"], _label(row), f"builds: {outcome}"))
+                        recorded.append(_decision(job, row, wave_number, f"builds: {outcome}"))
                     else:
                         bound[job["id"]].extend(references)
                         outcomes.append((job["id"], _label(row), outcome))
+                        recorded.append(_decision(job, row, wave_number, outcome, hit))
                 missed_rows[job["id"]] = missed
                 if missed:
                     matrices[job["id"]] = {"include": missed}
@@ -715,6 +740,15 @@ def plan(
         reused - set(image_order), key=order.__getitem__
     )
     return matrices, reused_jobs, outcomes, image_map
+
+
+def _decision(
+    job: dict[str, Any], row: dict[str, str], wave: int, outcome: str, hit: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    decision = {"job": job["id"], "row": row, "wave": wave, "outcome": outcome}
+    if hit:
+        decision["hit"] = hit
+    return decision
 
 
 def _done(value: str) -> Future:
@@ -734,12 +768,12 @@ def _decide_row(
     image_map: dict[str, str],
     workspace: Path,
     context: dict[str, str],
-) -> tuple[list[dict[str, Any]] | None, str]:
-    """Compute one row's key, look it up and bind a hit; return (bound references, outcome) or (None, its cause)."""
+) -> tuple[list[dict[str, Any]] | None, str, dict[str, Any]]:
+    """Compute one row's key, look it up and bind a hit; return (references, outcome, hit) or (None, its cause, {})."""
     started = time.monotonic()
     computed = _row_key(job, row, train, build, records, image_map, workspace)
     if computed is None:
-        return None, "no reuse key"
+        return None, "no reuse key", {}
     key, key_record = computed
     args = argparse.Namespace(key=key, repository=job["repository"], **context)
     chosen = find_reuse(s3, args, key_record)
@@ -748,11 +782,11 @@ def _decide_row(
     if chosen is None:
         previous = _previous_build(s3, job, key_record, context)
         if previous is None:
-            return None, "no earlier build of this row"
+            return None, "no earlier build of this row", {}
         record, run, attempt = previous
-        return None, _cause(key_record, record) or f"the earlier build in run {run}.{attempt} could not be reused"
+        return None, _cause(key_record, record) or f"the earlier build in run {run}.{attempt} could not be reused", {}
     references = list(bind_reuse(s3, args, chosen).values())
-    return references, f"reused from run {chosen[0]}.{chosen[1]}"
+    return references, f"reused from run {chosen[0]}.{chosen[1]}", _hit(key, key_record, chosen)
 
 
 _RUN_REFERENCE = re.compile(r"\brun ([0-9]+)\.([0-9]+)\b")
@@ -804,7 +838,12 @@ def tooling_in_keys(train: dict[str, Any]) -> bool:
 
 
 def _summary(
-    outcomes: list[tuple[str, str, str]], reused_jobs: list[str], runs_url: str, *, development: bool = False
+    outcomes: list[tuple[str, str, str]],
+    reused_jobs: list[str],
+    runs_url: str,
+    *,
+    development: bool = False,
+    note: str = "",
 ) -> str:
     notice = (
         [
@@ -821,6 +860,7 @@ def _summary(
         "",
         f"{len(reused_jobs)} jobs reused in full and skipped; their rows are listed here, not as jobs.",
         "",
+        *([note, ""] if note else []),
         "| Job | Row | Outcome |",
         "| --- | --- | --- |",
     ]
@@ -828,23 +868,346 @@ def _summary(
     return "\n".join(lines) + "\n"
 
 
+# plans/per-row-reuse.md, 4c: Create/Update Train plans the train's rows (``train`` mode) and records the plan beside
+# the train; the release run re-checks and binds the recorded hits (``apply`` mode) instead of computing keys.
+
+_PLANNING_RUN = ("0", "0")  # A train being planned has no run; no real run has id 0, so nothing of a run matches it.
+
+
+class PlanningStore:
+    """The candidate store as a train-time plan sees it: reads go to the store, writes stay in memory.
+
+    Deciding a row binds its hit for the run, and a later wave checks its same-run inputs against those bindings
+    (row_reuse._current_digest), so planning keeps them here, where later waves read them, and writes nothing.
+    """
+
+    def __init__(self, store: Any) -> None:
+        self.store = store
+        self.bucket = store.bucket
+        self.completed = store.completed
+        self.completed_lock = store.completed_lock
+        self._held: dict[str, bytes] = {}
+        self._lock = threading.Lock()
+
+    def keys(self, prefix: str) -> list[str]:
+        with self._lock:
+            held = [key for key in self._held if key.startswith(prefix)]
+        return sorted(set(self.store.keys(prefix)) | set(held))
+
+    def head(self, key: str) -> dict[str, Any] | None:
+        # Only stored objects are checked by checksum; what planning holds are bindings and references it wrote.
+        return self.store.head(key)
+
+    def get(self, key: str) -> bytes | None:
+        with self._lock:
+            if key in self._held:
+                return self._held[key]
+        return self.store.get(key)
+
+    def put_once(self, key: str, data: bytes) -> None:
+        with self._lock:
+            if self._held.setdefault(key, data) != data:
+                raise PlanError(f"planning wrote {key} twice with different content")
+
+
+def manifest_digest(manifest: Any) -> str:
+    """sha256 of the manifest's canonical JSON: the release file a plan was made for."""
+    return hashlib.sha256(_canonical(manifest)).hexdigest()
+
+
+def plan_train(
+    store: Any,
+    manifest: Any,
+    *,
+    train_sha256: str,
+    planning_run_id: str,
+    planning_run_attempt: str,
+    workspace: Path,
+    image_map: dict[str, str] | None = None,
+    train_prefix: str = "train-state",
+    content_prefix: str = "artifacts",
+) -> tuple[dict[str, Any], list[tuple[str, str, str]], list[str]]:
+    """Plan every row of a train before its release run, and record the plan beside the train.
+
+    Returns (the recorded plan, (job, row, outcome) lines, fully reused jobs). The plan is written once, under the
+    planning run, to ``<train prefix>/<train>/reuse-plans/<run>-<attempt>.json``; the release run takes the newest.
+    """
+    if not planning_run_id.isdigit() or not planning_run_attempt.isdigit():
+        raise PlanError("invalid planning run id or attempt")
+    decisions: list[dict[str, Any]] = []
+    _, reused_jobs, outcomes, _ = plan(
+        PlanningStore(store),
+        manifest,
+        train_sha256=train_sha256,
+        run_id=_PLANNING_RUN[0],
+        run_attempt=_PLANNING_RUN[1],
+        image_map=image_map or {},
+        workspace=workspace,
+        train_prefix=train_prefix,
+        content_prefix=content_prefix,
+        decisions=decisions,
+    )
+    record = {
+        "schema_version": 1,
+        "train_sha256": train_sha256,
+        "manifest_sha256": manifest_digest(manifest),
+        "planning_run": {"run_id": planning_run_id, "run_attempt": planning_run_attempt},
+        "rows": decisions,
+    }
+    store.put_once(
+        f"{train_prefix}/{train_sha256}/reuse-plans/{planning_run_id}-{planning_run_attempt}.json", _canonical(record)
+    )
+    return record, outcomes, reused_jobs
+
+
+def _latest_plan(store: Any, train_prefix: str, train_sha256: str) -> dict[str, Any]:
+    prefix = f"{train_prefix}/{train_sha256}/reuse-plans/"
+    plans = {}
+    for key in store.keys(prefix):
+        match = _HISTORY_RUN.fullmatch(key.removeprefix(prefix))
+        if match is not None:
+            plans[(int(match[1]), int(match[2]))] = key
+    if not plans:
+        raise PlanError(
+            "this train has no reuse plan; run Create/Update Train, which plans the train's rows before its release run"
+        )
+    data = store.get(plans[max(plans)])
+    try:
+        record = json.loads(data or b"null")
+    except json.JSONDecodeError as error:
+        raise PlanError(f"the reuse plan {plans[max(plans)]} is not JSON") from error
+    if not isinstance(record, dict) or record.get("schema_version") != 1 or not isinstance(record.get("rows"), list):
+        raise PlanError(f"the reuse plan {plans[max(plans)]} is not a schema_version 1 plan")
+    return record
+
+
+def _expected_key_record(job: dict[str, Any], row: dict[str, str], train: dict[str, Any]) -> dict[str, Any]:
+    """The parts of a row's key record that the train and the release file fix; a recorded hit must have them."""
+    producer_sha = (train.get("source_revisions") or {}).get(job["project"])
+    expected: dict[str, Any] = {
+        "producer": {"repository": job["repository"], "sha": producer_sha},
+        "build": {"entrypoint": job["entrypoint"], "identity": job["identity"]},
+        "implementation_revisions": (
+            train.get("build_implementation_revisions") if tooling_in_keys(train) else DEVELOPMENT_TOOLING
+        ),
+    }
+    if job["family"] == "container":
+        expected["row"] = {
+            "unit": job["unit"],
+            "family": "container",
+            "arch": row["ARCH"],
+            "cuda_version": row["CUDA_VER"],
+            "python_version": row["PYTHON_VER"],
+        }
+        expected["image_row"] = row
+    else:
+        expected["row"] = {
+            "unit": job["unit"],
+            "family": job["family"],
+            "arch": row["ARCH"],
+            "cuda_version": row["CUDA_VER"],
+            "python_version": row["PY_VER"],
+        }
+    return expected
+
+
+def _recheck(
+    store: Any,
+    job: dict[str, Any],
+    decision: dict[str, Any],
+    train: dict[str, Any],
+    image_map: dict[str, str],
+    context: dict[str, str],
+) -> str | None:
+    """Re-check one recorded hit as find_reuse would, then bind it; return its image for an image row.
+
+    The key isn't computed again: the plan recorded it with its key record, which must still name this train's
+    producer commit, tooling, the release file's build of this row and, for a package row, the image this run uses.
+    Every check against the store (completion record, unchanged checksums and object versions, same-run inputs
+    against this run's bindings) runs again. A hit that no longer holds stops the run: nothing is rebuilt on a stale
+    plan, and Create/Update Train plans again.
+    """
+    row, hit = decision["row"], decision.get("hit")
+    label = f"{job['id']} {_label(row)}"
+    if (
+        not isinstance(hit, dict)
+        or not HEX64.fullmatch(str(hit.get("key")))
+        or not str(hit.get("run")).isdigit()
+        or not str(hit.get("attempt")).isdigit()
+        or not isinstance(hit.get("key_record"), dict)
+        or not isinstance(hit.get("references"), dict)
+        or not hit["references"]
+        or not all(SAFE.fullmatch(str(artifact)) for artifact in hit["references"])
+    ):
+        raise PlanError(f"{label}: the reuse plan's hit is malformed")
+    record = hit["key_record"]
+    for field, value in _expected_key_record(job, row, train).items():
+        # The row's own fields must match; an image row's key record also names the image (row.image).
+        actual = record.get(field)
+        if field == "row" and isinstance(actual, dict):
+            actual = {name: actual.get(name) for name in value}
+        if actual != value:
+            raise PlanError(f"{label}: the planned key record's {field} is not this train's and release file's")
+    if job["family"] != "container" and record.get("runtime_image") != image_map.get(row["candidate_image_key"]):
+        raise PlanError(f"{label}: the planned key record names another CI image than this run's")
+    run, attempt, references = str(hit["run"]), str(hit["attempt"]), hit["references"]
+    repository_name = job["repository"].rsplit("/", 1)[-1]
+    prefix = f"{context['content_prefix']}/{repository_name}/row-reuse-index/{hit['key']}/"
+    indexed = {
+        key.removeprefix(prefix).split("/")[0]
+        for key in store.keys(prefix)
+        if key.endswith(f"/{run}-{attempt}.json") and key.removeprefix(prefix).count("/") == 1
+    }
+    stale = f"{label}: the planned reuse of run {run}.{attempt} no longer holds"
+    advice = "Run Create/Update Train to plan the train again."
+    if indexed != set(references):
+        raise PlanError(f"{stale}: it indexed {sorted(indexed)}, the plan {sorted(references)}. {advice}")
+    args = argparse.Namespace(key=hit["key"], repository=job["repository"], **context)
+    try:
+        reused = {
+            artifact: _verify(
+                store, args, record, artifact, _json(store, f"{prefix}{artifact}/{run}-{attempt}.json"), run, attempt
+            )
+            for artifact in sorted(references)
+        }
+    except Miss as miss:
+        raise PlanError(f"{stale}: {miss}. {advice}") from miss
+    if reused != references:
+        raise PlanError(f"{stale}: its objects changed since the plan. {advice}")
+    image = None
+    if job["family"] == "container":
+        image = _reused_image(store, row, reused)
+        if image != hit.get("image"):
+            raise PlanError(f"{stale}: its image record names {image}, the plan {hit.get('image')}. {advice}")
+    bind_reuse(store, args, (run, attempt, reused))
+    return image
+
+
+def apply_plan(
+    store: Any,
+    manifest: Any,
+    *,
+    train_sha256: str,
+    run_id: str,
+    run_attempt: str,
+    workspace: Path,
+    image_map: dict[str, str] | None = None,
+    train_prefix: str = "train-state",
+    content_prefix: str = "artifacts",
+) -> tuple[dict[str, Any], list[str], list[tuple[str, str, str]], dict[str, str], dict[str, str]]:
+    """Re-check and bind the train's newest reuse plan in this release run, wave by wave.
+
+    ``image_map`` names images the manifest doesn't build, as for ``plan``; it must be the one the train was planned
+    with. Returns what ``plan`` returns, and the planning run.
+    """
+    if not HEX64.fullmatch(train_sha256) or not run_id.isdigit() or not run_attempt.isdigit():
+        raise PlanError("invalid train digest, run id or run attempt")
+    every_job = _validate_manifest(manifest)
+    train, _ = _load_train(store, train_prefix, train_sha256, workspace)
+    _require_bound(store, train_prefix, train_sha256, run_id, every_job)
+    recorded = _latest_plan(store, train_prefix, train_sha256)
+    if recorded.get("train_sha256") != train_sha256:
+        raise PlanError("the reuse plan was made for another train")
+    if recorded.get("manifest_sha256") != manifest_digest(manifest):
+        raise PlanError("the reuse plan was made for another release file; run Create/Update Train to plan this one")
+    planning_run = recorded.get("planning_run")
+    if not isinstance(planning_run, dict) or not all(
+        str(planning_run.get(field, "")).isdigit() for field in ("run_id", "run_attempt")
+    ):
+        raise PlanError("the reuse plan names no planning run")
+    jobs = {job["id"]: job for job in every_job}
+    decided: dict[tuple[str, str], dict[str, Any]] = {}
+    for decision in recorded["rows"]:
+        job = jobs.get(decision.get("job")) if isinstance(decision, dict) else None
+        if job is None or decision.get("row") not in job["matrix"]["include"]:
+            raise PlanError("the reuse plan decides a row the release file doesn't have")
+        if not isinstance(decision.get("wave"), int) or not isinstance(decision.get("outcome"), str):
+            raise PlanError(f"{job['id']}: the reuse plan's decision has no wave or outcome")
+        identity = (job["id"], json.dumps(decision["row"], sort_keys=True))
+        if identity in decided:
+            raise PlanError(f"{job['id']}: the reuse plan decides a row twice")
+        decided[identity] = decision
+    rows = [(job, row) for job in every_job for row in job["matrix"]["include"]]
+    if len(decided) != len(rows):
+        raise PlanError("the reuse plan does not decide every row of the release file")
+    context = {
+        "train_sha256": train_sha256,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "train_prefix": train_prefix,
+        "content_prefix": content_prefix,
+    }
+    image_map = dict(image_map or {})
+    hits = [decision for decision in decided.values() if "hit" in decision]
+    with ThreadPoolExecutor(max_workers=_workers()) as pool:
+        # Wave by wave, as planned: a row's same-run inputs are checked against the bindings of the waves before it.
+        for wave in sorted({decision["wave"] for decision in hits}):
+            futures = [
+                (decision, pool.submit(_recheck, store, jobs[decision["job"]], decision, train, image_map, context))
+                for decision in hits
+                if decision["wave"] == wave
+            ]
+            for decision, future in futures:
+                image = future.result()
+                if image is not None and image_map.setdefault(image_key(decision["row"]), image) != image:
+                    raise PlanError(f"{image_key(decision['row'])}: the given image map names another image")
+    matrices: dict[str, Any] = {}
+    reused: list[str] = []
+    outcomes: list[tuple[str, str, str]] = []
+    ordered = [job for job in every_job if job["family"] == "container"] + [
+        job for job in every_job if job["family"] != "container"
+    ]
+    for job in ordered:
+        missed = []
+        for row in job["matrix"]["include"]:
+            decision = decided[(job["id"], json.dumps(row, sort_keys=True))]
+            outcomes.append((job["id"], _label(row), decision["outcome"]))
+            if "hit" not in decision:
+                missed.append(row)
+        if missed:
+            matrices[job["id"]] = {"include": missed}
+        else:
+            reused.append(job["id"])
+    return matrices, reused, outcomes, image_map, {key: str(value) for key, value in planning_run.items()}
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Plan the run and write its outputs and summary."""
+    """Plan the run, plan a train or apply a train's plan, and write the outputs and summary."""
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("manifest", "image-map", "train-sha256", "run-id", "run-attempt", "bucket", "github-output"):
+    parser.add_argument(
+        "--mode",
+        choices=("run", "train", "apply"),
+        default="run",
+        help="run: decide every row in this release run; train: plan a train before its run and record the plan; "
+        "apply: re-check and bind the train's recorded plan in this release run.",
+    )
+    for name in ("manifest", "train-sha256", "bucket"):
         parser.add_argument(f"--{name}", required=True)
+    for name in ("image-map", "run-id", "run-attempt", "github-output", "plan-output"):
+        parser.add_argument(f"--{name}")
     parser.add_argument("--summary", required=True, help="File the summary table is appended to.")
     parser.add_argument("--server-url", required=True, help="GITHUB_SERVER_URL, for links to earlier runs.")
     parser.add_argument("--repository", required=True, help="GITHUB_REPOSITORY, whose runs the plan reuses.")
     parser.add_argument("--train-prefix", default="train-state")
     parser.add_argument("--content-prefix", default="artifacts")
     args = parser.parse_args(argv)
+    needed = {
+        "run": ("image_map", "run_id", "run_attempt", "github_output"),
+        "train": ("run_id", "run_attempt", "plan_output"),
+        "apply": ("run_id", "run_attempt", "github_output"),
+    }[args.mode]
+    missing = [f"--{name.replace('_', '-')}" for name in needed if getattr(args, name) is None]
+    if missing:
+        raise SystemExit(f"reuse plan failed: --mode {args.mode} needs {', '.join(missing)}")
     if _SERVER.fullmatch(args.server_url) is None or SAFE_REPOSITORY.fullmatch(args.repository) is None:
         raise SystemExit("reuse plan failed: --server-url and --repository must name a GitHub server and owner/name")
     runs_url = f"{args.server_url}/{args.repository}/actions/runs"
+    prefixes = {"train_prefix": args.train_prefix, "content_prefix": args.content_prefix}
+    note = ""
     try:
-        image_map = json.loads(args.image_map)
-        if not isinstance(image_map, dict):
+        manifest = json.loads(Path(args.manifest).read_text())
+        given_map = json.loads(args.image_map) if args.image_map else {}
+        if not isinstance(given_map, dict):
             raise PlanError("the image map must be a JSON object")
         with tempfile.TemporaryDirectory() as workspace:
             # In-process S3: the AWS CLI's process start was most of each call (s3_boto.py).
@@ -852,25 +1215,58 @@ def main(argv: list[str] | None = None) -> int:
             development = not tooling_in_keys(
                 _load_train(store, args.train_prefix, args.train_sha256, Path(workspace))[0]
             )
-            matrices, reused_jobs, outcomes, image_map = plan(
-                store,
-                json.loads(Path(args.manifest).read_text()),
-                train_sha256=args.train_sha256,
-                run_id=args.run_id,
-                run_attempt=args.run_attempt,
-                image_map=image_map,
-                workspace=Path(workspace),
-                train_prefix=args.train_prefix,
-                content_prefix=args.content_prefix,
-            )
+            if args.mode == "train":
+                record, outcomes, reused_jobs = plan_train(
+                    store,
+                    manifest,
+                    train_sha256=args.train_sha256,
+                    planning_run_id=args.run_id,
+                    planning_run_attempt=args.run_attempt,
+                    workspace=Path(workspace),
+                    image_map=given_map,
+                    **prefixes,
+                )
+                note = (
+                    "Planned with this train, before its release run; the run re-checks every reused row and binds "
+                    "it. A row that builds can still be reused by its own check once its upstream finishes."
+                )
+            elif args.mode == "apply":
+                matrices, reused_jobs, outcomes, image_map, planning = apply_plan(
+                    store,
+                    manifest,
+                    train_sha256=args.train_sha256,
+                    run_id=args.run_id,
+                    run_attempt=args.run_attempt,
+                    workspace=Path(workspace),
+                    image_map=given_map,
+                    **prefixes,
+                )
+                note = (
+                    f"Planned by Create/Update Train run {planning['run_id']}.{planning['run_attempt']}; "
+                    "every reused row was re-checked and bound in this run."
+                )
+            else:
+                matrices, reused_jobs, outcomes, image_map = plan(
+                    store,
+                    manifest,
+                    train_sha256=args.train_sha256,
+                    run_id=args.run_id,
+                    run_attempt=args.run_attempt,
+                    image_map=given_map,
+                    workspace=Path(workspace),
+                    **prefixes,
+                )
     except (PlanError, ValueError, json.JSONDecodeError, BotoCoreError, ClientError) as error:
         raise SystemExit(f"reuse plan failed: {error}") from error
-    with Path(args.github_output).open("a") as output:
-        output.write(f"matrices={json.dumps(matrices, sort_keys=True, separators=(',', ':'))}\n")
-        output.write(f"reused-jobs={json.dumps(reused_jobs, separators=(',', ':'))}\n")
-        output.write(f"image-map={json.dumps(image_map, sort_keys=True, separators=(',', ':'))}\n")
+    if args.mode == "train":
+        Path(args.plan_output).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    else:
+        with Path(args.github_output).open("a") as output:
+            output.write(f"matrices={json.dumps(matrices, sort_keys=True, separators=(',', ':'))}\n")
+            output.write(f"reused-jobs={json.dumps(reused_jobs, separators=(',', ':'))}\n")
+            output.write(f"image-map={json.dumps(image_map, sort_keys=True, separators=(',', ':'))}\n")
     with Path(args.summary).open("a") as summary:
-        summary.write(_summary(outcomes, reused_jobs, runs_url, development=development))
+        summary.write(_summary(outcomes, reused_jobs, runs_url, development=development, note=note))
     return 0
 
 

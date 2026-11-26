@@ -2,9 +2,16 @@ name: Plan release-candidate row reuse
 description: >-
   Decide every build row of a release run before any build job starts, CI images first: bind the rows an earlier
   complete run can supply, and output each job's matrix of rows that must build and the image map
-  (plans/per-row-reuse.md, 4a and 4b).
+  (plans/per-row-reuse.md, 4a and 4b). With mode apply, the rows were decided when the train was planned (4c): the
+  run re-checks and binds the train's recorded hits instead of computing keys.
 
 inputs:
+  mode:
+    description: >-
+      run: decide every row in this run. apply: re-check and bind the reuse plan Create/Update Train recorded for
+      the train (reuse_plan.py --mode train); a train without one, or planned for another manifest, stops the run.
+    required: false
+    default: run
   manifest:
     description: >-
       JSON written by the release-file generator: schema_version 1 and the build jobs, each with id, repository,
@@ -60,24 +67,64 @@ runs:
             exit 1
           fi
         done
+    - name: Name the plan's environment
+      id: environment
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        if [[ "${MODE}" != run && "${MODE}" != apply ]]; then
+          echo "candidate-reuse-plan mode must be run or apply, not ${MODE}" >&2
+          exit 1
+        fi
+        # The environment is cached by this Python and the hash-pinned requirements, so a run restores it in about a
+        # second instead of installing boto3 (about 6 s, release run 45892215679).
+        python="$(python3 -c 'import platform, sys; print(platform.python_implementation() + "-" + platform.python_version() + "-" + sys.executable)' | sha256sum | cut -c1-16)"
+        requirements="$(sha256sum "${ACTION_PATH}/requirements.txt" | cut -c1-16)"
+        {
+          printf 'path=%s\n' "${RUNNER_TEMP:?}/candidate-reuse-plan-venv"
+          printf 'key=candidate-reuse-plan-venv-v1-%s-%s-%s-%s\n' "${RUNNER_OS:?}" "${RUNNER_ARCH:?}" "${python}" "${requirements}"
+        } >> "${GITHUB_OUTPUT}"
+    - name: Restore the plan's environment
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.environment.outputs.path }}
+        key: ${{ steps.environment.outputs.key }}
     - name: Install the plan's pinned dependency
       id: install
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
+        ENVIRONMENT: ${{ steps.environment.outputs.path }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
       run: |
         set -euo pipefail
-        environment="${RUNNER_TEMP:?}/candidate-reuse-plan-venv"
-        python3 -m venv "${environment}"
-        "${environment}/bin/python" -m pip install --quiet --no-deps --require-hashes \
-          -r "${ACTION_PATH}/requirements.txt"
-        printf 'python=%s\n' "${environment}/bin/python" >> "${GITHUB_OUTPUT}"
+        if [[ "${CACHE_HIT}" != true ]]; then
+          python3 -m venv "${ENVIRONMENT}"
+          "${ENVIRONMENT}/bin/python" -m pip install --quiet --no-deps --require-hashes \
+            -r "${ACTION_PATH}/requirements.txt"
+        fi
+        # A restored environment must hold exactly the pinned packages, or the plan doesn't run on it.
+        "${ENVIRONMENT}/bin/python" -m pip install --quiet --no-deps --require-hashes --no-index --dry-run \
+          -r "${ACTION_PATH}/requirements.txt" > /dev/null 2>&1 || {
+          echo "the restored plan environment does not match requirements.txt; reinstalling" >&2
+          rm -rf "${ENVIRONMENT}"
+          python3 -m venv "${ENVIRONMENT}"
+          "${ENVIRONMENT}/bin/python" -m pip install --quiet --no-deps --require-hashes \
+            -r "${ACTION_PATH}/requirements.txt"
+        }
+        "${ENVIRONMENT}/bin/python" -c 'import boto3, botocore'
+        printf 'python=%s\n' "${ENVIRONMENT}/bin/python" >> "${GITHUB_OUTPUT}"
     - name: Decide every row
       id: plan
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
         REUSE_PLAN_PYTHON: ${{ steps.install.outputs.python }}
+        MODE: ${{ inputs.mode }}
         MANIFEST: ${{ inputs.manifest }}
         IMAGE_MAP: ${{ inputs.image-map }}
         TRAIN_SHA256: ${{ inputs.candidate-train-sha256 }}
@@ -90,6 +137,7 @@ runs:
         trap 'rm -f "${manifest}"' EXIT
         printf '%s' "${MANIFEST}" > "${manifest}"
         "${REUSE_PLAN_PYTHON:?}" -u "${ACTION_PATH}/../release-candidate-dependencies/reuse_plan.py" \
+          --mode "${MODE}" \
           --manifest "${manifest}" \
           --image-map "${IMAGE_MAP}" \
           --train-sha256 "${TRAIN_SHA256}" \

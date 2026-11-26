@@ -473,7 +473,7 @@ def test_the_action_passes_inputs_through_the_environment_and_pins_its_dependenc
 
     action = yaml.safe_load(ACTION.read_text())
     for step in action["runs"]["steps"]:
-        assert "${{" not in step["run"], step["name"]  # noqa: S101
+        assert "${{" not in step.get("run", ""), step["name"]  # noqa: S101
     install = next(step for step in action["runs"]["steps"] if step.get("id") == "install")
     assert "--require-hashes" in install["run"]  # noqa: S101
     # The interpreter passes as a step output read through env, never through GITHUB_ENV.
@@ -503,6 +503,7 @@ def test_the_action_step_runs_the_plan_with_every_input(tmp_path):
     environment = {
         "PATH": os.environ["PATH"],
         "ACTION_PATH": str(ACTION.parent),
+        "MODE": "run",
         "MANIFEST": json.dumps(MANIFEST),
         "IMAGE_MAP": json.dumps(IMAGES),
         "TRAIN_SHA256": CURRENT,
@@ -525,6 +526,7 @@ def test_the_action_step_runs_the_plan_with_every_input(tmp_path):
     assert argv[0] == "-u" and argv[1].endswith("/release-candidate-dependencies/reuse_plan.py")  # noqa: S101
     flags = dict(zip(argv[2::2], argv[3::2], strict=True))
     assert flags | {"--manifest": None} == {  # noqa: S101
+        "--mode": "run",
         "--manifest": None,
         "--image-map": json.dumps(IMAGES),
         "--train-sha256": CURRENT,
@@ -871,3 +873,50 @@ def test_switching_the_development_setting_is_named_as_a_tooling_change():
     previous = {"implementation_revisions": {"shared-actions": "4" * 40}}
     assert reuse_plan._cause(current, previous) == "tooling: development keys switched on"  # noqa: S101
     assert reuse_plan._cause(previous, current) == "tooling: development keys switched off"  # noqa: S101
+
+
+def test_the_action_caches_its_environment_by_python_and_pinned_requirements(tmp_path):
+    import yaml
+
+    steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
+    naming = next(step for step in steps if step.get("id") == "environment")
+    cache = next(step for step in steps if step.get("id") == "cache")
+    install = next(step for step in steps if step.get("id") == "install")
+    assert cache["uses"] == "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"  # noqa: S101
+    assert cache["with"] == {  # noqa: S101
+        "path": "${{ steps.environment.outputs.path }}",
+        "key": "${{ steps.environment.outputs.key }}",
+    }
+    assert install["env"]["CACHE_HIT"] == "${{ steps.cache.outputs.cache-hit }}"  # noqa: S101
+    # A restored environment is checked against the pinned requirements before the plan runs on it.
+    assert "--no-index --dry-run" in install["run"]  # noqa: S101
+
+    def name(requirements: str, mode: str = "run"):
+        action = tmp_path / requirements
+        action.mkdir()
+        (action / "requirements.txt").write_text(requirements)
+        output = tmp_path / f"{requirements}-output"
+        environment = {
+            "PATH": os.environ["PATH"],
+            "ACTION_PATH": str(action),
+            "MODE": mode,
+            "RUNNER_TEMP": str(tmp_path),
+            "RUNNER_OS": "Linux",
+            "RUNNER_ARCH": "X64",
+            "GITHUB_OUTPUT": str(output),
+        }
+        result = subprocess.run(  # noqa: S603
+            ["/bin/bash", "-c", naming["run"]], env=environment, capture_output=True, text=True, check=False
+        )
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines()) if output.exists() else {}
+        return result, outputs
+
+    result, first = name("a")
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert first["path"] == f"{tmp_path}/candidate-reuse-plan-venv"  # noqa: S101
+    assert first["key"].startswith("candidate-reuse-plan-venv-v1-Linux-X64-")  # noqa: S101
+    _, second = name("b")
+    assert first["key"] != second["key"]  # noqa: S101
+    result, outputs = name("c", mode="later")
+    assert result.returncode != 0 and "must be run or apply" in result.stderr  # noqa: S101
+    assert outputs == {}  # noqa: S101

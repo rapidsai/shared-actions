@@ -72,6 +72,18 @@ job's matrix of rows that must build. A job is decided only when every job it
 needs was reused in full; otherwise its rows build, and each row's own reuse
 check can still reuse it once its upstream finished.
 
+The same decision can be made when the train is planned, before its release
+run (`reuse_plan.py --mode train`, run by Create/Update Train at the train's
+shared-actions commit). It writes nothing but the plan:
+`<train prefix>/<train>/reuse-plans/<planning run>-<attempt>.json`, each row's
+decision with, for a hit, its key, key record, earlier run and references. The
+release run then uses the action with `mode: apply`: it takes the train's
+newest plan, requires it to be for exactly the release file's manifest, and
+re-checks every hit against the store (completion record, checksums, object
+versions, same-run inputs against this run's bindings, wave by wave) before
+binding it. Keys are not computed again. A hit that no longer holds stops the
+run; Create/Update Train plans again.
+
 For `maven`, the action extracts verified tar.gz Maven repository archives into
 `MAVEN_LOCAL_REPO` and appends that path to `MAVEN_OPTS`. For docs and container
 jobs, set `prepare-conda-channel: true` to build a job-local Conda channel from

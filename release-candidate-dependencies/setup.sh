@@ -162,6 +162,16 @@ if [[ ! "${rapids_cmake_sha}" =~ ^[[:xdigit:]]{40}$ ]]; then
   echo "release train must lock rapids-cmake with build_tool_revisions.rapids-cmake; regenerate the train" >&2
   exit 1
 fi
+# Every CMake configure of this row takes rapids-cmake from this tree instead of downloading it (GitHub's archive
+# answered 504 in 26.12 release runs 45922055714 and 45926793154). A release-file row (it names its entrypoint) must
+# use the tree Create/Update Train staged beside the train; other rows fall back to a retried download.
+rapids_cmake_source="${workspace}/rapids-cmake-source"
+require_staged_rapids_cmake=false
+if [[ -n "${RELEASE_CANDIDATE_ROW_ENTRYPOINT:-}" ]]; then
+  require_staged_rapids_cmake=true
+fi
+bash "${script_directory}/prepare-rapids-cmake.sh" "${rapids_cmake_sha}" "${rapids_cmake_source}" \
+  "${require_staged_rapids_cmake}"
 build_implementation_revisions="$(jq -ceS '
   .build_implementation_revisions as $revisions
   | if ($revisions | type) != "object" then error("build implementation revisions must be an object")
@@ -289,7 +299,7 @@ bash "${script_directory}/install-version-override.sh" "${tools}"
 # Its supported environment configuration is additive and reaches both the
 # bundled and system CMake implementations.  Put the immutable train value
 # last so it wins over an inherited generic definition of the same cache key.
-skbuild_cmake_define="rapids-cmake-sha=${rapids_cmake_sha}"
+skbuild_cmake_define="rapids-cmake-sha=${rapids_cmake_sha};FETCHCONTENT_SOURCE_DIR_RAPIDS-CMAKE=${rapids_cmake_source}"
 if [[ -n "${SKBUILD_CMAKE_DEFINE:-}" ]]; then
   require_value "SKBUILD_CMAKE_DEFINE" "${SKBUILD_CMAKE_DEFINE}"
   skbuild_cmake_define="${SKBUILD_CMAKE_DEFINE};${skbuild_cmake_define}"
@@ -717,7 +727,8 @@ if [[ "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" == "true" \
     # action has finished. Put the frozen RAPIDS CMake definition in each lock
     # package's late-named activation script so ordinary Conda CMake builds
     # receive it as well as scikit-build-core and PATH-based invocations.
-    activation_script="if [[ \" \${CMAKE_ARGS:-} \" != *\" -Drapids-cmake-sha=${rapids_cmake_sha} \"* ]]; then export CMAKE_ARGS=\"\${CMAKE_ARGS:+\${CMAKE_ARGS} }-Drapids-cmake-sha=${rapids_cmake_sha}\"; fi"
+    cmake_definitions="-Drapids-cmake-sha=${rapids_cmake_sha} -DFETCHCONTENT_SOURCE_DIR_RAPIDS-CMAKE=${rapids_cmake_source}"
+    activation_script="if [[ \" \${CMAKE_ARGS:-} \" != *\" ${cmake_definitions} \"* ]]; then export CMAKE_ARGS=\"\${CMAKE_ARGS:+\${CMAKE_ARGS} }${cmake_definitions}\"; fi"
     package_script=$'mkdir -p "${PREFIX}/etc/conda/activate.d"\n'
     package_script+="printf '%s\\n' '${activation_script}' > \"\${PREFIX}/etc/conda/activate.d/zz-rapids-release-cmake.sh\""
     jq -n \
@@ -854,7 +865,8 @@ if [[ "${arguments[0]:-}" == "build" ]]; then
         --recipe "${arguments[$((index + 1))]}" \
         --build-lock "${RAPIDS_CANDIDATE_BUILD_LOCK_PACKAGE}" \
         --host-lock "${RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE}" \
-        --rapids-cmake-sha "${RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA}")"
+        --rapids-cmake-sha "${RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA}" \
+        --rapids-cmake-source "${RAPIDS_CANDIDATE_RAPIDS_CMAKE_SOURCE}")"
       arguments+=(--ignore-recipe-variants --variant-config "${RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG}")
       # Match the frozen planner's build-number variant for recipes that use it.
       recipe_file="${arguments[$((index + 1))]}"
@@ -917,6 +929,7 @@ fi
   # be available to the recipe patcher even when CMake is absent from the
   # outer workflow container at setup time.
   printf 'RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA=%s\n' "${rapids_cmake_sha}"
+  printf 'RAPIDS_CANDIDATE_RAPIDS_CMAKE_SOURCE=%s\n' "${rapids_cmake_source}"
   printf 'SKBUILD_CMAKE_DEFINE=%s\n' "${skbuild_cmake_define}"
   if [[ -n "${original_cmake}" ]]; then
     printf 'RAPIDS_CANDIDATE_ORIGINAL_CMAKE=%s\n' "${original_cmake}"

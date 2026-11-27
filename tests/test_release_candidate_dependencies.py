@@ -26,6 +26,7 @@ if _PATCHER_SPEC is None or _PATCHER_SPEC.loader is None:
     raise RuntimeError(f"unable to load recipe patcher: {_PATCHER}")
 _PATCHER_MODULE = importlib.util.module_from_spec(_PATCHER_SPEC)
 _PATCHER_SPEC.loader.exec_module(_PATCHER_MODULE)
+_RAPIDS_CMAKE_SOURCE = "/candidate/rapids-cmake-source"
 
 _LOCK_SELECTOR = Path(__file__).parents[1] / "release-candidate-dependencies" / "select_lock.py"
 _SETUP = Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh"
@@ -1074,7 +1075,13 @@ def test_recipe_patcher_injects_locks_only_into_multi_output_build_targets():
         ],
     }
 
-    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
+    _PATCHER_MODULE._prepare_recipe_documents(
+        recipe,
+        "candidate-build-lock",
+        "candidate-host-lock",
+        _PATCHER_MODULE.CMakePin("deadbeef", _RAPIDS_CMAKE_SOURCE),
+        set(),
+    )
 
     if "requirements" in recipe:
         pytest.fail("multi-output recipe retained a forbidden top-level requirements field")
@@ -1085,7 +1092,11 @@ def test_recipe_patcher_injects_locks_only_into_multi_output_build_targets():
     if recipe["outputs"][0]["requirements"] != expected_library_requirements:
         pytest.fail("library output did not inherit shared and candidate requirements")
     output_script = recipe["outputs"][0]["build"]["script"]
-    if output_script["env"] != {"KEEP": "true"} or "-Drapids-cmake-sha=deadbeef" not in output_script["content"]:
+    if (
+        output_script["env"] != {"KEEP": "true"}
+        or "-Drapids-cmake-sha=deadbeef" not in output_script["content"]
+        or f"-DFETCHCONTENT_SOURCE_DIR_RAPIDS-CMAKE={_RAPIDS_CMAKE_SOURCE}" not in output_script["content"]
+    ):
         pytest.fail("script-object content was not pinned without losing its environment")
     expected_test_requirements = {
         "build": ["cmake", "ninja", "candidate-build-lock"],
@@ -1102,7 +1113,13 @@ def test_recipe_patcher_injects_locks_into_single_output_root():
         "tests": [{"script": "cmake -S tests -B build"}],
     }
 
-    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
+    _PATCHER_MODULE._prepare_recipe_documents(
+        recipe,
+        "candidate-build-lock",
+        "candidate-host-lock",
+        _PATCHER_MODULE.CMakePin("deadbeef", _RAPIDS_CMAKE_SOURCE),
+        set(),
+    )
 
     expected_requirements = {
         "build": ["cmake", "candidate-build-lock"],
@@ -1124,7 +1141,13 @@ def test_recipe_patcher_leaves_multi_output_tests_unmodified():
         ]
     }
 
-    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
+    _PATCHER_MODULE._prepare_recipe_documents(
+        recipe,
+        "candidate-build-lock",
+        "candidate-host-lock",
+        _PATCHER_MODULE.CMakePin("deadbeef", _RAPIDS_CMAKE_SOURCE),
+        set(),
+    )
 
     for output in recipe["outputs"]:
         if "requirements" in output["tests"][0]:
@@ -1140,7 +1163,13 @@ def test_recipe_patcher_pins_and_locks_shared_cache_build():
         "outputs": [{"package": {"name": "library"}}],
     }
 
-    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
+    _PATCHER_MODULE._prepare_recipe_documents(
+        recipe,
+        "candidate-build-lock",
+        "candidate-host-lock",
+        _PATCHER_MODULE.CMakePin("deadbeef", _RAPIDS_CMAKE_SOURCE),
+        set(),
+    )
 
     if recipe["cache"]["requirements"] != {
         "build": ["cmake", "candidate-build-lock"],
@@ -1172,7 +1201,13 @@ def test_recipe_patcher_locks_staging_and_preserves_inheritance():
         ],
     }
 
-    _PATCHER_MODULE._prepare_recipe_documents(recipe, "candidate-build-lock", "candidate-host-lock", "deadbeef", set())
+    _PATCHER_MODULE._prepare_recipe_documents(
+        recipe,
+        "candidate-build-lock",
+        "candidate-host-lock",
+        _PATCHER_MODULE.CMakePin("deadbeef", _RAPIDS_CMAKE_SOURCE),
+        set(),
+    )
 
     for output in recipe["outputs"]:
         if "candidate-build-lock" not in output["requirements"]["build"]:
@@ -1292,6 +1327,7 @@ def test_candidate_cmake_wrapper_pins_rapids_cmake_for_configure(tmp_path):
         env={
             "RAPIDS_CANDIDATE_ORIGINAL_CMAKE": str(original),
             "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA": "a" * 40,
+            "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SOURCE": _RAPIDS_CMAKE_SOURCE,
             "TEST_OUTPUT": str(output),
             "PATH": str(tmp_path),
         },
@@ -1301,6 +1337,7 @@ def test_candidate_cmake_wrapper_pins_rapids_cmake_for_configure(tmp_path):
         pytest.fail("candidate CMake wrapper wrote unexpected standard output")
     expected_arguments = [
         "-Drapids-cmake-sha=" + "a" * 40,
+        f"-DFETCHCONTENT_SOURCE_DIR_RAPIDS-CMAKE={_RAPIDS_CMAKE_SOURCE}",
         "-S",
         ".",
         "-B",
@@ -1324,6 +1361,7 @@ def test_candidate_cmake_wrapper_does_not_modify_build_mode(tmp_path):
         env={
             "RAPIDS_CANDIDATE_ORIGINAL_CMAKE": str(original),
             "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA": "a" * 40,
+            "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SOURCE": _RAPIDS_CMAKE_SOURCE,
             "TEST_OUTPUT": str(output),
             "PATH": str(tmp_path),
         },

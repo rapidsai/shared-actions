@@ -84,6 +84,16 @@ versions, same-run inputs against this run's bindings, wave by wave) before
 binding it. Keys are not computed again. A hit that no longer holds stops the
 run; Create/Update Train plans again.
 
+CMake never downloads rapids-cmake in a candidate build. Create/Update Train runs
+`stage-rapids-cmake.sh` once per train: it fetches the train's pinned commit with
+git (retried), checks it, and stores a reproducible tarball at
+`<train prefix>/<train>/build-tools/rapids-cmake/<sha>.tar.gz`. Setup's
+`prepare-rapids-cmake.sh` extracts it for the row and every CMake configure gets
+`-DFETCHCONTENT_SOURCE_DIR_RAPIDS-CMAKE=<that tree>` beside `-Drapids-cmake-sha`
+(the CMake wrapper, recipe scripts, scikit-build defines and the lock packages'
+activation). A release-file row (one with `row-entrypoint`) fails without the
+staged tarball; other rows fall back to GitHub's archive, downloaded with retries.
+
 For `maven`, the action extracts verified tar.gz Maven repository archives into
 `MAVEN_LOCAL_REPO` and appends that path to `MAVEN_OPTS`. For docs and container
 jobs, set `prepare-conda-channel: true` to build a job-local Conda channel from

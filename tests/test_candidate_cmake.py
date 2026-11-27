@@ -33,13 +33,22 @@ def test_cmake_installed_after_setup_is_used_without_losing_source_pin(tmp_path,
             "PATH": f"{tools}:{alias}:{installed}",
             "RAPIDS_CANDIDATE_ORIGINAL_CMAKE": str(system),
             "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA": "a" * 40,
+            "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SOURCE": "/candidate/rapids-cmake-source",
         },
         capture_output=True,
         text=True,
         check=True,
         timeout=5,
     )
-    expected = arguments if arguments[0].startswith("--") else ["-Drapids-cmake-sha=" + "a" * 40, *arguments]
+    expected = (
+        arguments
+        if arguments[0].startswith("--")
+        else [
+            "-Drapids-cmake-sha=" + "a" * 40,
+            "-DFETCHCONTENT_SOURCE_DIR_RAPIDS-CMAKE=/candidate/rapids-cmake-source",
+            *arguments,
+        ]
+    )
     if result.stdout.splitlines() != expected:
         pytest.fail("newly installed CMake did not receive the expected source pin and arguments")
     if result.stderr:

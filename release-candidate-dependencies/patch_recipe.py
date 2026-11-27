@@ -10,6 +10,7 @@ import hashlib
 import re
 import shutil
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -20,6 +21,11 @@ def main() -> int:
     parser.add_argument("--build-lock", required=True)
     parser.add_argument("--host-lock", required=True)
     parser.add_argument("--rapids-cmake-sha", required=True)
+    parser.add_argument(
+        "--rapids-cmake-source",
+        required=True,
+        help="The train's rapids-cmake source tree, which CMake must use instead of downloading it.",
+    )
     arguments = parser.parse_args()
 
     source_is_directory = arguments.recipe.is_dir()
@@ -41,7 +47,7 @@ def main() -> int:
         document,
         arguments.build_lock,
         arguments.host_lock,
-        arguments.rapids_cmake_sha,
+        CMakePin(arguments.rapids_cmake_sha, arguments.rapids_cmake_source),
         exact_variant_keys,
     )
 
@@ -62,22 +68,31 @@ def _add_requirements(document: dict, build_lock: str, host_lock: str) -> None:
             values.append(lock)
 
 
-def _candidate_cmake_preamble(rapids_cmake_sha: str) -> str:
-    """Return Bash setup that pins configure-mode CMake and scikit-build."""
-    return f"""# Release candidates must never fetch RAPIDS CMake from a moving branch.
+class CMakePin(NamedTuple):
+    """The train's rapids-cmake commit, and the source tree of it that dependency setup prepared."""
+
+    sha: str
+    source: str
+
+
+def _candidate_cmake_preamble(pin: CMakePin) -> str:
+    """Return Bash setup that pins configure-mode CMake and scikit-build to the train's rapids-cmake tree."""
+    sha = f"rapids-cmake-sha={pin.sha}"
+    source = f"FETCHCONTENT_SOURCE_DIR_RAPIDS-CMAKE={pin.source}"
+    return f"""# Release candidates must never fetch RAPIDS CMake from a moving branch, or download it at all.
 cmake() {{
   case "${{1:-}}" in
     --build|--install|--open|-E|-P|--help|--version) command cmake "$@" ;;
-    *) command cmake "-Drapids-cmake-sha={rapids_cmake_sha}" "$@" ;;
+    *) command cmake "-D{sha}" "-D{source}" "$@" ;;
   esac
 }}
 export -f cmake
-export SKBUILD_CMAKE_DEFINE="${{SKBUILD_CMAKE_DEFINE:+${{SKBUILD_CMAKE_DEFINE}};}}rapids-cmake-sha={rapids_cmake_sha}"
+export SKBUILD_CMAKE_DEFINE="${{SKBUILD_CMAKE_DEFINE:+${{SKBUILD_CMAKE_DEFINE}};}}{sha};{source}"
 """
 
 
-def _prepend_cmake_preamble(script: object, rapids_cmake_sha: str) -> object:
-    preamble = _candidate_cmake_preamble(rapids_cmake_sha)
+def _prepend_cmake_preamble(script: object, pin: CMakePin) -> object:
+    preamble = _candidate_cmake_preamble(pin)
     if isinstance(script, str):
         return f"{preamble}\n{script}"
     if isinstance(script, list):
@@ -87,12 +102,12 @@ def _prepend_cmake_preamble(script: object, rapids_cmake_sha: str) -> object:
         if content is None:
             raise ValueError("release-candidate recipe script object must define content")
         patched = dict(script)
-        patched["content"] = _prepend_cmake_preamble(content, rapids_cmake_sha)
+        patched["content"] = _prepend_cmake_preamble(content, pin)
         return patched
     raise ValueError("release-candidate recipe script must be a string, list, or content object")
 
 
-def _pin_cmake_in_build_script(document: dict, rapids_cmake_sha: str) -> None:
+def _pin_cmake_in_build_script(document: dict, pin: CMakePin) -> None:
     """Place the exact CMake definition inside Rattler's isolated shells.
 
     Rattler does not inherit the workflow PATH into its build shell, so a
@@ -102,7 +117,7 @@ def _pin_cmake_in_build_script(document: dict, rapids_cmake_sha: str) -> None:
     """
     build = document.get("build")
     if isinstance(build, dict) and "script" in build:
-        build["script"] = _prepend_cmake_preamble(build["script"], rapids_cmake_sha)
+        build["script"] = _prepend_cmake_preamble(build["script"], pin)
 
 
 def _resolve_recipe(candidate: Path, parser: argparse.ArgumentParser) -> Path:
@@ -125,7 +140,7 @@ def _copy_recipe_directory(recipe: Path, build_lock: str, host_lock: str) -> Pat
 
 
 def _prepare_recipe_documents(
-    document: dict, build_lock: str, host_lock: str, rapids_cmake_sha: str, exact_variant_keys: set[str]
+    document: dict, build_lock: str, host_lock: str, pin: CMakePin, exact_variant_keys: set[str]
 ) -> None:
     """Inject locks into the actual build target of a Rattler recipe.
 
@@ -134,7 +149,7 @@ def _prepare_recipe_documents(
     not permit top-level requirements for the latter, so first distribute the
     shared requirements into every output and remove the root field.
     """
-    _pin_cmake_in_build_script(document, rapids_cmake_sha)
+    _pin_cmake_in_build_script(document, pin)
     cache = document.get("cache")
     if cache is not None:
         if not isinstance(cache, dict):
@@ -143,7 +158,7 @@ def _prepare_recipe_documents(
         # assembled. Its solve and shell are just as much part of the
         # candidate build as an output's own requirements and script.
         _add_requirements(cache, build_lock, host_lock)
-        _pin_cmake_in_build_script(cache, rapids_cmake_sha)
+        _pin_cmake_in_build_script(cache, pin)
     outputs = document.get("outputs")
     if not outputs:
         _prepare_document(document, build_lock, host_lock, exact_variant_keys, add_locks=True)
@@ -151,7 +166,7 @@ def _prepare_recipe_documents(
 
     _move_root_requirements_to_outputs(document, outputs)
     for output in outputs:
-        _pin_cmake_in_build_script(output, rapids_cmake_sha)
+        _pin_cmake_in_build_script(output, pin)
         _prepare_document(output, build_lock, host_lock, exact_variant_keys, add_locks=True)
 
 

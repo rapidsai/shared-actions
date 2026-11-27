@@ -5,6 +5,8 @@ set -euo pipefail
 
 original_cmake="${RAPIDS_CANDIDATE_ORIGINAL_CMAKE:?candidate CMake path is required}"
 rapids_cmake_sha="${RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA:?candidate RAPIDS CMake SHA is required}"
+# The train's rapids-cmake tree that dependency setup prepared; FetchContent uses it instead of downloading.
+rapids_cmake_source="${RAPIDS_CANDIDATE_RAPIDS_CMAKE_SOURCE:?candidate RAPIDS CMake source is required}"
 
 # Callers may install a newer CMake after candidate setup. Honor the current
 # PATH instead of forcing the executable captured before those installations,
@@ -27,4 +29,5 @@ case "${1:-}" in
     ;;
 esac
 
-exec "${original_cmake}" "-Drapids-cmake-sha=${rapids_cmake_sha}" "$@"
+exec "${original_cmake}" "-Drapids-cmake-sha=${rapids_cmake_sha}" \
+  "-DFETCHCONTENT_SOURCE_DIR_RAPIDS-CMAKE=${rapids_cmake_source}" "$@"

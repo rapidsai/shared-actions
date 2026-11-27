@@ -37,6 +37,7 @@ def candidate_wrapper(tmp_path):
         "RAPIDS_CANDIDATE_BUILD_LOCK_PACKAGE": "candidate-build-lock",
         "RAPIDS_CANDIDATE_HOST_LOCK_PACKAGE": "candidate-host-lock",
         "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SHA": "a" * 40,
+        "RAPIDS_CANDIDATE_RAPIDS_CMAKE_SOURCE": "/candidate/rapids-cmake-source",
         "RAPIDS_CANDIDATE_RATTLER_VARIANT_CONFIG": str(variants),
     }
     return wrapper, environment

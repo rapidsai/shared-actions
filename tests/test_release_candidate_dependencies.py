@@ -553,6 +553,37 @@ def test_same_run_downloader_refuses_a_reuse_whose_source_run_never_completed(tm
     assert not (staged.output / staged.package_path).exists()  # noqa: S101
 
 
+def test_same_run_downloader_fetches_a_reuse_whose_incomplete_source_run_verify_recorded(tmp_path):
+    # The source run never completed, but its verify job recorded this exact artifact verified.
+    staged = _reuse_staged_candidate(_stage_same_run_candidate(tmp_path), completion=False)
+    bucket_root = Path(staged.env["FAKE_S3_ROOT"]) / "candidate-store"
+    record = bucket_root / f"train-state/{'c' * 64}/verified/kvikio/400.1/{staged.artifact_name}.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "train_sha256": "c" * 64,
+                "repository": "kvikio",
+                "artifact": staged.artifact_name,
+                "run_id": "400",
+                "run_attempt": "1",
+                "build_input_digest": staged.build_input_digest,
+                "result": "verified",
+            }
+        )
+    )
+    result = _run_same_run_downloader(staged.artifact_name, staged.env)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert (staged.output / staged.package_path).read_bytes() == staged.package_bytes  # noqa: S101
+    # A record for another build of the artifact is not this one's.
+    record.write_text(record.read_text().replace(staged.build_input_digest, "f" * 64))
+    staged.output.rename(tmp_path / "first-download")
+    result = _run_same_run_downloader(staged.artifact_name, staged.env)
+    assert result.returncode != 0  # noqa: S101
+    assert "no verification record" in result.stderr  # noqa: S101
+
+
 def test_same_run_downloader_refuses_an_artifact_both_reused_and_built(tmp_path):
     staged = _reuse_staged_candidate(_stage_same_run_candidate(tmp_path), keep_own_reference=True)
     result = _run_same_run_downloader(staged.artifact_name, staged.env)

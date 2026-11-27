@@ -14,7 +14,9 @@
 # the train. It is accepted only for the exact source run, attempt and build
 # input digest it names, and only when that source run left a controller-written
 # completion record (completions/<run>.<attempt>.json) from the same or a later
-# attempt in the train it was reused from. Reusing an earlier run of this same
+# attempt in the train it was reused from, or a verification record for exactly
+# this artifact (verified/<repository>/<run>.<attempt>/<artifact>.json), which
+# verify writes even when the run did not complete. Reusing an earlier run of this same
 # train copies nothing, so the binding then names that run's original reference,
 # whose completion record is in this train.
 set -euo pipefail
@@ -102,7 +104,16 @@ if [[ -f "${binding}" ]] && { jq -e 'has("reuse")' "${reference}" >/dev/null || 
     fi
   done < <(aws s3api list-objects-v2 --bucket "${bucket}" --prefix "${completions}" --output json \
     | jq -r '.Contents // [] | .[].Key')
-  echo "reuse binding for ${artifact} names run ${source_run}, which has no completion record covering attempt ${source_attempt}" >&2
+  verified="${prefix}/${source_train}/verified/${repository_name}/${source_run}.${source_attempt}/${artifact}.json"
+  if aws s3 cp "s3://${bucket}/${verified}" "${record}" >/dev/null 2>&1 \
+    && jq -e --arg t "${source_train}" --arg repo "${repository_name}" --arg a "${artifact}" --arg run "${source_run}" \
+      --arg attempt "${source_attempt}" --arg d "${digest}" \
+      '. == {schema_version: 1, train_sha256: $t, repository: $repo, artifact: $a, run_id: $run,
+             run_attempt: $attempt, build_input_digest: $d, result: "verified"}' "${record}" >/dev/null; then
+    echo reused
+    exit 0
+  fi
+  echo "reuse binding for ${artifact} names run ${source_run}, which has no completion record covering attempt ${source_attempt} and no verification record for it" >&2
   exit 1
 fi
 

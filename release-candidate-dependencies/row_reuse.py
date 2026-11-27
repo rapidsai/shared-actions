@@ -9,7 +9,8 @@ taken only if, for every artifact it indexed under the key:
 
 - the pointer's key record is exactly this row's;
 - the run left a completion record (``completions/<run>.<attempt>.json``) in its train, from the same or a later
-  attempt;
+  attempt, or its verify job recorded this exact artifact verified (``verified/<repository>/<run>.<attempt>/
+  <artifact>.json``), which it does for every artifact it checked even when the run did not complete;
 - its build record, artifact index and catalog still have the checksums recorded at upload, and every indexed
   payload still has the checksum its index names (whose S3 versions are recorded as reuse evidence);
 - every artifact of this repository that the row consumed from its own run (``same_run_inputs``, recorded by the
@@ -141,6 +142,35 @@ def _completion_recorded(s3: S3, train_prefix: str, train: str, run: str, attemp
     return False
 
 
+def _verified(s3: S3, train_prefix: str, train: str, reference: dict[str, Any]) -> bool:
+    """Whether ``train``'s verify job recorded this exact artifact verified, though its run may not have completed.
+
+    Verify writes ``verified/<repository>/<run>.<attempt>/<artifact>.json`` (If-None-Match, controller role) for each
+    artifact it fully checked, even in a run where another row failed or that was cancelled, so those rows stay
+    reusable. The record must name this artifact's run, attempt and build input digest exactly.
+    """
+    repository = str(reference.get("repository", "")).rsplit("/", 1)[-1]
+    run, attempt = str(reference.get("source_run_id")), str(reference.get("source_run_attempt"))
+    artifact, digest = reference.get("source_artifact"), reference.get("build_input_digest")
+    if not (SAFE.fullmatch(repository) and SAFE.fullmatch(str(artifact)) and run.isdigit() and attempt.isdigit()):
+        return False
+    data = s3.get(f"{train_prefix}/{train}/verified/{repository}/{run}.{attempt}/{artifact}.json")
+    try:
+        record = json.loads(data) if data is not None else None
+    except json.JSONDecodeError:
+        return False
+    return record == {
+        "schema_version": 1,
+        "train_sha256": train,
+        "repository": repository,
+        "artifact": artifact,
+        "run_id": run,
+        "run_attempt": attempt,
+        "build_input_digest": digest,
+        "result": "verified",
+    }
+
+
 def _current_digest(s3: S3, args: argparse.Namespace, artifact: str) -> str:
     """The build input digest this run has for one of its repository's artifacts, built or reused, or raise Miss."""
     base = f"{args.train_prefix}/{args.train_sha256}/{args.repository.rsplit('/', 1)[-1]}"
@@ -200,8 +230,11 @@ def _verify(s3: S3, args: argparse.Namespace, key_record: Any, artifact: str, po
         or not HEX64.fullmatch(str(reference.get("build_input_digest")))
     ):
         raise Miss(f"index entry for {artifact} in run {run}.{attempt} does not describe this row")
-    if not _completed(s3, args.train_prefix, reference["train_sha256"], run, attempt):
-        raise Miss(f"run {run}.{attempt} has no completion record")
+    if not (
+        _completed(s3, args.train_prefix, reference["train_sha256"], run, attempt)
+        or _verified(s3, args.train_prefix, reference["train_sha256"], reference)
+    ):
+        raise Miss(f"run {run}.{attempt} has no completion record, and verify recorded no check of {artifact}")
     _same_run_inputs_match(s3, args, pointer, run, attempt)
     artifact_key = reference.get("artifact_key")
     if reference.get("artifact_index_key") != f"{artifact_key}/artifact-index.json":

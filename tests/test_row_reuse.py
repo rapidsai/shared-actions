@@ -412,3 +412,52 @@ def test_an_index_entry_without_valid_same_run_inputs_is_not_reused(tmp_path, in
 def test_candidate_setup_passes_the_run_attempt_to_the_reuse_check():
     setup = (Path(__file__).parents[1] / "release-candidate-dependencies" / "setup.sh").read_text()
     assert '--run-attempt "${GITHUB_RUN_ATTEMPT:?}"' in setup  # noqa: S101
+
+
+# A run that didn't complete (a row failed, or it was cancelled) still leaves the rows verify checked: verify writes a
+# record per artifact it fully verified, and an earlier row is reusable with that record instead of the run's
+# completion record (26.12 release run 45926793154 failed and lost every row it had built).
+def verified(root, reference, **changes):
+    record = {
+        "schema_version": 1,
+        "train_sha256": reference["train_sha256"],
+        "repository": "kvikio",
+        "artifact": ARTIFACT,
+        "run_id": reference["source_run_id"],
+        "run_attempt": reference["source_run_attempt"],
+        "build_input_digest": reference["build_input_digest"],
+        "result": "verified",
+        **changes,
+    }
+    run, attempt = reference["source_run_id"], reference["source_run_attempt"]
+    put(
+        root,
+        f"train-state/{reference['train_sha256']}/verified/kvikio/{run}.{attempt}/{ARTIFACT}.json",
+        json.dumps(record).encode(),
+    )
+
+
+def test_a_row_of_an_incomplete_run_is_reused_when_verify_recorded_its_artifact(tmp_path):
+    reference, _ = index_run(tmp_path / "s3", complete=False)
+    verified(tmp_path / "s3", reference)
+    result, outputs = run_reuse(tmp_path)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert outputs == {"reused": "true", "run": "400.1"}  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"build_input_digest": "f" * 64},  # verify checked another build of the artifact
+        {"run_attempt": "2"},  # another attempt
+        {"result": "complete"},
+        {"repository": "rmm"},
+    ],
+)
+def test_a_verification_record_for_anything_else_is_not_trusted(tmp_path, changes):
+    reference, _ = index_run(tmp_path / "s3", complete=False)
+    verified(tmp_path / "s3", reference, **changes)
+    result, outputs = run_reuse(tmp_path)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert outputs == {"reused": "false"}  # noqa: S101
+    assert not (tmp_path / "s3" / "candidate-store" / f"train-state/{TRAIN}/kvikio/reuse-bindings").exists()  # noqa: S101

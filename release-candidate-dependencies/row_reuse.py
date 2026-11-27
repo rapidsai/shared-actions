@@ -151,11 +151,18 @@ def _current_digest(s3: S3, args: argparse.Namespace, artifact: str) -> str:
             digests.append(json.loads(binding).get("build_input_digest"))
         except (json.JSONDecodeError, AttributeError) as error:
             raise Miss(f"same-run input {artifact} has a malformed reuse binding in this run") from error
-    prefix = f"{base}/{args.run_id}.{args.run_attempt}/"
-    for key in s3.keys(prefix):
-        parts = key.removeprefix(prefix).split("/")
-        if len(parts) == 2 and parts[1] == f"bundle-reference.{artifact}.json":
-            digests.append(parts[0])
+    # The newest attempt of this run, up to this one, that built it: "Re-run failed jobs" keeps the rows that
+    # succeeded in an earlier attempt (26.12 release run 45926793154), as the downloader and collection read them.
+    for attempt in range(int(args.run_attempt), 0, -1):
+        prefix = f"{base}/{args.run_id}.{attempt}/"
+        built = [
+            parts[0]
+            for parts in (key.removeprefix(prefix).split("/") for key in s3.keys(prefix))
+            if len(parts) == 2 and parts[1] == f"bundle-reference.{artifact}.json"
+        ]
+        if built:
+            digests.extend(built)
+            break
     if len(digests) != 1 or not HEX64.fullmatch(str(digests[0])):
         raise Miss(f"same-run input {artifact} is not exactly one artifact in this run")
     return digests[0]

@@ -46,19 +46,31 @@ if [[ ! "${run_id}" =~ ^[0-9]+$ || ! "${run_attempt}" =~ ^[0-9]+$ \
 fi
 
 train_prefix="${RELEASE_CANDIDATE_TRAIN_PREFIX:?candidate train prefix is required}/${train_sha256}"
-run_prefix="${train_prefix}/${repository_name}/${run_id}.${run_attempt}"
 reference_directory="$(mktemp -d)"
 catalog_path="${reference_directory}/catalog.json"
 index_path="${destination}/artifact-index.json"
 trap 'rm -rf "${reference_directory}"' EXIT
 
-# Resolve only the current repository's exact run and attempt. A retry or a
-# similarly named output from another producer run cannot satisfy this lookup.
-aws s3 cp \
-  "s3://${RELEASE_CANDIDATE_BUCKET:?candidate bucket is required}/${run_prefix}/" \
-  "${reference_directory}" \
-  --recursive --exclude '*' --include "*/bundle-reference.${artifact_name}.json" >&2
-mapfile -t references < <(find "${reference_directory}" -type f -name "bundle-reference.${artifact_name}.json" -print | sort)
+# Resolve only the current repository's exact run: the newest of its attempts, up to this one, that built the
+# artifact. "Re-run failed jobs" keeps the rows that succeeded in an earlier attempt, and their outputs stay under
+# that attempt (26.12 release run 45926793154); the final collection likewise takes each artifact's latest attempt.
+# Another producer run, or a later attempt, never satisfies this lookup.
+references=()
+built_attempt="${run_attempt}"
+for (( attempt = run_attempt; attempt >= 1; attempt-- )); do
+  attempt_directory="${reference_directory}/attempts/${attempt}"
+  mkdir -p "${attempt_directory}"
+  aws s3 cp \
+    "s3://${RELEASE_CANDIDATE_BUCKET:?candidate bucket is required}/${train_prefix}/${repository_name}/${run_id}.${attempt}/" \
+    "${attempt_directory}" \
+    --recursive --exclude '*' --include "*/bundle-reference.${artifact_name}.json" >&2
+  mapfile -t references < <(find "${attempt_directory}" -type f -name "bundle-reference.${artifact_name}.json" -print | sort)
+  if (( ${#references[@]} > 0 )); then
+    built_attempt="${attempt}"
+    break
+  fi
+done
+run_prefix="${train_prefix}/${repository_name}/${run_id}.${built_attempt}"
 
 # A row of this run may instead have reused the artifact from an earlier
 # complete run; its binding names that run, attempt and digest exactly.
@@ -67,7 +79,7 @@ binding_root="${reference_directory}/bindings"
 binding_path="${binding_root}/${repository_name}/reuse-bindings/${run_id}/${artifact_name}.json"
 mkdir -p "${binding_path%/*}"
 reference_run="${run_id}"
-reference_attempt="${run_attempt}"
+reference_attempt="${built_attempt}"
 if aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${binding_key}" "${binding_path}" >/dev/null 2>&1; then
   if [[ "${#references[@]}" -ne 0 ]]; then
     echo "${artifact_name} is both reused and built in run ${run_id}" >&2

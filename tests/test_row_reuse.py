@@ -147,7 +147,7 @@ def index_run(
     return reference, payload_sha
 
 
-def run_reuse(tmp_path, *, key=KEY, key_record=KEY_RECORD):
+def run_reuse(tmp_path, *, key=KEY, key_record=KEY_RECORD, attempt="1"):
     fake = tmp_path / "bin" / "aws"
     fake.parent.mkdir(exist_ok=True)
     fake.write_text(FAKE_AWS)
@@ -172,7 +172,7 @@ def run_reuse(tmp_path, *, key=KEY, key_record=KEY_RECORD):
         "--run-id",
         RUN,
         "--run-attempt",
-        "1",
+        attempt,
         "--train-sha256",
         TRAIN,
         "--bucket",
@@ -349,6 +349,25 @@ def test_a_row_is_reused_when_this_run_has_the_same_same_run_input(tmp_path, cur
     assert outputs == {"reused": "true", "run": "400.1"}  # noqa: S101
 
 
+def test_a_rerun_row_checks_its_same_run_input_against_the_attempt_that_built_it(tmp_path):
+    # "Re-run failed jobs" (attempt 2) keeps kvikio C++ from attempt 1; the Python row's check must find it there,
+    # as the downloader and the final collection do (newest attempt up to this one).
+    index_run(tmp_path / "s3", same_run_inputs=[consumed()])
+    built_in_this_run(tmp_path / "s3", attempt="1")
+    result, outputs = run_reuse(tmp_path, attempt="2")
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert outputs == {"reused": "true", "run": "400.1"}  # noqa: S101
+
+
+def test_a_rerun_row_takes_the_newest_attempt_that_built_its_same_run_input(tmp_path):
+    index_run(tmp_path / "s3", same_run_inputs=[consumed()])
+    built_in_this_run(tmp_path / "s3", attempt="1")
+    built_in_this_run(tmp_path / "s3", digest="f" * 64, attempt="2")
+    result, outputs = run_reuse(tmp_path, attempt="3")
+    assert outputs == {"reused": "false"}  # noqa: S101
+    assert "built differently" in result.stderr  # noqa: S101
+
+
 @pytest.mark.parametrize(
     "current",
     [
@@ -358,7 +377,7 @@ def test_a_row_is_reused_when_this_run_has_the_same_same_run_input(tmp_path, cur
         # This run has no such artifact, or an ambiguous one.
         lambda root: None,
         lambda root: (built_in_this_run(root), built_in_this_run(root, digest="f" * 64)),
-        # Only another attempt built it; the downloader reads this attempt.
+        # Only a later attempt built it; a row never looks ahead of its own attempt, as the downloader doesn't.
         lambda root: built_in_this_run(root, attempt="2"),
     ],
 )

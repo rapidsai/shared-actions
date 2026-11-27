@@ -561,6 +561,25 @@ def test_same_run_downloader_refuses_an_artifact_both_reused_and_built(tmp_path)
     assert not (staged.output / staged.package_path).exists()  # noqa: S101
 
 
+def test_a_rerun_takes_an_artifact_from_the_attempt_that_built_it(tmp_path):
+    # 26.12 release run 45926793154: "Re-run failed jobs" (attempt 2) kept the C++ rows that succeeded in attempt 1,
+    # and each Python row consuming one failed: "current candidate run must contain exactly one reference".
+    staged = _stage_same_run_candidate(tmp_path)
+    env = {**staged.env, "GITHUB_RUN_ATTEMPT": "3"}
+    result = _run_same_run_downloader(staged.artifact_name, env)
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    assert (staged.output / staged.package_path).read_bytes() == staged.package_bytes  # noqa: S101
+
+
+def test_a_rerun_never_takes_an_artifact_from_a_later_attempt(tmp_path):
+    staged = _stage_same_run_candidate(tmp_path)
+    env = {**staged.env, "GITHUB_RUN_ATTEMPT": "1"}
+    result = _run_same_run_downloader(staged.artifact_name, env)
+    # Attempt 1's reference is not attempt 2's artifact, so it doesn't match, and attempt 2's is never consulted.
+    assert result.returncode != 0  # noqa: S101
+    assert not (staged.output / staged.package_path).exists()  # noqa: S101
+
+
 def _run_same_run_downloader(artifact_name, env):
     return subprocess.run(  # noqa: S603
         [str(_DOWNLOADER), artifact_name], env=env, capture_output=True, text=True, check=False

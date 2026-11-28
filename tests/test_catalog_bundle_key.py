@@ -98,5 +98,8 @@ def test_a_reused_reference_needs_a_safe_relative_location(tmp_path, directory):
 
 def test_candidate_setup_uses_the_shared_bundle_check():
     setup = _SETUP.read_text()
-    assert 'bash "${script_directory}/catalog-bundle-key.sh"' in setup  # noqa: S101
+    # setup reads its catalogs through train_references.py, which names each one with this script.
+    assert 'python3 "${script_directory}/train_references.py"' in setup  # noqa: S101
+    module = (_SETUP.parent / "train_references.py").read_text()
+    assert '_script("catalog-bundle-key.sh"' in module  # noqa: S101
     assert '"${bundle_key}" != "${train_key_prefix}"/*' not in setup  # noqa: S101

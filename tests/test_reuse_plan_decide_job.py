@@ -234,7 +234,7 @@ def test_a_reference_setup_would_refuse_stops_the_decision(store, tmp_path):
         Path(store) / f"train-state/{CURRENT}/rapids-logger/reuse-bindings/{RUN}/rapids-logger_conda_cpp_arm64.json"
     )
     binding.write_text(json.dumps({**json.loads(binding.read_text()), "train_sha256": EARLIER}))
-    with pytest.raises(reuse_plan.PlanError, match=r"reference-binding\.sh refused"):
+    with pytest.raises(reuse_plan.PlanError, match=r"a train reference setup would refuse"):
         decide(tmp_path, KVIKIO_JOB, rows("arm64"))
 
 

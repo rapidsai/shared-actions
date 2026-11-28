@@ -148,7 +148,6 @@ dependency_summary="$(jq -cer --arg target "${candidate_unit_id}" '
   echo "unable to verify candidate dependencies from the release train" >&2
   exit 1
 }
-dependency_count="$(jq -r '.dependency_count' <<<"${dependency_summary}")"
 conda_dependency_count="$(jq -r '.conda_dependency_count' <<<"${dependency_summary}")"
 if [[ "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" == "container" \
   && "${RELEASE_CANDIDATE_PREPARE_CONDA_CHANNEL}" != "true" ]]; then
@@ -391,85 +390,16 @@ aws s3 cp "${root}/" "${manifests}" --recursive --exclude '*' --include '*/bundl
 reuse_bindings="${workspace}/reuse-bindings"
 aws s3 cp "${root}/" "${reuse_bindings}" --recursive --exclude '*' \
   --include "*/reuse-bindings/${GITHUB_RUN_ID:?current GitHub run ID is required}/*.json"
-shopt -s globstar nullglob
-reference_paths=("${manifests}"/**/bundle-reference.*.json)
-declare -A selected_attempts=()
-declare -A selected_reference_paths=()
-for reference_path in "${reference_paths[@]}"; do
-  if ! jq -e '.schema_version == 4 and .storage_layout == 2' "${reference_path}" >/dev/null; then
-    echo "candidate train contains a reference that does not use storage layout 2" >&2
-    exit 1
-  fi
-  source_repository="$(jq -r '.repository // empty' "${reference_path}")"
-  source_artifact="$(jq -r '.source_artifact // empty' "${reference_path}")"
-  if [[ "${reference_path##*/}" != "bundle-reference.${source_artifact}.json" ]]; then
-    echo "candidate train contains a reference whose filename does not match its source artifact" >&2
-    exit 1
-  fi
-  source_run_attempt="$(jq -r '.source_run_attempt // empty' "${reference_path}")"
-  binding="$(SCHEDULER_STATE="${scheduler_state}" REUSE_BINDINGS="${reuse_bindings}" \
-    bash "${script_directory}/reference-binding.sh" "${reference_path}")"
-  reference_identity="${source_repository}/${source_artifact}"
-  case "${binding}" in
-    drop)
-      rm -f "${reference_path}"
-      continue
-      ;;
-    reused)
-      # A binding names exactly one source run, attempt and digest.
-      if [[ -n "${selected_reference_paths[${reference_identity}]:-}" ]]; then
-        echo "candidate train selects more than one reference for ${reference_identity}" >&2
-        exit 1
-      fi
-      selected_reference_paths[${reference_identity}]="${reference_path}"
-      ;;
-    bound | unbound) ;;
-    *)
-      echo "unexpected reference binding decision: ${binding}" >&2
-      exit 1
-      ;;
-  esac
-  if [[ "${binding}" == bound ]]; then
-    if [[ ! "${source_run_attempt}" =~ ^[0-9]+$ ]]; then
-      echo "candidate train has an invalid selected run attempt" >&2
-      exit 1
-    fi
-    if [[ -n "${selected_attempts[${reference_identity}]:-}" ]] \
-      && (( source_run_attempt < selected_attempts[${reference_identity}] )); then
-      rm -f "${reference_path}"
-      continue
-    fi
-    if [[ -n "${selected_reference_paths[${reference_identity}]:-}" ]]; then
-      rm -f "${selected_reference_paths[${reference_identity}]}"
-    fi
-    selected_attempts[${reference_identity}]="${source_run_attempt}"
-    selected_reference_paths[${reference_identity}]="${reference_path}"
-  fi
-  artifact_key="$(jq -r '.artifact_key // empty' "${reference_path}")"
-  if [[ -z "${artifact_key}" || ! "${artifact_key}" =~ ^artifacts/[^/]+/[0-9a-f]{64}$ ]]; then
-    echo "candidate train contains an unsafe artifact reference" >&2
-    exit 1
-  fi
-  build_input_digest="$(jq -r '.build_input_digest // empty' "${reference_path}")"
-  if [[ -z "${build_input_digest}" || ! "${build_input_digest}" =~ ^[0-9a-f]{64}$ ]]; then
-    echo "candidate train contains a missing or unsafe producer build-input digest" >&2
-    exit 1
-  fi
-  # A reused reference keeps its earlier train's bundle; the helper accepts
-  # only that exact location (see catalog-bundle-key.sh).
-  reference_directory="${reference_path#"${manifests}"/}"
-  reference_directory="${reference_directory%/*}"
-  bundle_key="$(bash "${script_directory}/catalog-bundle-key.sh" "${reference_path}" "${reference_directory}")"
-  bundle_name="${bundle_key##*/}"
-  manifest_path="${reference_path%/*}/${bundle_name}"
-  aws s3 cp "s3://${RELEASE_CANDIDATE_BUCKET}/${bundle_key}" "${manifest_path}"
-  jq \
-    --arg artifact_key "${artifact_key}" \
-    --arg build_input_digest "${build_input_digest}" \
-    '. + {artifact_key: $artifact_key, build_input_digest: $build_input_digest}' \
-    "${manifest_path}" >"${manifest_path}.tmp"
-  mv "${manifest_path}.tmp" "${manifest_path}"
-done
+# train_references.py keeps the references of the repositories this row may install from, decides each with
+# reference-binding.sh, keeps the newest bound attempt of each artifact, and fetches their catalogs in parallel
+# (26.12 release run 46094059402 spent about 150 s here fetching every repository's catalogs one at a time).
+SCHEDULER_STATE="${scheduler_state}" REUSE_BINDINGS="${reuse_bindings}" \
+  python3 "${script_directory}/train_references.py" \
+  --references "${manifests}" \
+  --train "${workspace}/release-train.json" \
+  --target-unit "${candidate_unit_id}" \
+  --family "${RELEASE_CANDIDATE_ARTIFACT_FAMILY}" \
+  --output "${workspace}/catalog-records.json"
 
 repository="${producer_repository##*/}"
 target_unit="${candidate_unit_id}"
@@ -505,18 +435,6 @@ if [[ -n "${image_preflight_file}" ]]; then
   mv "${image_preflight_inputs}" "${candidate_build_inputs}"
 fi
 
-# Shell globstar has a clear, portable meaning here and keeps the jq program
-# focused on schema fields rather than filesystem traversal.
-manifest_paths=("${manifests}"/**/release-catalog-entries.*.json)
-if [[ "${#manifest_paths[@]}" -eq 0 ]]; then
-  if [[ "${dependency_count}" -ne 0 ]]; then
-    echo "no completed candidate catalog envelopes found for ${target_unit}'s declared dependencies" >&2
-    exit 1
-  fi
-  printf '[]\n' >"${workspace}/catalog-records.json"
-else
-  jq -s '.' "${manifest_paths[@]}" >"${workspace}/catalog-records.json"
-fi
 
 # The packages this row installs: its family, platform, CUDA major, Python and
 # architecture. upstream_selection.py is shared with the reuse plan, so both

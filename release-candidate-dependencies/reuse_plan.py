@@ -47,6 +47,8 @@ from row_key_inputs import build_inputs, image_inputs, image_key, image_refresh,
 from row_reuse import HEX64, S3, SAFE, Miss, _canonical, _completed, _json, _verify, bind_reuse, find_reuse
 from row_reuse_key import DEVELOPMENT_TOOLING
 from s3_boto import Boto3S3
+from train_references import TrainReferenceError, needed_repositories, select_references
+from train_references import catalog_records as train_catalog_records
 from upstream_selection import select_upstream
 
 _DIRECTORY = Path(__file__).resolve().parent
@@ -1240,13 +1242,20 @@ def apply_plan(
 
 
 def _run_catalog_records(
-    s3: S3, *, train_sha256: str, run_id: str, train_prefix: str, workspace: Path
+    s3: S3,
+    *,
+    train_sha256: str,
+    run_id: str,
+    train_prefix: str,
+    workspace: Path,
+    train: dict[str, Any] | None = None,
+    target_unit: str = "",
+    family: str = "",
 ) -> list[dict[str, Any]]:
-    """The catalog envelopes dependency setup reads in this run, chosen exactly as setup.sh chooses them.
+    """The catalog envelopes dependency setup reads in this run, chosen by the same code (train_references.py).
 
-    Every train reference is admitted or dropped by reference-binding.sh itself; of the references of one artifact
-    bound to this run, the newest attempt is kept; catalog-bundle-key.sh names each kept reference's catalog. They are
-    returned in setup's order (its glob of the downloaded catalogs), each with its artifact key and build input digest.
+    With ``train``, ``target_unit`` and ``family``, only the repositories a row of that unit may install from are read,
+    as setup reads them.
     """
     root = f"{train_prefix}/{train_sha256}/"
     mirror = workspace / "run-references"
@@ -1279,66 +1288,12 @@ def _run_catalog_records(
         "SCHEDULER_STATE": str(state),
         "REUSE_BINDINGS": str(bindings),
     }
-    bash = shutil.which("bash") or "bash"
-
-    def script(name: str, *arguments: str) -> str:
-        result = subprocess.run(  # noqa: S603 # nosec B603 - the shared setup scripts with fixed arguments
-            [bash, str(_DIRECTORY / name), *arguments], env=environment, capture_output=True, text=True, check=False
-        )
-        if result.returncode != 0:
-            raise PlanError(f"{name} refused a train reference: {result.stderr.strip()}")
-        return result.stdout.strip()
-
-    selected: dict[str, Path] = {}
-    attempts: dict[str, int] = {}
-    kept: list[Path] = []
-    for path in sorted(references.rglob("bundle-reference.*.json"), key=lambda item: item.parts):
-        reference = json.loads(path.read_text())
-        if reference.get("schema_version") != 4 or reference.get("storage_layout") != 2:
-            raise PlanError("candidate train contains a reference that does not use storage layout 2")
-        artifact = str(reference.get("source_artifact") or "")
-        if path.name != f"bundle-reference.{artifact}.json":
-            raise PlanError("candidate train contains a reference whose filename does not match its source artifact")
-        identity = f"{reference.get('repository')}/{artifact}"
-        binding = script("reference-binding.sh", str(path))
-        if binding == "drop":
-            continue
-        if binding == "reused":
-            if identity in selected:
-                raise PlanError(f"candidate train selects more than one reference for {identity}")
-            selected[identity] = path
-        elif binding == "bound":
-            attempt = str(reference.get("source_run_attempt") or "")
-            if not attempt.isdigit():
-                raise PlanError("candidate train has an invalid selected run attempt")
-            if identity in attempts and int(attempt) < attempts[identity]:
-                continue
-            if identity in selected:
-                kept.remove(selected[identity])
-            attempts[identity] = int(attempt)
-            selected[identity] = path
-        elif binding != "unbound":
-            raise PlanError(f"unexpected reference binding decision: {binding}")
-        if not re.fullmatch(r"artifacts/[^/]+/[0-9a-f]{64}", str(reference.get("artifact_key") or "")):
-            raise PlanError("candidate train contains an unsafe artifact reference")
-        if not HEX64.fullmatch(str(reference.get("build_input_digest") or "")):
-            raise PlanError("candidate train contains a missing or unsafe producer build-input digest")
-        kept.append(path)
-    catalogs = []
-    for path in kept:
-        reference = json.loads(path.read_text())
-        directory = path.parent.relative_to(references).as_posix()
-        bundle_key = script("catalog-bundle-key.sh", str(path), directory)
-        data = s3.get(bundle_key)
-        if data is None:
-            raise PlanError(f"the catalog of a train reference is missing: {bundle_key}")
-        catalog = {
-            **json.loads(data),
-            "artifact_key": reference["artifact_key"],
-            "build_input_digest": reference["build_input_digest"],
-        }
-        catalogs.append(((*path.parent.parts, bundle_key.rsplit("/", 1)[-1]), catalog))
-    return [catalog for _, catalog in sorted(catalogs, key=lambda item: item[0])]
+    repositories = needed_repositories(train, target_unit, family) if train is not None else None
+    try:
+        kept = select_references(references, repositories=repositories, environment=environment)
+        return train_catalog_records(references, kept, fetch=s3.get, environment=environment)
+    except TrainReferenceError as error:
+        raise PlanError(f"a train reference setup would refuse: {error}") from error
 
 
 def decide_job(
@@ -1373,7 +1328,14 @@ def decide_job(
     train, train_path = _load_train(s3, train_prefix, train_sha256, workspace)
     _require_bound(s3, train_prefix, train_sha256, run_id, [job])
     records = _run_catalog_records(
-        s3, train_sha256=train_sha256, run_id=run_id, train_prefix=train_prefix, workspace=workspace
+        s3,
+        train_sha256=train_sha256,
+        run_id=run_id,
+        train_prefix=train_prefix,
+        workspace=workspace,
+        train=train,
+        target_unit=job["unit"],
+        family=job["family"],
     )
     build = build_inputs(train, _source_inputs(train_path, job["unit"], workspace))
     context = {

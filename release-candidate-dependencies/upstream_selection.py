@@ -44,16 +44,13 @@ def select_upstream(
     conda_platform = _CONDA_PLATFORMS[arch]
     units = {unit["id"]: unit for unit in train["release_units"]}
 
-    family_prefixes = ("conda:", "maven:") if family in {"docs", "container", "maven"} else (family + ":",)
-    family_dependencies = {
-        dependency for dependency in _closure(units, target_unit) if dependency.startswith(family_prefixes)
-    }
+    dependencies = family_dependencies(units, target_unit, family)
 
     chosen = []
     for record in records:
         for entry in record["entries"]:
             package = entry["package"]
-            if entry["release_catalog_key"] not in family_dependencies:
+            if entry["release_catalog_key"] not in dependencies:
                 continue
             # Older envelopes have no cuda_major; treating that as compatible is a deliberate transition rule.
             if _jq_or(package.get("cuda_major"), cuda_major) != cuda_major:
@@ -110,6 +107,15 @@ def select_upstream(
             raise ValueError(f"catalog entry has no valid sha256: {item['release_catalog_key']} {item['path']}")
         selected.append(item)
     return selected
+
+
+def family_dependencies(units: dict[str, Any], target_unit: str, family: str) -> set[str]:
+    """The units whose packages a row of ``target_unit`` in ``family`` may install: those of its family in its closure.
+
+    train_references.py reads only these units' repositories, so this is the one place that says which they are.
+    """
+    family_prefixes = ("conda:", "maven:") if family in {"docs", "container", "maven"} else (family + ":",)
+    return {dependency for dependency in _closure(units, target_unit) if dependency.startswith(family_prefixes)}
 
 
 def _closure(units: dict[str, Any], unit_id: str) -> list[str]:

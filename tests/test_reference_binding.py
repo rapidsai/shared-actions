@@ -228,7 +228,10 @@ def test_a_reused_reference_with_a_malformed_run_fails(tmp_path, field):
 
 def test_candidate_setup_uses_the_binding_helper_and_fetches_this_runs_bindings():
     setup = _SETUP.read_text()
-    assert 'bash "${script_directory}/reference-binding.sh"' in setup  # noqa: S101
+    # setup decides each reference through train_references.py, which runs this script for every one it reads.
+    assert 'python3 "${script_directory}/train_references.py"' in setup  # noqa: S101
+    module = (ROOT / "release-candidate-dependencies" / "train_references.py").read_text()
+    assert '_script("reference-binding.sh"' in module  # noqa: S101
     assert '--include "*/reuse-bindings/${GITHUB_RUN_ID:?current GitHub run ID is required}/*.json"' in setup  # noqa: S101
     # The downloader runs after setup, outside the action, so setup installs the checks beside it.
     assert 'cp "${script_directory}/reference-binding.sh" "${script_directory}/catalog-bundle-key.sh"' in setup  # noqa: S101

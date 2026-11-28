@@ -456,9 +456,10 @@ def row_digest(record: dict[str, Any]) -> str:
 
 
 def _previous_build(
-    s3: S3, job: dict[str, Any], record: dict[str, Any], context: dict[str, str]
+    s3: S3, job: dict[str, Any], record: dict[str, Any], context: dict[str, str], *, completed_only: bool = True
 ) -> tuple[dict[str, Any], str, str] | None:
-    """The newest completed earlier build of this row, as (key record, run, attempt), or None."""
+    """The newest completed earlier build of this row, as (key record, run, attempt), or None; with
+    ``completed_only`` false, the newest earlier build whether or not its run completed."""
     repository = job["repository"].rsplit("/", 1)[-1]
     prefix = f"{context['content_prefix']}/{repository}/row-reuse-history/{row_digest(record)}/"
     runs: dict[tuple[int, int], str] = {}
@@ -477,7 +478,10 @@ def _previous_build(
             isinstance(entry, dict)
             and isinstance(entry.get("key_record"), dict)
             and HEX64.fullmatch(str(entry.get("train_sha256")))
-            and _completed(s3, context["train_prefix"], entry["train_sha256"], str(run), str(attempt))
+            and (
+                not completed_only
+                or _completed(s3, context["train_prefix"], entry["train_sha256"], str(run), str(attempt))
+            )
         ):
             return entry["key_record"], str(run), str(attempt)
     return None
@@ -611,9 +615,12 @@ def plan(
         for job in jobs
     }
     order = {job["id"]: position for position, job in enumerate(jobs)}
+    jobs_by_id = {job["id"]: job for job in jobs}
     bound: dict[str, list[dict[str, Any]]] = {}
     reused: set[str] = set()
     missed_rows: dict[str, list[dict[str, str]]] = {}  # job -> its rows that build, for the jobs below it to name
+    # job -> its building rows that a check after their upstream finished may still reuse (decide-jobs)
+    open_rows: dict[str, list[dict[str, str]]] = {}
     matrices: dict[str, Any] = {}
     outcomes: list[tuple[str, str, str]] = []
     context = {
@@ -712,12 +719,26 @@ def plan(
             for job in wave:
                 missed = []
                 bound[job["id"]] = []
+                open_rows[job["id"]] = []
+                building = [upstream for upstream in upstream_of[job["id"]] if upstream not in reused]
                 position = {id(row): index for index, row in enumerate(job["matrix"]["include"])}
                 for row, future, cascaded in sorted(rows[job["id"]], key=lambda item: position[id(item[0])]):
                     if cascaded:
                         missed.append(row)
-                        outcomes.append((job["id"], _label(row), f"builds: {future.result()}"))
-                        recorded.append(_decision(job, row, wave_number, f"builds: {future.result()}"))
+                        result = future.result()
+                        cause, own_unchanged = result if isinstance(result, tuple) else (result, False)
+                        # Still open only if every upstream row it may install from may itself be reused.
+                        still_open = own_unchanged and all(
+                            feeder in open_rows[upstream]
+                            for upstream in building
+                            for feeder in _feeders(
+                                row, missed_rows[upstream], jobs_by_id[upstream]["matrix"]["include"]
+                            )
+                        )
+                        if still_open:
+                            open_rows[job["id"]].append(row)
+                        outcomes.append((job["id"], _label(row), f"builds: {cause}"))
+                        recorded.append(_decision(job, row, wave_number, f"builds: {cause}", may_reuse=still_open))
                         continue
                     references, outcome, hit = future.result()
                     if references is None:
@@ -743,12 +764,27 @@ def plan(
 
 
 def _decision(
-    job: dict[str, Any], row: dict[str, str], wave: int, outcome: str, hit: dict[str, Any] | None = None
+    job: dict[str, Any],
+    row: dict[str, str],
+    wave: int,
+    outcome: str,
+    hit: dict[str, Any] | None = None,
+    *,
+    may_reuse: bool = False,
 ) -> dict[str, Any]:
     decision = {"job": job["id"], "row": row, "wave": wave, "outcome": outcome}
     if hit:
         decision["hit"] = hit
+    if may_reuse:
+        # It builds only because an upstream row builds in this run; once that finished, its key may still hit.
+        decision["may_reuse"] = True
     return decision
+
+
+def decide_jobs(decisions: list[dict[str, Any]], every_job: list[dict[str, Any]]) -> list[str]:
+    """The jobs with a building row that ``--mode job`` may still reuse once its upstream jobs finished."""
+    open_jobs = {decision["job"] for decision in decisions if decision.get("may_reuse") is True}
+    return [job["id"] for job in every_job if job["id"] in open_jobs]
 
 
 def _done(value: str) -> Future:
@@ -822,14 +858,42 @@ def _cascaded_row(
     context: dict[str, str],
     upstream: str,
 ) -> str:
-    """Why a row whose upstream builds in this run builds: a change of its own if any, else that upstream row."""
+    """Why a row whose upstream builds in this run builds: a change of its own if any, else that upstream row.
+
+    Returns (the cause, whether the row may still be reused once its upstream finished): only when nothing of its
+    own changed since an earlier build of it. A build that was verified but whose run never completed counts here;
+    reuse can take it (row_reuse.py), though the cause report compares with completed builds only.
+    """
     computed = _row_key(job, row, train, build, [], image_map, workspace)
     if computed is None:
-        return "no reuse key"
-    previous = _previous_build(s3, job, computed[1], context)
+        return "no reuse key", False
+    current = computed[1]
+    previous = _previous_build(s3, job, current, context)
     if previous is None:
-        return "no earlier build of this row"
-    return _cause(computed[1], previous[0], upstream) or upstream
+        earlier = _previous_build(s3, job, current, context, completed_only=False)
+        if earlier is None:
+            return "no earlier build of this row", False
+        return "no completed earlier build of this row", _own_cause(current, earlier[0]) is None
+    return _cause(current, previous[0], upstream) or upstream, _own_cause(current, previous[0]) is None
+
+
+def _own_cause(current: dict[str, Any], previous: dict[str, Any]) -> str | None:
+    """The first input of the row's own that differs from an earlier build of it, ignoring its upstream packages."""
+    return _cause({**current, "upstream": previous.get("upstream")}, previous)
+
+
+def _feeders(
+    row: dict[str, str], upstream_rows: list[dict[str, str]], every_row: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """The rows of an upstream job whose packages this row may install: same arch, and same CUDA major unless the
+    upstream job builds none for this row's major (rapids-logger builds only CUDA 13 and serves both majors)."""
+    major = row["CUDA_VER"].split(".", 1)[0]
+    same_major = any(other["CUDA_VER"].split(".", 1)[0] == major for other in every_row)
+    return [
+        other
+        for other in upstream_rows
+        if other["ARCH"] == row["ARCH"] and (not same_major or other["CUDA_VER"].split(".", 1)[0] == major)
+    ]
 
 
 def tooling_in_keys(train: dict[str, Any]) -> bool:
@@ -1094,11 +1158,13 @@ def apply_plan(
     image_map: dict[str, str] | None = None,
     train_prefix: str = "train-state",
     content_prefix: str = "artifacts",
+    decisions: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[str], list[tuple[str, str, str]], dict[str, str], dict[str, str]]:
     """Re-check and bind the train's newest reuse plan in this release run, wave by wave.
 
     ``image_map`` names images the manifest doesn't build, as for ``plan``; it must be the one the train was planned
-    with. Returns what ``plan`` returns, and the planning run.
+    with. Returns what ``plan`` returns, and the planning run; the plan's recorded decisions are appended to
+    ``decisions`` when given.
     """
     if not HEX64.fullmatch(train_sha256) or not run_id.isdigit() or not run_attempt.isdigit():
         raise PlanError("invalid train digest, run id or run attempt")
@@ -1127,6 +1193,8 @@ def apply_plan(
         if identity in decided:
             raise PlanError(f"{job['id']}: the reuse plan decides a row twice")
         decided[identity] = decision
+    if decisions is not None:
+        decisions.extend(decided.values())
     rows = [(job, row) for job in every_job for row in job["matrix"]["include"]]
     if len(decided) != len(rows):
         raise PlanError("the reuse plan does not decide every row of the release file")
@@ -1171,16 +1239,178 @@ def apply_plan(
     return matrices, reused, outcomes, image_map, {key: str(value) for key, value in planning_run.items()}
 
 
+def _run_catalog_records(
+    s3: S3, *, train_sha256: str, run_id: str, train_prefix: str, workspace: Path
+) -> list[dict[str, Any]]:
+    """The catalog envelopes dependency setup reads in this run, chosen exactly as setup.sh chooses them.
+
+    Every train reference is admitted or dropped by reference-binding.sh itself; of the references of one artifact
+    bound to this run, the newest attempt is kept; catalog-bundle-key.sh names each kept reference's catalog. They are
+    returned in setup's order (its glob of the downloaded catalogs), each with its artifact key and build input digest.
+    """
+    root = f"{train_prefix}/{train_sha256}/"
+    mirror = workspace / "run-references"
+    references, bindings = mirror / "references", mirror / "bindings"
+    references.mkdir(parents=True)
+    bindings.mkdir()
+    state = mirror / "scheduler-state.json"
+    state.write_bytes(s3.get(f"{root}scheduler-state.json") or b'{"workflow_runs":{}}\n')
+    binding_name = re.compile(rf"[A-Za-z0-9_.-]+/reuse-bindings/{re.escape(run_id)}/[A-Za-z0-9_-]+\.json\Z")
+    reference_name = re.compile(r"(?:[A-Za-z0-9_.-]+/)+bundle-reference\.[A-Za-z0-9_-]+\.json\Z")
+    downloads = []
+    for key in s3.keys(root):
+        relative = key.removeprefix(root)
+        if binding_name.fullmatch(relative):
+            downloads.append((key, bindings / relative))
+        elif reference_name.fullmatch(relative) and ".." not in relative.split("/"):
+            downloads.append((key, references / relative))
+    with ThreadPoolExecutor(max_workers=_workers()) as pool:
+        for (key, path), data in zip(downloads, pool.map(lambda item: s3.get(item[0]), downloads), strict=True):
+            if data is None:
+                raise PlanError(f"{key} disappeared while this run's references were read")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+    environment = {
+        **os.environ,
+        "GITHUB_RUN_ID": run_id,
+        "RELEASE_CANDIDATE_BUCKET": s3.bucket,
+        "RELEASE_CANDIDATE_TRAIN_PREFIX": train_prefix,
+        "RELEASE_CANDIDATE_TRAIN_SHA256": train_sha256,
+        "SCHEDULER_STATE": str(state),
+        "REUSE_BINDINGS": str(bindings),
+    }
+    bash = shutil.which("bash") or "bash"
+
+    def script(name: str, *arguments: str) -> str:
+        result = subprocess.run(  # noqa: S603 # nosec B603 - the shared setup scripts with fixed arguments
+            [bash, str(_DIRECTORY / name), *arguments], env=environment, capture_output=True, text=True, check=False
+        )
+        if result.returncode != 0:
+            raise PlanError(f"{name} refused a train reference: {result.stderr.strip()}")
+        return result.stdout.strip()
+
+    selected: dict[str, Path] = {}
+    attempts: dict[str, int] = {}
+    kept: list[Path] = []
+    for path in sorted(references.rglob("bundle-reference.*.json"), key=lambda item: item.parts):
+        reference = json.loads(path.read_text())
+        if reference.get("schema_version") != 4 or reference.get("storage_layout") != 2:
+            raise PlanError("candidate train contains a reference that does not use storage layout 2")
+        artifact = str(reference.get("source_artifact") or "")
+        if path.name != f"bundle-reference.{artifact}.json":
+            raise PlanError("candidate train contains a reference whose filename does not match its source artifact")
+        identity = f"{reference.get('repository')}/{artifact}"
+        binding = script("reference-binding.sh", str(path))
+        if binding == "drop":
+            continue
+        if binding == "reused":
+            if identity in selected:
+                raise PlanError(f"candidate train selects more than one reference for {identity}")
+            selected[identity] = path
+        elif binding == "bound":
+            attempt = str(reference.get("source_run_attempt") or "")
+            if not attempt.isdigit():
+                raise PlanError("candidate train has an invalid selected run attempt")
+            if identity in attempts and int(attempt) < attempts[identity]:
+                continue
+            if identity in selected:
+                kept.remove(selected[identity])
+            attempts[identity] = int(attempt)
+            selected[identity] = path
+        elif binding != "unbound":
+            raise PlanError(f"unexpected reference binding decision: {binding}")
+        if not re.fullmatch(r"artifacts/[^/]+/[0-9a-f]{64}", str(reference.get("artifact_key") or "")):
+            raise PlanError("candidate train contains an unsafe artifact reference")
+        if not HEX64.fullmatch(str(reference.get("build_input_digest") or "")):
+            raise PlanError("candidate train contains a missing or unsafe producer build-input digest")
+        kept.append(path)
+    catalogs = []
+    for path in kept:
+        reference = json.loads(path.read_text())
+        directory = path.parent.relative_to(references).as_posix()
+        bundle_key = script("catalog-bundle-key.sh", str(path), directory)
+        data = s3.get(bundle_key)
+        if data is None:
+            raise PlanError(f"the catalog of a train reference is missing: {bundle_key}")
+        catalog = {
+            **json.loads(data),
+            "artifact_key": reference["artifact_key"],
+            "build_input_digest": reference["build_input_digest"],
+        }
+        catalogs.append(((*path.parent.parts, bundle_key.rsplit("/", 1)[-1]), catalog))
+    return [catalog for _, catalog in sorted(catalogs, key=lambda item: item[0])]
+
+
+def decide_job(
+    s3: S3,
+    manifest: Any,
+    job_id: str,
+    job_rows: Any,
+    *,
+    train_sha256: str,
+    run_id: str,
+    run_attempt: str,
+    image_map: dict[str, str],
+    workspace: Path,
+    train_prefix: str = "train-state",
+    content_prefix: str = "artifacts",
+) -> tuple[list[dict[str, str]], list[tuple[str, str, str]]]:
+    """Decide the rows of one job the run left to build, once every job it needs finished, before the job starts.
+
+    The plan cannot key a row whose upstream builds in this run. When those upstream jobs are done, this computes
+    each row's key from the catalogs dependency setup would read, exactly as the row's own check does, looks it up and
+    binds a hit, so a reusable row never starts its build container. Returns (the rows that build, outcomes).
+    """
+    if not HEX64.fullmatch(train_sha256) or not run_id.isdigit() or not run_attempt.isdigit():
+        raise PlanError("invalid train digest, run id or run attempt")
+    every_job = _validate_manifest(manifest)
+    job = next((candidate for candidate in every_job if candidate["id"] == job_id), None)
+    if job is None or job["family"] == "container":
+        raise PlanError(f"{job_id} is not a package job of the manifest")
+    include = job_rows.get("include") if isinstance(job_rows, dict) else None
+    if not isinstance(include, list) or not include or any(row not in job["matrix"]["include"] for row in include):
+        raise PlanError(f"{job_id}: the rows to decide must be a non-empty subset of its matrix")
+    train, train_path = _load_train(s3, train_prefix, train_sha256, workspace)
+    _require_bound(s3, train_prefix, train_sha256, run_id, [job])
+    records = _run_catalog_records(
+        s3, train_sha256=train_sha256, run_id=run_id, train_prefix=train_prefix, workspace=workspace
+    )
+    build = build_inputs(train, _source_inputs(train_path, job["unit"], workspace))
+    context = {
+        "train_sha256": train_sha256,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "train_prefix": train_prefix,
+        "content_prefix": content_prefix,
+    }
+    missed, outcomes = [], []
+    with ThreadPoolExecutor(max_workers=_workers()) as pool:
+        futures = [
+            (row, pool.submit(_decide_row, s3, job, row, train, build, records, image_map, workspace, context))
+            for row in include
+        ]
+        for row, future in futures:
+            references, outcome, _ = future.result()
+            if references is None:
+                missed.append(row)
+                outcome = f"builds: {outcome}"
+            outcomes.append((job["id"], _label(row), outcome))
+    return missed, outcomes
+
+
 def main(argv: list[str] | None = None) -> int:
     """Plan the run, plan a train or apply a train's plan, and write the outputs and summary."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--mode",
-        choices=("run", "train", "apply"),
+        choices=("run", "train", "apply", "job"),
         default="run",
         help="run: decide every row in this release run; train: plan a train before its run and record the plan; "
-        "apply: re-check and bind the train's recorded plan in this release run.",
+        "apply: re-check and bind the train's recorded plan in this release run; job: decide the rows of --job the "
+        "run left to build (--rows), once the jobs it needs finished.",
     )
+    parser.add_argument("--job", help="--mode job: the manifest job whose rows to decide.")
+    parser.add_argument("--rows", help='--mode job: JSON matrix ({"include": [...]}) of the rows to decide.')
     for name in ("manifest", "train-sha256", "bucket"):
         parser.add_argument(f"--{name}", required=True)
     for name in ("image-map", "run-id", "run-attempt", "github-output", "plan-output"):
@@ -1195,6 +1425,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": ("image_map", "run_id", "run_attempt", "github_output"),
         "train": ("run_id", "run_attempt", "plan_output"),
         "apply": ("run_id", "run_attempt", "github_output"),
+        "job": ("job", "rows", "run_id", "run_attempt", "github_output"),
     }[args.mode]
     missing = [f"--{name.replace('_', '-')}" for name in needed if getattr(args, name) is None]
     if missing:
@@ -1204,6 +1435,7 @@ def main(argv: list[str] | None = None) -> int:
     runs_url = f"{args.server_url}/{args.repository}/actions/runs"
     prefixes = {"train_prefix": args.train_prefix, "content_prefix": args.content_prefix}
     note = ""
+    decisions: list[dict[str, Any]] = []
     try:
         manifest = json.loads(Path(args.manifest).read_text())
         given_map = json.loads(args.image_map) if args.image_map else {}
@@ -1230,6 +1462,24 @@ def main(argv: list[str] | None = None) -> int:
                     "Planned with this train, before its release run; the run re-checks every reused row and binds "
                     "it. A row that builds can still be reused by its own check once its upstream finishes."
                 )
+            elif args.mode == "job":
+                missed, outcomes = decide_job(
+                    store,
+                    manifest,
+                    args.job,
+                    json.loads(args.rows),
+                    train_sha256=args.train_sha256,
+                    run_id=args.run_id,
+                    run_attempt=args.run_attempt,
+                    image_map=given_map,
+                    workspace=Path(workspace),
+                    **prefixes,
+                )
+                reused_jobs = [] if missed else [args.job]
+                note = (
+                    f"Decided after the jobs {args.job} needs finished, before it started: a reused row never starts "
+                    "its build container."
+                )
             elif args.mode == "apply":
                 matrices, reused_jobs, outcomes, image_map, planning = apply_plan(
                     store,
@@ -1239,6 +1489,7 @@ def main(argv: list[str] | None = None) -> int:
                     run_attempt=args.run_attempt,
                     workspace=Path(workspace),
                     image_map=given_map,
+                    decisions=decisions,
                     **prefixes,
                 )
                 note = (
@@ -1254,17 +1505,24 @@ def main(argv: list[str] | None = None) -> int:
                     run_attempt=args.run_attempt,
                     image_map=given_map,
                     workspace=Path(workspace),
+                    decisions=decisions,
                     **prefixes,
                 )
     except (PlanError, ValueError, json.JSONDecodeError, BotoCoreError, ClientError) as error:
         raise SystemExit(f"reuse plan failed: {error}") from error
     if args.mode == "train":
         Path(args.plan_output).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    elif args.mode == "job":
+        with Path(args.github_output).open("a") as output:
+            output.write(f"matrix={json.dumps({'include': missed}, sort_keys=True, separators=(',', ':'))}\n")
+            output.write(f"build={'true' if missed else 'false'}\n")
     else:
         with Path(args.github_output).open("a") as output:
             output.write(f"matrices={json.dumps(matrices, sort_keys=True, separators=(',', ':'))}\n")
             output.write(f"reused-jobs={json.dumps(reused_jobs, separators=(',', ':'))}\n")
             output.write(f"image-map={json.dumps(image_map, sort_keys=True, separators=(',', ':'))}\n")
+            open_jobs = decide_jobs(decisions, _validate_manifest(manifest))
+            output.write(f"decide-jobs={json.dumps(open_jobs, separators=(',', ':'))}\n")
     with Path(args.summary).open("a") as summary:
         summary.write(_summary(outcomes, reused_jobs, runs_url, development=development, note=note))
     return 0

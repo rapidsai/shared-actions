@@ -10,8 +10,20 @@ inputs:
     description: >-
       run: decide every row in this run. apply: re-check and bind the reuse plan Create/Update Train recorded for
       the train (reuse_plan.py --mode train); a train without one, or planned for another manifest, stops the run.
+      job: decide the rows of one job (job, rows) after the jobs it needs finished, before the job starts, so a row
+      that can be reused never starts its build container; run it for the jobs in decide-jobs.
     required: false
     default: run
+  job:
+    description: With mode job, the manifest job whose rows to decide.
+    required: false
+    default: ""
+  rows:
+    description: >-
+      With mode job, the JSON matrix (an object with an include list) of the job's rows that run or apply left to
+      build.
+    required: false
+    default: ""
   manifest:
     description: >-
       JSON written by the release-file generator: schema_version 1 and the build jobs, each with id, repository,
@@ -52,6 +64,18 @@ outputs:
       JSON object, candidate image key -> digest-pinned GHCR image: the given image map plus every image this plan
       reused. When every image was reused, package jobs read it instead of verify-ci-imgs' map.
     value: ${{ steps.plan.outputs.image-map }}
+  decide-jobs:
+    description: >-
+      JSON list of the jobs with a row that builds only because an upstream row builds in this run, and that may
+      still be reused once that upstream finished: run mode job for each of them before it starts.
+    value: ${{ steps.plan.outputs.decide-jobs }}
+  matrix:
+    description: >-
+      With mode job, the matrix of the job's rows that build; its include list is empty when every one was reused.
+    value: ${{ steps.plan.outputs.matrix }}
+  build:
+    description: With mode job, true when any of the job's rows builds; false when this decision reused them all.
+    value: ${{ steps.plan.outputs.build }}
 
 runs:
   using: composite
@@ -75,8 +99,8 @@ runs:
         MODE: ${{ inputs.mode }}
       run: |
         set -euo pipefail
-        if [[ "${MODE}" != run && "${MODE}" != apply ]]; then
-          echo "candidate-reuse-plan mode must be run or apply, not ${MODE}" >&2
+        if [[ "${MODE}" != run && "${MODE}" != apply && "${MODE}" != job ]]; then
+          echo "candidate-reuse-plan mode must be run, apply or job, not ${MODE}" >&2
           exit 1
         fi
         # The environment is cached by this Python and the hash-pinned requirements, so a run restores it in about a
@@ -131,13 +155,20 @@ runs:
         BUCKET: ${{ inputs.candidate-bucket }}
         TRAIN_PREFIX: ${{ inputs.candidate-train-prefix }}
         CONTENT_PREFIX: ${{ inputs.candidate-content-prefix }}
+        JOB: ${{ inputs.job }}
+        ROWS: ${{ inputs.rows }}
       run: |
         set -euo pipefail
         manifest="$(mktemp)"
         trap 'rm -f "${manifest}"' EXIT
         printf '%s' "${MANIFEST}" > "${manifest}"
+        job_arguments=()
+        if [[ "${MODE}" == job ]]; then
+          job_arguments=(--job "${JOB}" --rows "${ROWS}")
+        fi
         "${REUSE_PLAN_PYTHON:?}" -u "${ACTION_PATH}/../release-candidate-dependencies/reuse_plan.py" \
           --mode "${MODE}" \
+          ${job_arguments[@]+"${job_arguments[@]}"} \
           --manifest "${manifest}" \
           --image-map "${IMAGE_MAP}" \
           --train-sha256 "${TRAIN_SHA256}" \

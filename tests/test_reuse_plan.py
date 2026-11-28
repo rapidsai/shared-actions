@@ -543,6 +543,44 @@ def test_the_action_step_runs_the_plan_with_every_input(tmp_path):
     assert json.loads((tmp_path / "manifest-seen.json").read_text()) == MANIFEST  # noqa: S101
 
 
+def test_the_action_step_passes_the_job_and_its_rows_in_job_mode(tmp_path):
+    import yaml
+
+    step = next(step for step in yaml.safe_load(ACTION.read_text())["runs"]["steps"] if step.get("id") == "plan")
+    recorded = tmp_path / "argv.json"
+    interpreter = tmp_path / "python"
+    interpreter.write_text(f"#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > {recorded}\n")
+    interpreter.chmod(0o755)
+    environment = {
+        "PATH": os.environ["PATH"],
+        "ACTION_PATH": str(ACTION.parent),
+        "MODE": "job",
+        "JOB": "kvikio--cpp-build",
+        "ROWS": json.dumps({"include": rows("arm64")}),
+        "MANIFEST": json.dumps(MANIFEST),
+        "IMAGE_MAP": json.dumps(IMAGES),
+        "TRAIN_SHA256": CURRENT,
+        "BUCKET": "candidate-store",
+        "TRAIN_PREFIX": "train-state",
+        "CONTENT_PREFIX": "artifacts",
+        "GITHUB_RUN_ID": RUN,
+        "GITHUB_RUN_ATTEMPT": "1",
+        "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"),
+        "REUSE_PLAN_PYTHON": str(interpreter),
+        "GITHUB_SERVER_URL": "https://github.com",
+        "GITHUB_REPOSITORY": "rapidsai/release-tracking",
+    }
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", "-c", step["run"]], env=environment, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr  # noqa: S101
+    flags = dict(zip(*[iter(recorded.read_text().splitlines()[2:])] * 2, strict=True))
+    assert flags["--mode"] == "job"  # noqa: S101
+    assert flags["--job"] == "kvikio--cpp-build"  # noqa: S101
+    assert json.loads(flags["--rows"]) == {"include": rows("arm64")}  # noqa: S101
+
+
 class BarrierS3(S3):
     """Makes the first index listings wait for each other: a plan that decides rows one at a time breaks the barrier."""
 
@@ -918,5 +956,5 @@ def test_the_action_caches_its_environment_by_python_and_pinned_requirements(tmp
     _, second = name("b")
     assert first["key"] != second["key"]  # noqa: S101
     result, outputs = name("c", mode="later")
-    assert result.returncode != 0 and "must be run or apply" in result.stderr  # noqa: S101
+    assert result.returncode != 0 and "must be run, apply or job" in result.stderr  # noqa: S101
     assert outputs == {}  # noqa: S101
